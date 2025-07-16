@@ -9,7 +9,7 @@ CREATE TABLE devices (
   interfaces JSON, ipv4_addresses JSON, default_gateways JSON, macaddrs JSON,
   ports TEXT, dns TEXT, smtp TEXT,
   arch VARCHAR(255), cpu TEXT, mem TEXT, disk TEXT,
-  machine_group VARCHAR(255), usage TEXT, model_info TEXT,
+  machine_group VARCHAR(255), usage_desc TEXT, model_info TEXT,
   memo TEXT, last_alive DATETIME,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
