@@ -18,14 +18,15 @@ app.get('/api/machines', async (req, res) => {
 
     for (const machine of machines) {
       const [interfaces] = await db.query(
-        'SELECT name, ip_address, subnet_mask, gateway FROM interfaces WHERE machine_id = ?',
+        'SELECT name, ip_address, subnet_mask, gateway, dns_servers FROM interfaces WHERE machine_id = ?',
         [machine.id]
       );
       results.push({ ...machine, interfaces: interfaces.reduce((acc, cur) => {
         acc[cur.name] = {
           ip: cur.ip_address,
           subnet: cur.subnet_mask,
-          gateway: cur.gateway
+          gateway: cur.gateway,
+          dns_servers: cur.dns_servers ? cur.dns_servers.split(',').map(s => s.trim()) : []
         };
         return acc;
       }, {}) });
@@ -52,13 +53,13 @@ app.post('/api/machines', async (req, res) => {
       [machineId, hostname, model_info, usage_desc, memo, last_alive]
     );
 
-    for (const [name, { ip_address: ip, subnet_mask: subnet, gateway }] of Object.entries(interfaces)) {
+    for (const [name, { ip_address: ip, subnet_mask: subnet, gateway, dns_servers }] of Object.entries(interfaces)) {
       if (!ip) {
         return res.status(400).json({ error: `IP address cannot be null for interface ${name}` });
       }
       await conn.query(
-        'INSERT INTO interfaces (machine_id, name, ip_address, subnet_mask, gateway) VALUES (?, ?, ?, ?, ?)',
-        [machineId, name, ip, subnet || '', gateway || '']
+        'INSERT INTO interfaces (machine_id, name, ip_address, subnet_mask, gateway, dns_servers) VALUES (?, ?, ?, ?, ?, ?)',
+        [machineId, name, ip, subnet || '', gateway || '', Array.isArray(dns_servers) ? dns_servers.join(',') : '']
       );
     }
 
@@ -88,13 +89,13 @@ app.put('/api/machines/:id', async (req, res) => {
 
       await conn.query('DELETE FROM interfaces WHERE machine_id = ?', [machineId]);
 
-      for (const [name, { ip_address: ip, subnet_mask: subnet, gateway }] of Object.entries(interfaces)) {
+      for (const [name, { ip_address: ip, subnet_mask: subnet, gateway, dns_servers }] of Object.entries(interfaces)) {
         if (!ip) {
           return res.status(400).json({ error: `IP address cannot be null for interface ${name}` });
         }
         await conn.query(
-          'INSERT INTO interfaces (machine_id, name, ip_address, subnet_mask, gateway) VALUES (?, ?, ?, ?, ?)',
-          [machineId, name, ip, subnet || '', gateway || '']
+          'INSERT INTO interfaces (machine_id, name, ip_address, subnet_mask, gateway, dns_servers) VALUES (?, ?, ?, ?, ?, ?)',
+          [machineId, name, ip, subnet || '', gateway || '', Array.isArray(dns_servers) ? dns_servers.join(',') : '']
         );
       }
 
@@ -139,7 +140,7 @@ app.get('/api/machines/:uuid', async (req, res) => {
 
     // Get interfaces for the machine
     const [interfaces] = await db.query(
-      'SELECT name, ip_address, subnet_mask, gateway FROM interfaces WHERE machine_id = ?',
+      'SELECT name, ip_address, subnet_mask, gateway, dns_servers FROM interfaces WHERE machine_id = ?',
       [machine.id]
     );
 
@@ -149,7 +150,8 @@ app.get('/api/machines/:uuid', async (req, res) => {
         acc[cur.name] = {
           ip: cur.ip_address,
           subnet: cur.subnet_mask,
-          gateway: cur.gateway
+          gateway: cur.gateway,
+          dns_servers: cur.dns_servers ? cur.dns_servers.split(',').map(s => s.trim()) : []
         };
         return acc;
       }, {})

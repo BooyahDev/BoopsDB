@@ -97,23 +97,25 @@ npm run dev
 ### 全てのマシンを取得する（GET）
 
 ```bash
+# このコマンドはローカルで実行されているAPIサーバーから全てのマシン情報を取得します。
 curl http://localhost:3001/api/machines
 ```
 
 ### 新しいマシンを追加する（POST）
 
 ```bash
+# このコマンドは新しいマシンとそのネットワークインターフェースをAPIサーバーに追加します。
 curl -X POST http://localhost:3001/api/machines \
   -H "Content-Type: application/json" \
   -d '{
-    "hostname": "test-host",
-    "model_info": "Test Model",
-    "usage_desc": "Testing",
-    "memo": "This is a test machine",
+    "hostname": "example-host",
+    "model_info": "Example Model",
+    "usage_desc": "Example usage description",
+    "memo": "This is an example machine for testing",
     "last_alive": "2023-01-01 00:00:00",
     "interfaces": {
-      "eth0": { "ip_address": "192.168.1.1", "subnet_mask": "255.255.255.0", "gateway": "192.168.1.254" },
-      "lo": { "ip_address": "127.0.0.1", "subnet_mask": "255.0.0.0", "gateway": "" }
+      "eth0": { "ip_address": "192.168.1.1", "subnet_mask": "255.255.255.0", "gateway": "192.168.1.254", "dns_servers": ["8.8.8.8", "8.8.4.4"] },
+      "lo": { "ip_address": "127.0.0.1", "subnet_mask": "255.0.0.0", "gateway": "", "dns_servers": [] }
     }
   }'
 ```
@@ -121,19 +123,25 @@ curl -X POST http://localhost:3001/api/machines \
 ### マシンを更新する（PUT）
 
 ```bash
+# このコマンドは指定されたIDのマシン情報を更新します。例としてID=1を使用しています。
 curl -X PUT http://localhost:3001/api/machines/1 \
   -H "Content-Type: application/json" \
   -d '{
-    "hostname": "updated-host",
+    "hostname": "updated-example",
     "model_info": "Updated Model",
-    "usage_desc": "Updated Usage",
-    "memo": "This is an updated machine"
+    "usage_desc": "Updated usage description",
+    "memo": "This is an updated example machine",
+    "interfaces": {
+      "eth0": { "ip_address": "192.168.1.1", "subnet_mask": "255.255.255.0", "gateway": "192.168.1.254", "dns_servers": ["8.8.8.8", "8.8.4.4"] },
+      "lo": { "ip_address": "127.0.0.1", "subnet_mask": "255.0.0.0", "gateway": "", "dns_servers": [] }
+    }
   }'
 ```
 
 ### マシンを削除する（DELETE）
 
 ```bash
+# このコマンドは指定されたIDのマシンとそのインターフェースをAPIサーバーから削除します。例としてID=1を使用しています。
 curl -X DELETE http://localhost:3001/api/machines/1
 ```
 

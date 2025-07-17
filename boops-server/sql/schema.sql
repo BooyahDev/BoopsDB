@@ -19,5 +19,6 @@ CREATE TABLE interfaces (
   ip_address VARCHAR(45) NOT NULL,
   subnet_mask VARCHAR(45) NOT NULL,
   gateway VARCHAR(45),
+  dns_servers TEXT, -- Comma-separated list of DNS servers
   FOREIGN KEY (machine_id) REFERENCES machines(id) ON DELETE CASCADE
 );
