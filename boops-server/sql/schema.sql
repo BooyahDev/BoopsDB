@@ -2,7 +2,7 @@ CREATE DATABASE IF NOT EXISTS boopsdb;
 USE boopsdb;
 
 CREATE TABLE machines (
-  id INT AUTO_INCREMENT PRIMARY KEY,
+  id CHAR(36) PRIMARY KEY,
   hostname VARCHAR(255) NOT NULL,
   model_info TEXT,
   usage_desc TEXT,
@@ -14,7 +14,7 @@ CREATE TABLE machines (
 
 CREATE TABLE interfaces (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  machine_id INT NOT NULL,
+  machine_id CHAR(36) NOT NULL,
   name VARCHAR(50) NOT NULL,
   ip_address VARCHAR(45) NOT NULL,
   subnet_mask VARCHAR(45) NOT NULL,
