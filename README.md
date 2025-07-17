@@ -89,10 +89,18 @@ npm run dev
 - `ip_address`: IPアドレス
 - `subnet_mask`: サブネットマスク
 - `gateway`: ゲートウェイ
+- `dns_servers`: DNSサーバーのリスト（カンマ区切り文字列形式で保存。APIでは配列として取得・送信）
 
 ## API使用例
 
 以下にAPIエンドポイントを使うためのcURLコマンドの例を示します。
+
+### 指定されたマシンのlast_aliveを更新する（PUT）
+
+```bash
+# このコマンドは指定されたIDのマシンのlast_aliveフィールドを現在の日時に更新します。
+curl -X PUT http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee2048/update-last-alive
+```
 
 ### 全てのマシンを取得する（GET）
 
