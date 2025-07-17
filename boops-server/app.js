@@ -163,6 +163,32 @@ app.get('/api/machines/:uuid', async (req, res) => {
   }
 });
 
+// PUT update machine's last_alive timestamp
+app.put('/api/machines/:id/update-last-alive', async (req, res) => {
+  const machineId = req.params.id;
+
+  // Validate UUID format
+  if (!/^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/.test(machineId)) {
+    return res.status(400).json({ error: 'Invalid UUID format' });
+  }
+
+  // Format the current time in MySQL DATETIME format (YYYY-MM-DD HH:MM:SS)
+  const currentTime = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  try {
+    await db.query('UPDATE machines SET last_alive = ? WHERE id = ?', [currentTime, machineId]);
+
+    // Check if any rows were affected
+    const [result] = await db.query('SELECT ROW_COUNT() AS count');
+    if (result[0].count > 0) {
+      res.json({ message: 'Last alive timestamp updated' });
+    } else {
+      res.status(404).json({ error: 'Machine not found' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(port, () => {
   console.log(`API server running on http://localhost:${port}`);
 });
