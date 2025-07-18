@@ -43,9 +43,6 @@
         </tr>
       </table>
     </section>
-
-    <!-- Back to Results -->
-    <nuxt-link to="/machines">Back to Search Results</nuxt-link>
   </div>
 </template>
 

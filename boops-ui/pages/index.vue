@@ -7,7 +7,7 @@
       <form @submit.prevent="searchMachines">
         <div>
           <label for="search">Search by any element:</label>
-          <input v-model="searchQuery" type="text" id="search" required />
+          <input v-model="searchQuery" type="text" id="search" />
         </div>
         <button type="submit">Search</button>
       </form>
@@ -25,10 +25,13 @@ const router = useRouter();
 const searchQuery = ref('');
 
 async function searchMachines() {
-  if (!searchQuery.value.trim()) return;
-
-  // Redirect to the machines page with query
-  router.push({ path: '/machines', query: { q: searchQuery.value } });
+  if (searchQuery.value.trim()) {
+    // Redirect to the machines page with query
+    router.push({ path: '/machines', query: { q: searchQuery.value } });
+  } else {
+    // If no query, redirect without any query parameter
+    router.push({ path: '/machines' });
+  }
 }
 </script>
 

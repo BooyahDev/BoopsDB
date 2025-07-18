@@ -2,17 +2,6 @@
   <div class="container">
     <h1>Machine Search Results</h1>
 
-    <!-- Search Form -->
-    <section>
-      <form @submit.prevent="searchMachines">
-        <div>
-          <label for="search">Search by any element:</label>
-          <input v-model="searchQuery" type="text" id="search" required />
-        </div>
-        <button type="submit">Search</button>
-      </form>
-    </section>
-
     <!-- Search Results Table -->
     <section v-if="searchResults.length > 0">
       <h2>Search Results</h2>
@@ -59,10 +48,24 @@ onMounted(() => {
   if (route.query.q) {
     searchQuery.value = route.query.q;
     performSearch(route.query.q);
+  } else {
+    // If no query, fetch all machines
+    fetchAllMachines();
   }
 });
 
+async function fetchAllMachines() {
+  const response = await fetch('http://localhost:3001/api/machines');
+  if (response.ok) {
+    searchResults.value = await response.json();
+  } else {
+    alert('Failed to fetch machines');
+  }
+}
+
 async function performSearch(query) {
+  if (!query) return;
+
   const response = await fetch(`http://localhost:3001/api/machines/search?q=${encodeURIComponent(query)}`);
   if (response.ok) {
     searchResults.value = await response.json();
@@ -71,13 +74,6 @@ async function performSearch(query) {
   }
 }
 
-async function searchMachines() {
-  if (!searchQuery.value.trim()) return;
-
-  await performSearch(searchQuery.value);
-  // Update URL with query
-  router.push({ path: '/machines', query: { q: searchQuery.value } });
-}
 </script>
 
 <style scoped>
