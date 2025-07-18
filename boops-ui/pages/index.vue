@@ -2,6 +2,9 @@
   <div class="container">
     <h1>Search Machines</h1>
 
+    <!-- Link to Register a New Machine -->
+    <nuxt-link to="/machines/register" class="register-link">Register New Machine</nuxt-link>
+
     <!-- Machine Search Form -->
     <section>
       <form @submit.prevent="searchMachines">
