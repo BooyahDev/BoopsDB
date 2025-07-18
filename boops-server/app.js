@@ -119,7 +119,7 @@ app.delete('/api/machines/:id', async (req, res) => {
   }
 });
 
-// SEARCH machines by hostname or IP
+// SEARCH machines by any field
 app.get('/api/machines/search', async (req, res) => {
   const query = req.query.q || '';
 
@@ -128,13 +128,13 @@ app.get('/api/machines/search', async (req, res) => {
   }
 
   try {
-    // Search for machines that match the hostname
-    const [machines] = await db.query(
-      'SELECT * FROM machines WHERE hostname LIKE ?',
-      [`%${query}%`]
-    );
-
     let results = [];
+
+    // First search for exact matches on machine model_info or usage_desc
+    const [machines] = await db.query(
+      'SELECT * FROM machines WHERE model_info LIKE ? OR usage_desc LIKE ? OR memo LIKE ?',
+      [`%${query}%`, `%${query}%`, `%${query}%`]
+    );
 
     if (machines.length > 0) {
       for (const machine of machines) {
@@ -153,34 +153,58 @@ app.get('/api/machines/search', async (req, res) => {
         }, {}) });
       }
     } else {
-      // If no machines found by hostname, search for interfaces containing the IP
-      const [interfaces] = await db.query(
-        'SELECT * FROM interfaces WHERE ip_address LIKE ?',
+      // If no matches, search for hostname
+      const [hostnameMachines] = await db.query(
+        'SELECT * FROM machines WHERE hostname LIKE ?',
         [`%${query}%`]
       );
 
-      if (interfaces.length > 0) {
-        for (const interfaceData of interfaces) {
-          const machineId = interfaceData.machine_id;
-          const [machine] = await db.query(
-            'SELECT * FROM machines WHERE id = ?',
-            [machineId]
+      if (hostnameMachines.length > 0) {
+        for (const machine of hostnameMachines) {
+          const [interfaces] = await db.query(
+            'SELECT name, ip_address, subnet_mask, gateway, dns_servers FROM interfaces WHERE machine_id = ?',
+            [machine.id]
           );
-          if (machine.length > 0) {
-            const [allInterfaces] = await db.query(
-              'SELECT name, ip_address, subnet_mask, gateway, dns_servers FROM interfaces WHERE machine_id = ?',
+          results.push({ ...machine, interfaces: interfaces.reduce((acc, cur) => {
+            acc[cur.name] = {
+              ip: cur.ip_address,
+              subnet: cur.subnet_mask,
+              gateway: cur.gateway,
+              dns_servers: cur.dns_servers ? cur.dns_servers.split(',').map(s => s.trim()) : []
+            };
+            return acc;
+          }, {}) });
+        }
+      } else {
+        // If no hostname matches, search for interfaces by IP
+        const [interfaces] = await db.query(
+          'SELECT * FROM interfaces WHERE ip_address LIKE ?',
+          [`%${query}%`]
+        );
+
+        if (interfaces.length > 0) {
+          for (const interfaceData of interfaces) {
+            const machineId = interfaceData.machine_id;
+            const [machine] = await db.query(
+              'SELECT * FROM machines WHERE id = ?',
               [machineId]
             );
+            if (machine.length > 0) {
+              const [allInterfaces] = await db.query(
+                'SELECT name, ip_address, subnet_mask, gateway, dns_servers FROM interfaces WHERE machine_id = ?',
+                [machineId]
+              );
 
-            results.push({ ...machine[0], interfaces: allInterfaces.reduce((acc, cur) => {
-              acc[cur.name] = {
-                ip: cur.ip_address,
-                subnet: cur.subnet_mask,
-                gateway: cur.gateway,
-                dns_servers: cur.dns_servers ? cur.dns_servers.split(',').map(s => s.trim()) : []
-              };
-              return acc;
-            }, {}) });
+              results.push({ ...machine[0], interfaces: allInterfaces.reduce((acc, cur) => {
+                acc[cur.name] = {
+                  ip: cur.ip_address,
+                  subnet: cur.subnet_mask,
+                  gateway: cur.gateway,
+                  dns_servers: cur.dns_servers ? cur.dns_servers.split(',').map(s => s.trim()) : []
+                };
+                return acc;
+              }, {}) });
+            }
           }
         }
       }
