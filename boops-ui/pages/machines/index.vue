@@ -2,6 +2,11 @@
   <div class="container">
     <h1>Machine Search Results</h1>
 
+    <!-- Loading Indicator -->
+    <div v-if="isLoading" class="loading-indicator">
+      Loading...
+    </div>
+
     <!-- Search Results Table -->
     <section v-if="searchResults.length > 0">
       <h2>Search Results</h2>
@@ -43,6 +48,7 @@ const route = useRoute();
 const router = useRouter();
 const searchQuery = ref('');
 const searchResults = ref([]);
+const isLoading = ref(false);
 
 onMounted(() => {
   if (route.query.q) {
@@ -64,13 +70,20 @@ async function fetchAllMachines() {
 }
 
 async function performSearch(query) {
-  if (!query) return;
+  isLoading.value = true;
 
-  const response = await fetch(`http://localhost:3001/api/machines/search?q=${encodeURIComponent(query)}`);
-  if (response.ok) {
-    searchResults.value = await response.json();
-  } else {
-    alert('Failed to search machines');
+  try {
+    const response = await fetch(`http://localhost:3001/api/machines/search?q=${encodeURIComponent(query)}`);
+    if (response.ok) {
+      searchResults.value = await response.json();
+    } else {
+      alert('Failed to search machines');
+    }
+  } catch (error) {
+    console.error('Search error:', error);
+    alert('An unexpected error occurred during the search.');
+  } finally {
+    isLoading.value = false;
   }
 }
 
