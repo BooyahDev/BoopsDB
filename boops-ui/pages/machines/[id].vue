@@ -19,6 +19,10 @@
           <td>{{ machine.cpu_info || 'N/A' }}</td>
         </tr>
         <tr>
+          <th>CPU Architecture:</th>
+          <td>{{ machine.cpu_arch || 'N/A' }}</td>
+        </tr>
+        <tr>
           <th>Memory Size:</th>
           <td>{{ machine.memory_size || 'N/A' }}</td>
         </tr>

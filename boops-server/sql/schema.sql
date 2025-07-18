@@ -8,9 +8,10 @@ CREATE TABLE machines (
   usage_desc TEXT,
   memo TEXT,
   last_alive DATETIME,
-  cpu_info TEXT, -- New field for CPU information
-  memory_size TEXT, -- New field for memory size
-  disk_info TEXT, -- New field for disk information
+  cpu_info TEXT, -- Field for general CPU information
+  cpu_arch TEXT, -- New field for CPU architecture information
+  memory_size TEXT, -- Field for memory size
+  disk_info TEXT, -- Field for disk information
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );

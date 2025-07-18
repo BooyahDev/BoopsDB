@@ -122,6 +122,7 @@ curl -X POST http://localhost:3001/api/machines \
     "memo": "This is an example machine for testing",
     "last_alive": "2023-01-01 00:00:00",
     "cpu_info": "",
+    "cpu_arch": "x86_64",  # Added CPU architecture
     "memory_size": "",
     "disk_info": "",
     "interfaces": {
@@ -143,6 +144,7 @@ curl -X PUT http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee2
     "usage_desc": "Updated usage description",
     "memo": "This is an updated example machine",
     "cpu_info": "",
+    "cpu_arch": "x86_64",  # Added CPU architecture
     "memory_size": "",
     "disk_info": "",
     "interfaces": {

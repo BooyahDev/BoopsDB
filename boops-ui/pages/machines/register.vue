@@ -15,6 +15,11 @@
       </div>
 
       <div>
+        <label for="cpu_arch">CPU Architecture:</label>
+        <input v-model="newMachine.cpu_arch" type="text" id="cpu_arch" />
+      </div>
+
+      <div>
         <label for="memory_size">Memory Size:</label>
         <input v-model="newMachine.memory_size" type="text" id="memory_size" />
       </div>
@@ -68,6 +73,7 @@ const router = useRouter();
 const newMachine = ref({
   hostname: '',
   cpu_info: '',
+  cpu_arch: '',
   memory_size: '',
   disk_info: '',
   interfaces: {},
@@ -138,9 +144,10 @@ async function addMachine() {
   const response = await fetch('http://localhost:3001/api/machines', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+      body: JSON.stringify({
       hostname: newMachine.value.hostname,
       cpu_info: newMachine.value.cpu_info || '',
+      cpu_arch: newMachine.value.cpu_arch || '',
       memory_size: newMachine.value.memory_size || '',
       disk_info: newMachine.value.disk_info || '',
       interfaces: formattedInterfaces
