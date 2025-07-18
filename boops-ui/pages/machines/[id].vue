@@ -8,11 +8,17 @@
       <table>
         <tr>
           <th>ID:</th>
-          <td>{{ machine.id }}</td>
+          <td>
+            {{ machine.id }}
+            <button @click="copyToClipboard(machine.id, $event)" class="copy-btn">Copy</button>
+          </td>
         </tr>
         <tr>
           <th>Hostname:</th>
-          <td>{{ machine.hostname }}</td>
+          <td>
+            {{ machine.hostname }}
+            <button @click="copyToClipboard(machine.hostname, $event)" class="copy-btn">Copy</button>
+          </td>
         </tr>
         <tr>
           <th>CPU Info:</th>
@@ -43,7 +49,10 @@
       <table>
         <tr>
           <th>IP Address:</th>
-          <td>{{ interfaceData.ip }}</td>
+          <td>
+            {{ interfaceData.ip }}
+            <button @click="copyToClipboard(interfaceData.ip, $event)" class="copy-btn">Copy</button>
+          </td>
         </tr>
         <tr>
           <th>Subnet Mask:</th>
@@ -77,6 +86,18 @@ onMounted(async () => {
     alert('Failed to load machine details');
   }
 });
+
+function copyToClipboard(id, event) {
+  const button = event.target;
+  navigator.clipboard.writeText(id).then(() => {
+    button.innerText = 'Copied!';
+    setTimeout(() => {
+      button.innerText = 'Copy';
+    }, 2000);
+  }).catch(err => {
+    console.error('Could not copy text: ', err);
+  });
+}
 </script>
 
 <style scoped>
@@ -105,5 +126,19 @@ th, td {
 th {
   background-color: #f4f4f4;
   font-weight: bold;
+}
+
+.copy-btn {
+  background-color: #007bff;
+  color: white;
+  border: none;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+  margin-left: 0.5rem;
+  border-radius: 4px;
+}
+
+.copy-btn:hover {
+  background-color: #0069d9;
 }
 </style>
