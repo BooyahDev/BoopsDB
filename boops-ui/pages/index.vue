@@ -13,37 +13,22 @@
       </form>
 
       <!-- Search Results -->
-      <section v-if="searchResults.length > 0">
-        <h2>Search Results</h2>
-        <ul>
-          <li v-for="machine in searchResults" :key="machine.id">
-            <h3>{{ machine.hostname }}</h3>
-            <div v-for="(interfaceData, name) in machine.interfaces" :key="name">
-              <h4>Interface: {{ name }}</h4>
-              <p><strong>IP Address:</strong> {{ interfaceData.ip }}</p>
-            </div>
-          </li>
-        </ul>
-      </section>
-    </section>
+          </section>
   </div>
 </template>
 
 <script setup>
 import { ref } from 'vue';
+import { useRouter } from 'vue-router';
 
+const router = useRouter();
 const searchQuery = ref('');
-const searchResults = ref([]);
 
 async function searchMachines() {
   if (!searchQuery.value.trim()) return;
 
-  const response = await fetch(`http://localhost:3001/api/machines/search?q=${encodeURIComponent(searchQuery.value)}`);
-  if (response.ok) {
-    searchResults.value = await response.json();
-  } else {
-    alert('Failed to search machines');
-  }
+  // Redirect to the machines page with query
+  router.push({ path: '/machines', query: { q: searchQuery.value } });
 }
 </script>
 

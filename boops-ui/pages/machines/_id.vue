@@ -1,30 +1,37 @@
 <template>
-  <div class="container">
-    <h1>{{ machine ? machine.hostname : 'Loading...' }}</h1>
+  <div class="container" v-if="machine">
+    <h1>{{ machine.hostname }} Details</h1>
 
-    <section v-if="machine" class="machine-details">
-      <p><strong>Model:</strong> {{ machine.model_info || 'N/A' }}</p>
-      <p><strong>Usage:</strong> {{ machine.usage_desc || 'N/A' }}</p>
-      <p><strong>Memo:</strong> {{ machine.memo || 'N/A' }}</p>
-      <p><strong>Last Alive:</strong> {{ machine.last_alive ? new Date(machine.last_alive).toLocaleString() : 'N/A' }}</p>
-
-      <!-- Interfaces -->
-      <div v-for="(interfaceData, name) in machine.interfaces" :key="name" class="interface">
-        <h2>Interface: {{ name }}</h2>
-        <p><strong>IP Address:</strong> {{ interfaceData.ip_address || 'N/A' }}</p>
-        <p><strong>Subnet Mask:</strong> {{ interfaceData.subnet_mask || 'N/A' }}</p>
-        <p><strong>Gateway:</strong> {{ interfaceData.gateway || 'N/A' }}</p>
-        <p><strong>DNS Servers:</strong> {{ interfaceData.dns_servers.length > 0 ? interfaceData.dns_servers.join(', ') : 'N/A' }}</p>
-      </div>
-
-      <!-- Back to list -->
-      <NuxtLink to="/machines">Back to Machine List</NuxtLink>
+    <!-- Machine Information -->
+    <section>
+      <h2>Main Information</h2>
+      <dl>
+        <dt>ID:</dt>
+        <dd>{{ machine.id }}</dd>
+        <dt>Hostname:</dt>
+        <dd>{{ machine.hostname }}</dd>
+        <dt>Status:</dt>
+        <dd>{{ machine.status || 'Unknown' }}</dd>
+      </dl>
     </section>
 
-    <section v-else-if="error">
-      <p>Error loading machine details: {{ error.message }}</p>
-      <NuxtLink to="/machines">Back to Machine List</NuxtLink>
+    <!-- Interfaces -->
+    <section v-for="(interfaceData, name) in machine.interfaces" :key="name">
+      <h2>Interface: {{ name }}</h2>
+      <dl>
+        <dt>IP Address:</dt>
+        <dd>{{ interfaceData.ip }}</dd>
+        <dt>Subnet Mask:</dt>
+        <dd>{{ interfaceData.subnet_mask || 'N/A' }}</dd>
+        <dt>Gateway:</dt>
+        <dd>{{ interfaceData.gateway || 'N/A' }}</dd>
+        <dt>DNS Servers:</dt>
+        <dd>{{ interfaceData.dns_servers ? interfaceData.dns_servers.join(', ') : 'N/A' }}</dd>
+      </dl>
     </section>
+
+    <!-- Back to Results -->
+    <nuxt-link to="/machines">Back to Search Results</nuxt-link>
   </div>
 </template>
 
@@ -34,21 +41,15 @@ import { useRoute } from 'vue-router';
 
 const route = useRoute();
 const machine = ref(null);
-const error = ref(null);
 
-async function fetchMachineDetails() {
-  try {
-    const response = await fetch(`http://localhost:3001/api/machines/${route.params.id}`);
-    if (!response.ok) {
-      throw new Error('Failed to fetch machine details');
-    }
+onMounted(async () => {
+  const response = await fetch(`http://localhost:3001/api/machines/${route.params.id}`);
+  if (response.ok) {
     machine.value = await response.json();
-  } catch (err) {
-    error.value = err;
+  } else {
+    alert('Failed to load machine details');
   }
-}
-
-onMounted(fetchMachineDetails);
+});
 </script>
 
 <style scoped>
@@ -57,22 +58,26 @@ onMounted(fetchMachineDetails);
   margin: auto;
   padding: 2rem;
 }
-h1, h2, h3, h4 {
+
+h1, h2 {
   color: #333;
 }
-.machine-details p {
-  margin-bottom: 0.5rem;
+
+dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 2rem;
 }
-.interface {
-  border-top: 1px solid #ccc;
-  padding-top: 1rem;
-  margin-top: 1rem;
+
+dt {
+  font-weight: bold;
+  flex: 0 0 150px;
+  text-align: right;
+  margin-right: 1rem;
 }
-a {
-  text-decoration: none;
-  color: #007bff;
-}
-a:hover {
-  text-decoration: underline;
+
+dd {
+  flex: 1 1 calc(100% - 160px);
 }
 </style>
