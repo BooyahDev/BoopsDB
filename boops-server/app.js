@@ -119,6 +119,79 @@ app.delete('/api/machines/:id', async (req, res) => {
   }
 });
 
+// SEARCH machines by hostname or IP
+app.get('/api/machines/search', async (req, res) => {
+  const query = req.query.q || '';
+
+  if (!query.trim()) {
+    return res.json([]);
+  }
+
+  try {
+    // Search for machines that match the hostname
+    const [machines] = await db.query(
+      'SELECT * FROM machines WHERE hostname LIKE ?',
+      [`%${query}%`]
+    );
+
+    let results = [];
+
+    if (machines.length > 0) {
+      for (const machine of machines) {
+        const [interfaces] = await db.query(
+          'SELECT name, ip_address, subnet_mask, gateway, dns_servers FROM interfaces WHERE machine_id = ?',
+          [machine.id]
+        );
+        results.push({ ...machine, interfaces: interfaces.reduce((acc, cur) => {
+          acc[cur.name] = {
+            ip: cur.ip_address,
+            subnet: cur.subnet_mask,
+            gateway: cur.gateway,
+            dns_servers: cur.dns_servers ? cur.dns_servers.split(',').map(s => s.trim()) : []
+          };
+          return acc;
+        }, {}) });
+      }
+    } else {
+      // If no machines found by hostname, search for interfaces containing the IP
+      const [interfaces] = await db.query(
+        'SELECT * FROM interfaces WHERE ip_address LIKE ?',
+        [`%${query}%`]
+      );
+
+      if (interfaces.length > 0) {
+        for (const interfaceData of interfaces) {
+          const machineId = interfaceData.machine_id;
+          const [machine] = await db.query(
+            'SELECT * FROM machines WHERE id = ?',
+            [machineId]
+          );
+          if (machine.length > 0) {
+            const [allInterfaces] = await db.query(
+              'SELECT name, ip_address, subnet_mask, gateway, dns_servers FROM interfaces WHERE machine_id = ?',
+              [machineId]
+            );
+
+            results.push({ ...machine[0], interfaces: allInterfaces.reduce((acc, cur) => {
+              acc[cur.name] = {
+                ip: cur.ip_address,
+                subnet: cur.subnet_mask,
+                gateway: cur.gateway,
+                dns_servers: cur.dns_servers ? cur.dns_servers.split(',').map(s => s.trim()) : []
+              };
+              return acc;
+            }, {}) });
+          }
+        }
+      }
+    }
+
+    res.json(results);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET machine by UUID
 app.get('/api/machines/:uuid', async (req, res) => {
   try {
