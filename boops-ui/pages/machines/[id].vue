@@ -2,7 +2,7 @@
   <div class="container" v-if="machine">
     <h1>{{ machine.hostname }} Details</h1>
 
-    <!-- Machine Information -->
+      <!-- Machine Information -->
     <section>
       <h2>Main Information</h2>
       <table>
@@ -13,6 +13,18 @@
         <tr>
           <th>Hostname:</th>
           <td>{{ machine.hostname }}</td>
+        </tr>
+        <tr>
+          <th>CPU Info:</th>
+          <td>{{ machine.cpu_info || 'N/A' }}</td>
+        </tr>
+        <tr>
+          <th>Memory Size:</th>
+          <td>{{ machine.memory_size || 'N/A' }}</td>
+        </tr>
+        <tr>
+          <th>Disk Info:</th>
+          <td>{{ machine.disk_info || 'N/A' }}</td>
         </tr>
         <tr>
           <th>Status:</th>

@@ -7,16 +7,22 @@
       <h2>Search Results</h2>
       <table>
         <thead>
-          <tr>
-            <th>Hostname</th>
-            <th>IP Address</th>
-            <th>Status</th>
-            <th>Details</th>
-          </tr>
+        <tr>
+          <th>Hostname</th>
+          <th>CPU Info</th>
+          <th>Memory Size</th>
+          <th>Disk Info</th>
+          <th>IP Address</th>
+          <th>Status</th>
+          <th>Details</th>
+        </tr>
         </thead>
         <tbody>
           <tr v-for="machine in searchResults" :key="machine.id">
             <td>{{ machine.hostname }}</td>
+            <td>{{ machine.cpu_info || 'N/A' }}</td>
+            <td>{{ machine.memory_size || 'N/A' }}</td>
+            <td>{{ machine.disk_info || 'N/A' }}</td>
             <td>
               <ul class="ip-list">
                 <li v-for="(interfaceData, name) in machine.interfaces" :key="name">

@@ -9,6 +9,21 @@
         <input v-model="newMachine.hostname" type="text" id="hostname" required />
       </div>
 
+      <div>
+        <label for="cpu_info">CPU Info:</label>
+        <input v-model="newMachine.cpu_info" type="text" id="cpu_info" />
+      </div>
+
+      <div>
+        <label for="memory_size">Memory Size:</label>
+        <input v-model="newMachine.memory_size" type="text" id="memory_size" />
+      </div>
+
+      <div>
+        <label for="disk_info">Disk Info:</label>
+        <input v-model="newMachine.disk_info" type="text" id="disk_info" />
+      </div>
+
       <!-- Interface Form -->
       <div v-for="(interfaceData, index) in newMachine.interfaceNames" :key="index">
         <h2>Interface:
@@ -52,6 +67,9 @@ import { useRouter } from 'vue-router';
 const router = useRouter();
 const newMachine = ref({
   hostname: '',
+  cpu_info: '',
+  memory_size: '',
+  disk_info: '',
   interfaces: {},
   interfaceNames: ['eth0']
 });
@@ -122,6 +140,9 @@ async function addMachine() {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       hostname: newMachine.value.hostname,
+      cpu_info: newMachine.value.cpu_info || '',
+      memory_size: newMachine.value.memory_size || '',
+      disk_info: newMachine.value.disk_info || '',
       interfaces: formattedInterfaces
     })
   });

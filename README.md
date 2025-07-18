@@ -121,6 +121,9 @@ curl -X POST http://localhost:3001/api/machines \
     "usage_desc": "Example usage description",
     "memo": "This is an example machine for testing",
     "last_alive": "2023-01-01 00:00:00",
+    "cpu_info": "",
+    "memory_size": "",
+    "disk_info": "",
     "interfaces": {
       "eth0": { "ip_address": "192.168.1.1", "subnet_mask": "255.255.255.0", "gateway": "192.168.1.254", "dns_servers": ["8.8.8.8", "8.8.4.4"] },
       "lo": { "ip_address": "127.0.0.1", "subnet_mask": "255.0.0.0", "gateway": "", "dns_servers": [] }
@@ -131,14 +134,17 @@ curl -X POST http://localhost:3001/api/machines \
 ### マシンを更新する（PUT）
 
 ```bash
-# このコマンドは指定されたIDのマシン情報を更新します。例としてID=1を使用しています。
-curl -X PUT http://localhost:3001/api/machines/1 \
+# このコマンドは指定されたIDのマシン情報を更新します。例としてUUID=70ae9891-fc07-45b9-8364-3ab159ee2048を使用しています。
+curl -X PUT http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee2048 \
   -H "Content-Type: application/json" \
   -d '{
     "hostname": "updated-example",
     "model_info": "Updated Model",
     "usage_desc": "Updated usage description",
     "memo": "This is an updated example machine",
+    "cpu_info": "",
+    "memory_size": "",
+    "disk_info": "",
     "interfaces": {
       "eth0": { "ip_address": "192.168.1.1", "subnet_mask": "255.255.255.0", "gateway": "192.168.1.254", "dns_servers": ["8.8.8.8", "8.8.4.4"] },
       "lo": { "ip_address": "127.0.0.1", "subnet_mask": "255.0.0.0", "gateway": "", "dns_servers": [] }
@@ -149,8 +155,8 @@ curl -X PUT http://localhost:3001/api/machines/1 \
 ### マシンを削除する（DELETE）
 
 ```bash
-# このコマンドは指定されたIDのマシンとそのインターフェースをAPIサーバーから削除します。例としてID=1を使用しています。
-curl -X DELETE http://localhost:3001/api/machines/1
+# このコマンドは指定されたUUIDのマシンとそのインターフェースをAPIサーバーから削除します。例としてUUID=70ae9891-fc07-45b9-8364-3ab159ee2048を使用しています。
+curl -X DELETE http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee2048
 ```
 
 ## ライセンス
