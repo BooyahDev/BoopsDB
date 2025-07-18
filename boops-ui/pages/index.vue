@@ -6,7 +6,7 @@
     <section>
       <form @submit.prevent="searchMachines">
         <div>
-          <label for="search">Enter hostname or IP:</label>
+          <label for="search">Search by any element:</label>
           <input v-model="searchQuery" type="text" id="search" required />
         </div>
         <button type="submit">Search</button>
