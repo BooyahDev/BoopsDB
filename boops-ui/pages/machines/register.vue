@@ -28,6 +28,10 @@
         <label for="disk_info">Disk Info:</label>
         <input v-model="newMachine.disk_info" type="text" id="disk_info" />
       </div>
+      <div>
+        <label for="os_name">OS Name:</label>
+        <input v-model="newMachine.os_name" type="text" id="os_name" />
+      </div>
 
       <!-- Interface Form -->
       <div v-for="(interfaceData, index) in newMachine.interfaceNames" :key="index">
@@ -150,6 +154,7 @@ async function addMachine() {
       cpu_arch: newMachine.value.cpu_arch || '',
       memory_size: newMachine.value.memory_size || '',
       disk_info: newMachine.value.disk_info || '',
+      os_name: newMachine.value.os_name || '',
       interfaces: formattedInterfaces
     })
   });

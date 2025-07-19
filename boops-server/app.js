@@ -40,7 +40,7 @@ app.get('/api/machines', async (req, res) => {
 
 // POST new machine with interfaces
 app.post('/api/machines', async (req, res) => {
-  const { hostname, model_info, usage_desc, memo, last_alive, cpu_info, cpu_arch, memory_size, disk_info, interfaces } = req.body;
+  const { hostname, model_info, usage_desc, memo, last_alive, cpu_info, cpu_arch, memory_size, disk_info, os_name, interfaces } = req.body;
 
   const conn = await db.getConnection();
   try {
@@ -49,8 +49,8 @@ app.post('/api/machines', async (req, res) => {
     const machineId = uuidv4();
 
     await conn.query(
-      'INSERT INTO machines (id, hostname, model_info, usage_desc, memo, last_alive, cpu_info, cpu_arch, memory_size, disk_info) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [machineId, hostname, model_info, usage_desc, memo, last_alive, cpu_info || '', cpu_arch || '', memory_size || '', disk_info || '']
+      'INSERT INTO machines (id, hostname, model_info, usage_desc, memo, last_alive, cpu_info, cpu_arch, memory_size, disk_info, os_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [machineId, hostname, model_info, usage_desc, memo, last_alive, cpu_info || '', cpu_arch || '', memory_size || '', disk_info || '', os_name || '']
     );
 
     for (const [name, { ip_address: ip, subnet_mask: subnet, gateway, dns_servers }] of Object.entries(interfaces)) {
@@ -76,15 +76,15 @@ app.post('/api/machines', async (req, res) => {
 // PUT update machine with interfaces
 app.put('/api/machines/:id', async (req, res) => {
     const machineId = req.params.id;
-    const { hostname, model_info, usage_desc, memo, last_alive, cpu_info, cpu_arch, memory_size, disk_info, interfaces } = req.body;
+    const { hostname, model_info, usage_desc, memo, last_alive, cpu_info, cpu_arch, memory_size, disk_info, os_name, interfaces } = req.body;
 
     const conn = await db.getConnection();
     try {
       await conn.beginTransaction();
 
       await conn.query(
-        'UPDATE machines SET hostname=?, model_info=?, usage_desc=?, memo=?, last_alive=?, cpu_info=?, cpu_arch=?, memory_size=?, disk_info=? WHERE id=?',
-        [hostname, model_info, usage_desc, memo, last_alive, cpu_info || '', cpu_arch || '', memory_size || '', disk_info || '', machineId]
+        'UPDATE machines SET hostname=?, model_info=?, usage_desc=?, memo=?, last_alive=?, cpu_info=?, cpu_arch=?, memory_size=?, disk_info=?, os_name=? WHERE id=?',
+        [hostname, model_info, usage_desc, memo, last_alive, cpu_info || '', cpu_arch || '', memory_size || '', disk_info || '', os_name || '', machineId]
       );
 
       await conn.query('DELETE FROM interfaces WHERE machine_id = ?', [machineId]);
@@ -132,8 +132,8 @@ app.get('/api/machines/search', async (req, res) => {
 
     // First search for exact matches on machine fields
     const [machines] = await db.query(
-      'SELECT * FROM machines WHERE hostname LIKE ? OR model_info LIKE ? OR usage_desc LIKE ? OR memo LIKE ? OR cpu_info LIKE ? OR cpu_arch LIKE ? OR memory_size LIKE ? OR disk_info LIKE ?',
-      [`%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`]
+      'SELECT * FROM machines WHERE hostname LIKE ? OR model_info LIKE ? OR usage_desc LIKE ? OR memo LIKE ? OR cpu_info LIKE ? OR cpu_arch LIKE ? OR memory_size LIKE ? OR disk_info LIKE ? OR os_name LIKE ?',
+      [`%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`]
     );
 
     if (machines.length > 0) {

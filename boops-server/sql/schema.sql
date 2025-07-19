@@ -12,6 +12,7 @@ CREATE TABLE machines (
   cpu_arch TEXT, -- New field for CPU architecture information
   memory_size TEXT, -- Field for memory size
   disk_info TEXT, -- Field for disk information
+  os_name VARCHAR(255), -- New field for OS name
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );

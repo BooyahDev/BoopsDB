@@ -15,6 +15,7 @@
         <tr>
           <th>Hostname</th>
           <th>IP Address</th>
+          <th>OS Name</th>
           <th>Status</th>
           <th>Details</th>
         </tr>
@@ -29,6 +30,7 @@
                 </li>
               </ul>
             </td>
+            <td>{{ machine.os_name || 'Unknown' }}</td>
             <td>{{ machine.status || 'Unknown' }}</td>
             <td>
               <nuxt-link :to="`/machines/${machine.id}`">View Details</nuxt-link>
