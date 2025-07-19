@@ -51,6 +51,12 @@
             <button @click="copyToClipboard(machine.parent_machine_id, $event)" class="copy-btn">Copy</button>
           </td>
         </tr>
+        <tr v-if="machine.is_virtual && machine.parent_machine_id">
+          <th>Parent Machine:</th>
+          <td>
+            <a :href="`/machines/${machine.parent_machine_id}`">{{ machine.parentHostname || machine.hostname || 'Unknown' }}</a>
+          </td>
+        </tr>
       </table>
     </section>
 
@@ -93,6 +99,18 @@ onMounted(async () => {
   const response = await fetch(`http://localhost:3001/api/machines/${route.params.id}`);
   if (response.ok) {
     machine.value = await response.json();
+
+    // If this is a virtual machine with a parent, fetch the parent machine details
+    if (machine.value.is_virtual && machine.value.parent_machine_id) {
+      const parentResponse = await fetch(`http://localhost:3001/api/machines/${machine.value.parent_machine_id}`);
+      if (parentResponse.ok) {
+        const parentMachine = await parentResponse.json();
+        // Store the parent hostname to display in the link
+        machine.value.parentHostname = parentMachine.hostname;
+      } else {
+        console.error('Failed to load parent machine details');
+      }
+    }
   } else {
     alert('Failed to load machine details');
   }
