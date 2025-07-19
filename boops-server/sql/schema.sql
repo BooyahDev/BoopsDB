@@ -5,6 +5,7 @@ CREATE TABLE machines (
   id CHAR(36) PRIMARY KEY,
   hostname VARCHAR(255) NOT NULL,
   model_info TEXT,
+  purpose TEXT, -- Field for machine purpose
   usage_desc TEXT,
   memo TEXT,
   last_alive DATETIME,

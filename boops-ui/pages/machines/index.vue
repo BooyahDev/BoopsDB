@@ -16,6 +16,7 @@
             <th>Hostname</th>
             <th>IP Address</th>
             <th>OS Name</th>
+            <th>Purpose</th>
             <th>Is Virtual Machine</th>
             <th>Parent ID</th>
             <th>Status</th>
@@ -33,6 +34,7 @@
               </ul>
             </td>
             <td>{{ machine.os_name || 'Unknown' }}</td>
+            <td>{{ machine.purpose || 'N/A' }}</td>
             <td>{{ machine.is_virtual ? 'Yes' : 'No' }}</td>
             <td v-if="machine.is_virtual">{{ machine.parent_machine_id || 'None' }}</td>
             <td v-else>N/A</td>

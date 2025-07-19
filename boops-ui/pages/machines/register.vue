@@ -33,6 +33,11 @@
         <input v-model="newMachine.os_name" type="text" id="os_name" />
       </div>
 
+      <div>
+        <label for="purpose">Purpose:</label>
+        <input v-model="newMachine.purpose" type="text" id="purpose" />
+      </div>
+
       <!-- Virtual Machine Flag -->
       <div>
         <label for="is_virtual">Is Virtual Machine:</label>
@@ -177,6 +182,7 @@ async function addMachine() {
       os_name: newMachine.value.os_name || '',
       is_virtual: newMachine.value.is_virtual,
       parent_machine_id: newMachine.value.parent_machine_id || null,
+      purpose: newMachine.value.purpose || '',
       interfaces: formattedInterfaces
     })
   });
