@@ -22,7 +22,7 @@
         </tr>
         <tr>
           <th>DNS Servers:</th>
-          <td>{{ machine.interfaces[Object.keys(machine.interfaces)[0]]?.dns_servers ? machine.interfaces[Object.keys(machine.interfaces)[0]].dns_servers.join(', ') : 'N/A' }}</td>
+          <td>{{ machine.interfaces[Object.keys(machine.interfaces)[0]].dns_servers ? machine.interfaces[Object.keys(machine.interfaces)[0]].dns_servers.join(', ') : 'N/A' }}</td>
         </tr>
         <tr>
           <th>CPU Info:</th>
@@ -82,27 +82,54 @@
     <!-- Interfaces -->
     <section v-for="(interfaceData, name) in machine.interfaces" :key="name">
       <h2>Interface: {{ name }}</h2>
-      <table>
-        <tr>
-          <th>IP Address:</th>
-          <td>
-            {{ interfaceData.ip }}
-            <button @click="copyToClipboard(interfaceData.ip, $event)" class="copy-btn">Copy</button>
-          </td>
-        </tr>
-        <tr>
-          <th>MAC Address:</th>
-          <td>{{ interfaceData.mac_address || 'N/A' }}</td>
-        </tr>
-        <tr>
-          <th>Subnet Mask:</th>
-          <td>{{ interfaceData.subnet_mask || 'N/A' }}</td>
-        </tr>
-        <tr>
-          <th>Gateway:</th>
-          <td>{{ interfaceData.gateway || 'N/A' }}</td>
-        </tr>
-      </table>
+      <template v-if="isEditingIp[name]">
+        <table>
+          <tr>
+            <th>IP Address:</th>
+            <td>
+              <input v-model="interfaceData.ip" />
+              <button @click="saveIpChange(name)">Save</button>
+              <button @click="cancelEditIp(name)">Cancel</button>
+            </td>
+          </tr>
+          <tr>
+            <th>MAC Address:</th>
+            <td>{{ interfaceData.mac_address || 'N/A' }}</td>
+          </tr>
+          <tr>
+            <th>Subnet Mask:</th>
+            <td>{{ interfaceData.subnet_mask || 'N/A' }}</td>
+          </tr>
+          <tr>
+            <th>Gateway:</th>
+            <td>{{ interfaceData.gateway || 'N/A' }}</td>
+          </tr>
+        </table>
+      </template>
+      <template v-else>
+        <table>
+          <tr>
+            <th>IP Address:</th>
+            <td>
+              {{ interfaceData.ip }}
+              <button @click="copyToClipboard(interfaceData.ip, $event)" class="copy-btn">Copy</button>
+              <button @click="editIp(name)">Edit</button>
+            </td>
+          </tr>
+          <tr>
+            <th>MAC Address:</th>
+            <td>{{ interfaceData.mac_address || 'N/A' }}</td>
+          </tr>
+          <tr>
+            <th>Subnet Mask:</th>
+            <td>{{ interfaceData.subnet_mask || 'N/A' }}</td>
+          </tr>
+          <tr>
+            <th>Gateway:</th>
+            <td>{{ interfaceData.gateway || 'N/A' }}</td>
+          </tr>
+        </table>
+      </template>
     </section>
   </div>
 </template>
@@ -114,6 +141,42 @@ import { useRoute } from 'vue-router';
 const route = useRoute();
 const machine = ref(null);
 const isEditingMemo = ref(false);
+const isEditingIp = ref({});
+
+function editIp(interfaceName) {
+  isEditingIp.value[interfaceName] = true;
+}
+
+async function saveIpChange(interfaceName) {
+  const interfaceData = machine.value.interfaces[interfaceName];
+  if (!interfaceData.ip) {
+    alert('IP address cannot be empty');
+    return;
+  }
+
+  try {
+    const response = await fetch(`http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ip_address: interfaceData.ip })
+    });
+
+    if (response.ok) {
+      isEditingIp.value[interfaceName] = false;
+      alert('IP address updated successfully');
+    } else {
+      const errorData = await response.json();
+      alert(`Failed to update IP address: ${errorData.error || 'Unknown error'}`);
+    }
+  } catch (err) {
+    console.error(err);
+    alert('An error occurred while updating the IP address');
+  }
+}
+
+function cancelEditIp(interfaceName) {
+  isEditingIp.value[interfaceName] = false;
+}
 
 onMounted(async () => {
   const response = await fetch(`http://localhost:3001/api/machines/${route.params.id}`);

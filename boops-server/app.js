@@ -110,6 +110,40 @@ app.put('/api/machines/:id', async (req, res) => {
   }
 });
 
+// PUT update IP address for a specific interface
+app.put('/api/interfaces/:machineId/:interfaceName', async (req, res) => {
+  const machineId = req.params.machineId;
+  const interfaceName = req.params.interfaceName;
+  const { ip_address } = req.body;
+
+  // Validate UUID format for machine ID
+  if (!/^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/.test(machineId)) {
+    return res.status(400).json({ error: 'Invalid machine UUID format' });
+  }
+
+  // Validate IP address
+  if (typeof ip_address !== 'string' || !ip_address.trim()) {
+    return res.status(400).json({ error: 'IP address must be a non-empty string' });
+  }
+
+  try {
+    await db.query(
+      'UPDATE interfaces SET ip_address = ? WHERE machine_id = ? AND name = ?',
+      [ip_address, machineId, interfaceName]
+    );
+
+    // Check if any rows were affected
+    const [result] = await db.query('SELECT ROW_COUNT() AS count');
+    if (result[0].count > 0) {
+      res.json({ message: 'IP address updated' });
+    } else {
+      res.status(404).json({ error: 'Interface not found for this machine' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // DELETE machine and interfaces
 app.delete('/api/machines/:id', async (req, res) => {
   try {
