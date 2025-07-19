@@ -29,6 +29,10 @@
         <input v-model="newMachine.disk_info" type="text" id="disk_info" />
       </div>
       <div>
+        <label for="memo">Memo:</label>
+        <textarea v-model="newMachine.memo" id="memo" rows="3"></textarea>
+      </div>
+      <div>
         <label for="os_name">OS Name:</label>
         <input v-model="newMachine.os_name" type="text" id="os_name" />
       </div>
@@ -104,9 +108,10 @@ const newMachine = ref({
   os_name: '',
   is_virtual: false,
   parent_machine_id: null, // Set to null by default
-  interfaces: {},
-  interfaceNames: ['eth0']
-});
+      interfaces: {},
+      interfaceNames: ['eth0'],
+      memo: ''
+    });
 
 function initializeInterface() {
   return {
@@ -183,6 +188,7 @@ async function addMachine() {
       is_virtual: newMachine.value.is_virtual,
       parent_machine_id: newMachine.value.parent_machine_id || null,
       purpose: newMachine.value.purpose || '',
+      memo: newMachine.value.memo || '',
       interfaces: formattedInterfaces
     })
   });

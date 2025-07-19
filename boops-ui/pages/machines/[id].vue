@@ -55,14 +55,29 @@
           <button @click="copyToClipboard(machine.parent_machine_id, $event)" class="copy-btn">Copy</button>
         </td>
       </tr>
-        <tr v-if="machine.is_virtual && machine.parent_machine_id">
-          <th>Parent Machine:</th>
+      <tr v-if="machine.is_virtual && machine.parent_machine_id">
+        <th>Parent Machine:</th>
+        <td>
+          <a :href="`/machines/${machine.parent_machine_id}`">{{ machine.parentHostname || machine.hostname || 'Unknown' }}</a>
+        </td>
+      </tr>
+      <tr>
+        <th>Memo:</th>
+        <template v-if="isEditingMemo">
           <td>
-            <a :href="`/machines/${machine.parent_machine_id}`">{{ machine.parentHostname || machine.hostname || 'Unknown' }}</a>
+            <textarea v-model="machine.memo" rows="3"></textarea>
+            <button @click="updateMemo">Save</button>
+            <button @click="cancelEditMemo">Cancel</button>
           </td>
-        </tr>
-      </table>
-    </section>
+        </template>
+        <template v-else>
+          <td>{{ machine.memo || 'N/A' }}
+            <button @click="enableEditMemo">Edit</button>
+          </td>
+        </template>
+      </tr>
+    </table>
+  </section>
 
     <!-- Interfaces -->
     <section v-for="(interfaceData, name) in machine.interfaces" :key="name">
@@ -98,6 +113,7 @@ import { useRoute } from 'vue-router';
 
 const route = useRoute();
 const machine = ref(null);
+const isEditingMemo = ref(false);
 
 onMounted(async () => {
   const response = await fetch(`http://localhost:3001/api/machines/${route.params.id}`);
@@ -119,6 +135,30 @@ onMounted(async () => {
     alert('Failed to load machine details');
   }
 });
+
+async function updateMemo() {
+  const response = await fetch(`http://localhost:3001/api/machines/${machine.value.id}/update-memo`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ memo: machine.value.memo })
+  });
+
+  if (response.ok) {
+    isEditingMemo.value = false;
+    alert('Memo updated successfully');
+  } else {
+    const errorData = await response.json();
+    alert(`Failed to update memo: ${errorData.error || 'Unknown error'}`);
+  }
+}
+
+function enableEditMemo() {
+  isEditingMemo.value = true;
+}
+
+function cancelEditMemo() {
+  isEditingMemo.value = false;
+}
 
 function copyToClipboard(id, event) {
   const button = event.target;
