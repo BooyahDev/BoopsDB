@@ -13,6 +13,9 @@ CREATE TABLE machines (
   memory_size TEXT, -- Field for memory size
   disk_info TEXT, -- Field for disk information
   os_name VARCHAR(255), -- New field for OS name
+  is_virtual BOOLEAN DEFAULT FALSE, -- Flag to indicate if this is a virtual machine
+  parent_machine_id CHAR(36), -- UUID of the parent machine (if any)
+  FOREIGN KEY (parent_machine_id) REFERENCES machines(id) ON DELETE SET NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
