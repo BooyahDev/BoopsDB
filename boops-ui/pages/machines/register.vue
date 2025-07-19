@@ -71,6 +71,10 @@
           <label for="dns_servers">DNS Servers (comma-separated):</label>
           <input v-model="getInterfaceData(index).dns_servers" type="text" />
         </div>
+        <div>
+          <label for="mac_address">MAC Address:</label>
+          <input v-model="getInterfaceData(index).mac_address" type="text" />
+        </div>
       </div>
 
       <!-- Add another interface -->
@@ -145,7 +149,7 @@ function addInterface() {
 }
 
 async function addMachine() {
-  // Convert interfaces object to the format expected by API
+      // Convert interfaces object to the format expected by API
   const formattedInterfaces = {};
   for (const name of newMachine.value.interfaceNames) {
     if (newMachine.value.interfaces[name]) {
@@ -155,7 +159,8 @@ async function addMachine() {
         gateway: newMachine.value.interfaces[name].gateway || '',
         dns_servers: newMachine.value.interfaces[name].dns_servers
           ? newMachine.value.interfaces[name].dns_servers.split(',').map(s => s.trim())
-          : []
+          : [],
+        mac_address: newMachine.value.interfaces[name].mac_address || ''
       };
     }
   }

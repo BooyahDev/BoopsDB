@@ -27,8 +27,8 @@
             <td>{{ machine.hostname }}</td>
             <td>
               <ul class="ip-list">
-                <li v-for="(interfaceData, name) in machine.interfaces" :key="name">
-                  {{ interfaceData.ip }}
+            <li v-for="(interfaceData, name) in machine.interfaces" :key="name">
+              {{ interfaceData.ip }} ({{ interfaceData.mac_address || 'N/A' }})
                 </li>
               </ul>
             </td>

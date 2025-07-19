@@ -21,8 +21,8 @@
           </td>
         </tr>
         <tr>
-          <th>OS Name:</th>
-          <td>{{ machine.os_name || 'N/A' }}</td>
+          <th>DNS Servers:</th>
+          <td>{{ machine.interfaces[Object.keys(machine.interfaces)[0]]?.dns_servers ? machine.interfaces[Object.keys(machine.interfaces)[0]].dns_servers.join(', ') : 'N/A' }}</td>
         </tr>
         <tr>
           <th>CPU Info:</th>
@@ -72,16 +72,16 @@
           </td>
         </tr>
         <tr>
+          <th>MAC Address:</th>
+          <td>{{ interfaceData.mac_address || 'N/A' }}</td>
+        </tr>
+        <tr>
           <th>Subnet Mask:</th>
           <td>{{ interfaceData.subnet_mask || 'N/A' }}</td>
         </tr>
         <tr>
           <th>Gateway:</th>
           <td>{{ interfaceData.gateway || 'N/A' }}</td>
-        </tr>
-        <tr>
-          <th>DNS Servers:</th>
-          <td>{{ interfaceData.dns_servers ? interfaceData.dns_servers.join(', ') : 'N/A' }}</td>
         </tr>
       </table>
     </section>

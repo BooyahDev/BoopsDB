@@ -28,5 +28,6 @@ CREATE TABLE interfaces (
   subnet_mask VARCHAR(45) NOT NULL,
   gateway VARCHAR(45),
   dns_servers TEXT, -- Comma-separated list of DNS servers
+  mac_address VARCHAR(17), -- MAC address field (e.g., '00:1A:2B:3C:4D:5E')
   FOREIGN KEY (machine_id) REFERENCES machines(id) ON DELETE CASCADE
 );
