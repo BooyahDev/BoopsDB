@@ -41,8 +41,15 @@
           <td>{{ machine.disk_info || 'N/A' }}</td>
         </tr>
         <tr>
-          <th>Status:</th>
-          <td>{{ machine.status || 'Unknown' }}</td>
+          <th>Is Virtual Machine:</th>
+          <td>{{ machine.is_virtual ? 'Yes' : 'No' }}</td>
+        </tr>
+        <tr v-if="machine.is_virtual">
+          <th>Parent Machine ID:</th>
+          <td>
+            {{ machine.parent_machine_id || 'N/A' }}
+            <button @click="copyToClipboard(machine.parent_machine_id, $event)" class="copy-btn">Copy</button>
+          </td>
         </tr>
       </table>
     </section>

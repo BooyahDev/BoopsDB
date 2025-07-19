@@ -33,6 +33,18 @@
         <input v-model="newMachine.os_name" type="text" id="os_name" />
       </div>
 
+      <!-- Virtual Machine Flag -->
+      <div>
+        <label for="is_virtual">Is Virtual Machine:</label>
+        <input v-model="newMachine.is_virtual" type="checkbox" id="is_virtual" />
+      </div>
+
+      <!-- Parent Machine ID (shown only if this is a VM) -->
+      <div v-if="newMachine.is_virtual">
+        <label for="parent_machine_id">Parent Machine ID:</label>
+        <input v-model="newMachine.parent_machine_id" type="text" id="parent_machine_id" />
+      </div>
+
       <!-- Interface Form -->
       <div v-for="(interfaceData, index) in newMachine.interfaceNames" :key="index">
         <h2>Interface:
@@ -80,6 +92,9 @@ const newMachine = ref({
   cpu_arch: '',
   memory_size: '',
   disk_info: '',
+  os_name: '',
+  is_virtual: false,
+  parent_machine_id: null, // Set to null by default
   interfaces: {},
   interfaceNames: ['eth0']
 });
@@ -148,13 +163,15 @@ async function addMachine() {
   const response = await fetch('http://localhost:3001/api/machines', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
+    body: JSON.stringify({
       hostname: newMachine.value.hostname,
       cpu_info: newMachine.value.cpu_info || '',
       cpu_arch: newMachine.value.cpu_arch || '',
       memory_size: newMachine.value.memory_size || '',
       disk_info: newMachine.value.disk_info || '',
       os_name: newMachine.value.os_name || '',
+      is_virtual: newMachine.value.is_virtual,
+      parent_machine_id: newMachine.value.parent_machine_id || null,
       interfaces: formattedInterfaces
     })
   });

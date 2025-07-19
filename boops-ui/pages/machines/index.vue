@@ -12,13 +12,15 @@
       <h2>Search Results</h2>
       <table>
         <thead>
-        <tr>
-          <th>Hostname</th>
-          <th>IP Address</th>
-          <th>OS Name</th>
-          <th>Status</th>
-          <th>Details</th>
-        </tr>
+          <tr>
+            <th>Hostname</th>
+            <th>IP Address</th>
+            <th>OS Name</th>
+            <th>Is Virtual Machine</th>
+            <th>Parent ID</th>
+            <th>Status</th>
+            <th>Details</th>
+          </tr>
         </thead>
         <tbody>
           <tr v-for="machine in searchResults" :key="machine.id">
@@ -31,6 +33,9 @@
               </ul>
             </td>
             <td>{{ machine.os_name || 'Unknown' }}</td>
+            <td>{{ machine.is_virtual ? 'Yes' : 'No' }}</td>
+            <td v-if="machine.is_virtual">{{ machine.parent_machine_id || 'None' }}</td>
+            <td v-else>N/A</td>
             <td>{{ machine.status || 'Unknown' }}</td>
             <td>
               <nuxt-link :to="`/machines/${machine.id}`">View Details</nuxt-link>
@@ -88,7 +93,6 @@ async function performSearch(query) {
     isLoading.value = false;
   }
 }
-
 </script>
 
 <style scoped>
