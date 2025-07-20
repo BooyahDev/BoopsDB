@@ -125,6 +125,131 @@ app.post('/api/machines/:id/interfaces', async (req, res) => {
   }
 });
 
+// DELETE remove an interface from a machine
+app.delete('/api/machines/:machineId/interfaces/:interfaceName', async (req, res) => {
+  const machineId = req.params.machineId;
+  const interfaceName = req.params.interfaceName;
+
+  // Validate UUID format for machine ID
+  if (!/^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/.test(machineId)) {
+    return res.status(400).json({ error: 'Invalid machine UUID format' });
+  }
+
+  try {
+    // Check if interface exists
+    const [existingInterface] = await db.query(
+      'SELECT id FROM interfaces WHERE machine_id = ? AND name = ?',
+      [machineId, interfaceName]
+    );
+    
+    if (existingInterface.length === 0) {
+      return res.status(404).json({ error: 'Interface not found' });
+    }
+
+    // Delete the interface
+    await db.query(
+      'DELETE FROM interfaces WHERE machine_id = ? AND name = ?',
+      [machineId, interfaceName]
+    );
+
+    res.json({ message: 'Interface deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT update parent machine ID for a virtual machine
+app.put('/api/machines/:id/update-parent-id', async (req, res) => {
+  const machineId = req.params.id;
+  const { parent_machine_id } = req.body;
+
+  // Validate UUID format for machine ID
+  if (!/^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/.test(machineId)) {
+    return res.status(400).json({ error: 'Invalid machine UUID format' });
+  }
+
+  // Validate parent machine ID format if provided
+  if (parent_machine_id && !/^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/.test(parent_machine_id)) {
+    return res.status(400).json({ error: 'Invalid parent machine UUID format' });
+  }
+
+  try {
+    // First check if the machine exists and is virtual
+    const [machines] = await db.query('SELECT is_virtual FROM machines WHERE id = ?', [machineId]);
+    if (machines.length === 0) {
+      return res.status(404).json({ error: 'Machine not found' });
+    }
+    
+    if (!machines[0].is_virtual) {
+      return res.status(400).json({ error: 'Only virtual machines can have a parent machine ID' });
+    }
+
+    // If parent ID is provided, verify it exists
+    if (parent_machine_id) {
+      const [parentMachines] = await db.query('SELECT id FROM machines WHERE id = ?', [parent_machine_id]);
+      if (parentMachines.length === 0) {
+        return res.status(400).json({ error: 'Parent machine not found' });
+      }
+    }
+
+    // Update the parent machine ID
+    await db.query(
+      'UPDATE machines SET parent_machine_id = ? WHERE id = ?',
+      [parent_machine_id || null, machineId]
+    );
+
+    res.json({ message: 'Parent machine ID updated successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT update virtual machine flag and parent ID
+app.put('/api/machines/:id/update-vm-status', async (req, res) => {
+  const machineId = req.params.id;
+  let { is_virtual, parent_machine_id } = req.body;
+
+  // Validate UUID format for machine ID
+  if (!/^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/.test(machineId)) {
+    return res.status(400).json({ error: 'Invalid machine UUID format' });
+  }
+
+  // If parent ID is empty string, set is_virtual to false
+  if (parent_machine_id === '') {
+    is_virtual = false;
+    parent_machine_id = null;
+  }
+
+  // Validate parent machine ID format if provided
+  if (parent_machine_id && !/^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/.test(parent_machine_id)) {
+    return res.status(400).json({ error: 'Invalid parent machine UUID format' });
+  }
+
+  try {
+    // If parent ID is provided, verify it exists
+    if (is_virtual && parent_machine_id) {
+      const [parentMachines] = await db.query('SELECT id FROM machines WHERE id = ?', [parent_machine_id]);
+      if (parentMachines.length === 0) {
+        return res.status(400).json({ error: 'Parent machine not found' });
+      }
+    }
+
+    // Update the virtual machine status and parent ID
+    await db.query(
+      'UPDATE machines SET is_virtual = ?, parent_machine_id = ? WHERE id = ?',
+      [is_virtual, is_virtual ? parent_machine_id || null : null, machineId]
+    );
+
+    res.json({ 
+      message: 'Virtual machine status updated successfully',
+      is_virtual,
+      parent_machine_id: is_virtual ? parent_machine_id || null : null
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PUT update machine with interfaces
 app.put('/api/machines/:id', async (req, res) => {
   const machineId = req.params.id;

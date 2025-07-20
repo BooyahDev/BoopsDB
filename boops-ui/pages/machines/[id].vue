@@ -38,7 +38,27 @@
         </tr>
         <tr>
           <th>Is Virtual Machine:</th>
-          <td>{{ machine.is_virtual ? 'Yes' : 'No' }}</td>
+          <template v-if="isEditingVmStatus">
+            <td>
+              <label>
+                <input type="checkbox" v-model="vmStatusEdit.is_virtual" @change="handleVmStatusChange" />
+                {{ vmStatusEdit.is_virtual ? 'Yes' : 'No' }}
+              </label>
+              <div v-if="vmStatusEdit.is_virtual" class="parent-id-edit">
+                <label>Parent Machine ID:</label>
+                <input v-model="vmStatusEdit.parent_machine_id" placeholder="Enter parent machine ID" />
+              </div>
+              <button @click="saveVmStatus" :disabled="isUpdatingVmStatus">Save</button>
+              <span v-if="isUpdatingVmStatus">Saving...</span>
+              <button @click="cancelEditVmStatus">Cancel</button>
+            </td>
+          </template>
+          <template v-else>
+            <td>
+              {{ machine.is_virtual ? 'Yes' : 'No' }}
+              <button @click="enableEditVmStatus">Edit</button>
+            </td>
+          </template>
         </tr>
         <tr>
           <th>Purpose:</th>
@@ -46,10 +66,21 @@
         </tr>
         <tr v-if="machine.is_virtual">
           <th>Parent Machine ID:</th>
-          <td>
-            {{ machine.parent_machine_id || 'N/A' }}
-            <button @click="copyToClipboard(machine.parent_machine_id, $event)" class="copy-btn">Copy</button>
-          </td>
+          <template v-if="isEditingParentId">
+            <td>
+              <input v-model="machine.parent_machine_id" />
+              <button @click="updateParentId" :disabled="isUpdatingParentId">Save</button>
+              <span v-if="isUpdatingParentId">Saving...</span>
+              <button @click="cancelEditParentId">Cancel</button>
+            </td>
+          </template>
+          <template v-else>
+            <td>
+              {{ machine.parent_machine_id || 'N/A' }}
+              <button @click="copyToClipboard(machine.parent_machine_id, $event)" class="copy-btn">Copy</button>
+              <!-- <button @click="enableEditParentId">Edit</button> -->
+            </td>
+          </template>
         </tr>
         <tr v-if="machine.is_virtual && machine.parent_machine_id">
           <th>Parent Machine:</th>
@@ -88,6 +119,7 @@
       <h2 v-else>
         Interface: {{ name }}
         <button @click="editInterfaceName(name)">Edit</button>
+        <button @click="confirmDeleteInterface(name)" class="delete-btn">Delete</button>
       </h2>
       <template v-if="isEditingIp[name]">
         <table>
@@ -224,6 +256,21 @@
       </template>
     </section>
 
+    <!-- 削除確認モーダル -->
+    <div v-if="showDeleteModal" class="modal-overlay">
+      <div class="modal">
+        <h3>Confirm Delete</h3>
+        <p>Are you sure you want to delete interface "{{ interfaceToDelete }}"?</p>
+        <div class="modal-buttons">
+          <button @click="deleteInterface" :disabled="isDeletingInterface" class="confirm-delete-btn">
+            {{ isDeletingInterface ? 'Deleting...' : 'Delete' }}
+          </button>
+          <button @click="cancelDelete" class="cancel-btn">Cancel</button>
+        </div>
+        <span v-if="deleteError" class="error">{{ deleteError }}</span>
+      </div>
+    </div>
+
     <!-- 新しいインターフェイス追加セクション -->
     <section>
       <h2>Add New Interface</h2>
@@ -296,6 +343,8 @@ const isEditingDns = ref({});
 const isLoadingDns = ref({}); // Loading state for DNS
 const isEditingName = ref({}); // New state for editing interface name
 const isLoadingName = ref({}); // New loading state for interface name
+const isEditingParentId = ref(false);
+const isUpdatingParentId = ref(false);
 
 const isAddingInterface = ref(false);
 const addInterfaceError = ref('');
@@ -307,6 +356,135 @@ const newInterface = ref({
   dns_servers: '',
   mac_address: ''
 });
+
+// 状態変数の追加
+const isEditingVmStatus = ref(false);
+const isUpdatingVmStatus = ref(false);
+const vmStatusEdit = ref({
+  is_virtual: false,
+  parent_machine_id: null
+});
+
+// 削除関連の新しいref
+const showDeleteModal = ref(false);
+const interfaceToDelete = ref('');
+const isDeletingInterface = ref(false);
+const deleteError = ref('');
+
+// インターフェイス削除を確認
+function confirmDeleteInterface(interfaceName) {
+  interfaceToDelete.value = interfaceName;
+  showDeleteModal.value = true;
+  deleteError.value = '';
+}
+
+// 削除をキャンセル
+function cancelDelete() {
+  showDeleteModal.value = false;
+  interfaceToDelete.value = '';
+  deleteError.value = '';
+}
+
+function enableEditVmStatus() {
+  vmStatusEdit.value = {
+    is_virtual: machine.value.is_virtual,
+    parent_machine_id: machine.value.parent_machine_id
+  };
+  isEditingVmStatus.value = true;
+}
+
+function cancelEditVmStatus() {
+  isEditingVmStatus.value = false;
+}
+
+function handleVmStatusChange() {
+  if (!vmStatusEdit.value.is_virtual) {
+    vmStatusEdit.value.parent_machine_id = null;
+  }
+}
+
+async function saveVmStatus() {
+  isUpdatingVmStatus.value = true;
+
+  try {
+    // If parent ID is empty string, set is_virtual to false
+    if (vmStatusEdit.value.parent_machine_id === '') {
+      vmStatusEdit.value.is_virtual = false;
+      vmStatusEdit.value.parent_machine_id = null;
+    }
+
+    const response = await fetch(`http://localhost:3001/api/machines/${machine.value.id}/update-vm-status`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        is_virtual: vmStatusEdit.value.is_virtual,
+        parent_machine_id: vmStatusEdit.value.parent_machine_id
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to update VM status');
+    }
+
+    // 更新後のデータを取得
+    const updatedResponse = await fetch(`http://localhost:3001/api/machines/${machine.value.id}`);
+    if (updatedResponse.ok) {
+      machine.value = await updatedResponse.json();
+      isEditingVmStatus.value = false;
+      
+      // 親マシンのホスト名を更新
+      if (machine.value.is_virtual && machine.value.parent_machine_id) {
+        const parentResponse = await fetch(`http://localhost:3001/api/machines/${machine.value.parent_machine_id}`);
+        if (parentResponse.ok) {
+          const parentMachine = await parentResponse.json();
+          machine.value.parentHostname = parentMachine.hostname;
+        }
+      } else {
+        machine.value.parentHostname = null;
+      }
+    }
+  } catch (err) {
+    console.error(err);
+    alert(err.message);
+  } finally {
+    isUpdatingVmStatus.value = false;
+  }
+}
+
+// インターフェイスを削除
+async function deleteInterface() {
+  isDeletingInterface.value = true;
+  deleteError.value = '';
+
+  try {
+    const response = await fetch(
+      `http://localhost:3001/api/machines/${machine.value.id}/interfaces/${interfaceToDelete.value}`,
+      {
+        method: 'DELETE'
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to delete interface');
+    }
+
+    // 成功したらモーダルを閉じ、マシンデータを再読み込み
+    showDeleteModal.value = false;
+    interfaceToDelete.value = '';
+
+    // マシンデータを再読み込み
+    const updatedResponse = await fetch(`http://localhost:3001/api/machines/${route.params.id}`);
+    if (updatedResponse.ok) {
+      machine.value = await updatedResponse.json();
+    }
+  } catch (err) {
+    deleteError.value = err.message;
+  } finally {
+    isDeletingInterface.value = false;
+  }
+}
 
 // 新しいインターフェイスを追加する関数
 async function addNewInterface() {
@@ -373,6 +551,51 @@ function cancelEditIp(interfaceName) {
       machine.value.interfaces[interfaceName] = data.interfaces[interfaceName];
     })
     .catch(err => console.error(err));
+}
+
+function enableEditParentId() {
+  isEditingParentId.value = true;
+}
+
+function cancelEditParentId() {
+  isEditingParentId.value = false;
+}
+
+async function updateParentId() {
+  isUpdatingParentId.value = true;
+
+  try {
+    const response = await fetch(`http://localhost:3001/api/machines/${machine.value.id}/update-parent-id`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        parent_machine_id: machine.value.parent_machine_id || null
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to update parent machine ID');
+    }
+
+    isEditingParentId.value = false;
+    
+    // 親マシンのホスト名を再取得
+    if (machine.value.parent_machine_id) {
+      const parentResponse = await fetch(`http://localhost:3001/api/machines/${machine.value.parent_machine_id}`);
+      if (parentResponse.ok) {
+        const parentMachine = await parentResponse.json();
+        machine.value.parentHostname = parentMachine.hostname;
+      }
+    } else {
+      machine.value.parentHostname = null;
+    }
+  } catch (err) {
+    console.error(err);
+    alert(err.message);
+  } finally {
+    isUpdatingParentId.value = false;
+  }
 }
 
 function editSubnet(interfaceName) {
@@ -676,9 +899,77 @@ th {
   background-color: #0069d9;
 }
 
+/* モーダルスタイル */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal {
+  background-color: white;
+  padding: 2rem;
+  border-radius: 8px;
+  max-width: 500px;
+  width: 90%;
+}
+
+.modal h3 {
+  margin-top: 0;
+  color: #dc3545;
+}
+
+.modal p {
+  margin-bottom: 1.5rem;
+}
+
+.modal-buttons {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+}
+
+.confirm-delete-btn {
+  background-color: #dc3545;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.confirm-delete-btn:hover {
+  background-color: #c82333;
+}
+
+.confirm-delete-btn:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+}
+
+.cancel-btn {
+  background-color: #6c757d;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.cancel-btn:hover {
+  background-color: #5a6268;
+}
 
 .error {
   color: #dc3545;
-  margin-top: 0.5rem;
+  margin-top: 1rem;
+  display: block;
 }
 </style>
