@@ -212,6 +212,40 @@ app.put('/api/interfaces/:machineId/:interfaceName/update-gateway', async (req, 
   }
 });
 
+// PUT update DNS servers for a specific interface
+app.put('/api/interfaces/:machineId/:interfaceName/update-dns', async (req, res) => {
+  const machineId = req.params.machineId;
+  const interfaceName = req.params.interfaceName;
+  const { dns_servers } = req.body;
+
+  // Validate UUID format for machine ID
+  if (!/^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/.test(machineId)) {
+    return res.status(400).json({ error: 'Invalid machine UUID format' });
+  }
+
+  // Validate DNS servers
+  if (!Array.isArray(dns_servers) || dns_servers.length === 0) {
+    return res.status(400).json({ error: 'DNS servers must be a non-empty array of strings' });
+  }
+
+  try {
+    await db.query(
+      'UPDATE interfaces SET dns_servers = ? WHERE machine_id = ? AND name = ?',
+      [dns_servers.join(', '), machineId, interfaceName]
+    );
+
+    // Check if any rows were affected
+    const [result] = await db.query('SELECT ROW_COUNT() AS count');
+    if (result[0].count > 0) {
+      res.json({ message: 'DNS servers updated' });
+    } else {
+      res.status(404).json({ error: 'Interface not found for this machine' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PUT update subnet mask for a specific interface
 app.put('/api/interfaces/:machineId/:interfaceName/update-subnet-mask', async (req, res) => {
   const machineId = req.params.machineId;

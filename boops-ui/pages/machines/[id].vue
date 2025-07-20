@@ -172,8 +172,19 @@
               </template>
             </tr>
             <tr>
-              <th>DNS Severs:</th>
-              <td>{{ interfaceData.dns_servers.join(', ') }}</td>
+              <th>DNS Servers:</th>
+              <template v-if="isEditingDns">
+                <td>
+                  <input v-model="interfaceData.dns_servers" />
+                  <button @click="saveNetworkSetting(name, 'dns')">Save</button>
+                  <button @click="cancelEditNetwork(name, 'dns')">Cancel</button>
+                </td>
+              </template>
+              <template v-else>
+                <td>{{ interfaceData.dns_servers.join(', ') }}
+                  <button @click="editDns">Edit</button>
+                </td>
+              </template>
             </tr>
           </template>
         </table>
@@ -192,6 +203,7 @@ const isEditingMemo = ref(false);
 const isEditingIp = ref({});
 const isEditingSubnet = ref(false);
 const isEditingGateway = ref(false);
+const isEditingDns = ref(false);
 
 function editIp(interfaceName) {
   isEditingIp.value[interfaceName] = true;
@@ -215,6 +227,10 @@ function editSubnet(interfaceName) {
 
 function editGateway(interfaceName) {
   isEditingGateway.value = true;
+}
+
+function editDns() {
+  isEditingDns.value = true;
 }
 
 async function saveNetworkSetting(interfaceName, settingType) {
@@ -241,6 +257,16 @@ async function saveNetworkSetting(interfaceName, settingType) {
     // Update gateway
     url = `http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}/update-gateway`;
     body = { gateway: interfaceData.gateway };
+
+  } else if (settingType === 'dns') {
+    // Update DNS servers
+    if (!Array.isArray(interfaceData.dns_servers) || interfaceData.dns_servers.length === 0) {
+      alert('DNS servers cannot be empty');
+      return;
+    }
+
+    url = `http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}/update-dns`;
+    body = { dns_servers: interfaceData.dns_servers };
   }
 
   try {
@@ -276,8 +302,10 @@ async function saveNetworkSetting(interfaceName, settingType) {
 function cancelEditNetwork(interfaceName, settingType) {
   if (settingType === 'subnet') {
     isEditingSubnet.value = false;
-  } else {
+  } else if (settingType === 'gateway') {
     isEditingGateway.value = false;
+  } else if (settingType === 'dns') {
+    isEditingDns.value = false;
   }
 
   // Reload current values from server
