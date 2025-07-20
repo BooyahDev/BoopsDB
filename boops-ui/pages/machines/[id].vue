@@ -273,7 +273,7 @@ function editDns(interfaceName) {
   isEditingDns.value[interfaceName] = true;
 }
 
-function editInterfaceName(interfaceName) { // New function to enable editing interface name
+function editInterfaceName(interfaceName) {
   isEditingName.value[interfaceName] = true;
 }
 
@@ -403,6 +403,14 @@ async function saveInterfaceName(interfaceName) { // New function to save interf
     // Reset editing and loading states
     isEditingName.value[interfaceName] = false;
     isLoadingName.value[interfaceName] = false;
+
+    // Reload machine data after successful update
+    const updatedResponse = await fetch(`http://localhost:3001/api/machines/${route.params.id}`);
+    if (updatedResponse.ok) {
+      machine.value = await updatedResponse.json();
+    } else {
+      console.error('Failed to reload machine details');
+    }
 
   } catch (err) {
     console.error(err);
