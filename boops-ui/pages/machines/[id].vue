@@ -259,17 +259,12 @@ async function saveNetworkSetting(interfaceName, settingType) {
     body = { subnet_mask: interfaceData.subnet };
 
   } else if (settingType === 'gateway') {
-    // Update gateway
-    if (!interfaceData.gateway) {
-      alert('Gateway cannot be empty');
-      return;
-    }
-
+    // Update gateway - Allow empty values
     url = `http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}/update-gateway`;
     body = { gateway: interfaceData.gateway };
 
   } else if (settingType === 'dns') {
-    // Update DNS servers
+    // Update DNS servers - Allow empty values
     let dnsServersArray;
     if (typeof interfaceData.dns_servers === 'string' && interfaceData.dns_servers.trim()) {
       // Convert comma-separated string to array of trimmed values
@@ -277,14 +272,8 @@ async function saveNetworkSetting(interfaceName, settingType) {
     } else if (Array.isArray(interfaceData.dns_servers)) {
       dnsServersArray = interfaceData.dns_servers;
     } else {
-      alert('DNS servers cannot be empty');
-      return;
-    }
-
-    // Make sure array is not empty
-    if (dnsServersArray.length === 0) {
-      alert('DNS servers cannot be empty');
-      return;
+      // Allow empty array for blank DNS servers
+      dnsServersArray = [];
     }
 
     url = `http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}/update-dns`;

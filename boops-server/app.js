@@ -144,39 +144,6 @@ app.put('/api/interfaces/:machineId/:interfaceName', async (req, res) => {
   }
 });
 
-// PUT update subnet mask for a specific interface
-app.put('/api/interfaces/:machineId/:interfaceName/update-subnet-mask', async (req, res) => {
-  const machineId = req.params.machineId;
-  const interfaceName = req.params.interfaceName;
-  const { subnet_mask } = req.body;
-
-  // Validate UUID format for machine ID
-  if (!/^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/.test(machineId)) {
-    return res.status(400).json({ error: 'Invalid machine UUID format' });
-  }
-
-  // Validate subnet mask
-  if (typeof subnet_mask !== 'string' || !subnet_mask.trim()) {
-    return res.status(400).json({ error: 'Subnet mask must be a non-empty string' });
-  }
-
-  try {
-    await db.query(
-      'UPDATE interfaces SET subnet_mask = ? WHERE machine_id = ? AND name = ?',
-      [subnet_mask, machineId, interfaceName]
-    );
-
-    // Check if any rows were affected
-    const [result] = await db.query('SELECT ROW_COUNT() AS count');
-    if (result[0].count > 0) {
-      res.json({ message: 'Subnet mask updated' });
-    } else {
-      res.status(404).json({ error: 'Interface not found for this machine' });
-    }
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // PUT update gateway for a specific interface
 app.put('/api/interfaces/:machineId/:interfaceName/update-gateway', async (req, res) => {
@@ -189,15 +156,11 @@ app.put('/api/interfaces/:machineId/:interfaceName/update-gateway', async (req, 
     return res.status(400).json({ error: 'Invalid machine UUID format' });
   }
 
-  // Validate gateway
-  if (typeof gateway !== 'string' || !gateway.trim()) {
-    return res.status(400).json({ error: 'Gateway must be a non-empty string' });
-  }
-
+  // Remove validation for empty gateways
   try {
     await db.query(
       'UPDATE interfaces SET gateway = ? WHERE machine_id = ? AND name = ?',
-      [gateway, machineId, interfaceName]
+      [gateway || '', machineId, interfaceName]
     );
 
     // Check if any rows were affected
@@ -223,15 +186,14 @@ app.put('/api/interfaces/:machineId/:interfaceName/update-dns', async (req, res)
     return res.status(400).json({ error: 'Invalid machine UUID format' });
   }
 
-  // Validate DNS servers
-  if (!Array.isArray(dns_servers) || dns_servers.length === 0) {
-    return res.status(400).json({ error: 'DNS servers must be a non-empty array of strings' });
-  }
-
+  // Remove validation for empty DNS servers
   try {
+    const dnsString = Array.isArray(dns_servers) && dns_servers.length > 0 ?
+                      dns_servers.join(', ') :
+                      '';
     await db.query(
       'UPDATE interfaces SET dns_servers = ? WHERE machine_id = ? AND name = ?',
-      [dns_servers.join(', '), machineId, interfaceName]
+      [dnsString, machineId, interfaceName]
     );
 
     // Check if any rows were affected
@@ -280,39 +242,6 @@ app.put('/api/interfaces/:machineId/:interfaceName/update-subnet-mask', async (r
   }
 });
 
-// PUT update gateway for a specific interface
-app.put('/api/interfaces/:machineId/:interfaceName/update-gateway', async (req, res) => {
-  const machineId = req.params.machineId;
-  const interfaceName = req.params.interfaceName;
-  const { gateway } = req.body;
-
-  // Validate UUID format for machine ID
-  if (!/^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/.test(machineId)) {
-    return res.status(400).json({ error: 'Invalid machine UUID format' });
-  }
-
-  // Validate gateway
-  if (typeof gateway !== 'string' || !gateway.trim()) {
-    return res.status(400).json({ error: 'Gateway must be a non-empty string' });
-  }
-
-  try {
-    await db.query(
-      'UPDATE interfaces SET gateway = ? WHERE machine_id = ? AND name = ?',
-      [gateway, machineId, interfaceName]
-    );
-
-    // Check if any rows were affected
-    const [result] = await db.query('SELECT ROW_COUNT() AS count');
-    if (result[0].count > 0) {
-      res.json({ message: 'Gateway updated' });
-    } else {
-      res.status(404).json({ error: 'Interface not found for this machine' });
-    }
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // DELETE machine and interfaces
 app.delete('/api/machines/:id', async (req, res) => {
