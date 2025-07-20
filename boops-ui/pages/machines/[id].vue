@@ -143,7 +143,7 @@
           <template v-if="interfaceData">
             <tr>
               <th>Subnet Mask:</th>
-              <template v-if="isEditingSubnet">
+              <template v-if="isEditingSubnet[name]">
                 <td>
                   <input v-model="interfaceData.subnet" />
                   <button @click="saveNetworkSetting(name, 'subnet')">Save</button>
@@ -158,7 +158,7 @@
             </tr>
             <tr>
               <th>Gateway:</th>
-              <template v-if="isEditingGateway">
+              <template v-if="isEditingGateway[name]">
                 <td>
                   <input v-model="interfaceData.gateway" />
                   <button @click="saveNetworkSetting(name, 'gateway')">Save</button>
@@ -173,7 +173,7 @@
             </tr>
             <tr>
               <th>DNS Servers:</th>
-              <template v-if="isEditingDns">
+              <template v-if="isEditingDns[name]">
                 <td>
                   <input v-model="interfaceData.dns_servers" />
                   <button @click="saveNetworkSetting(name, 'dns')">Save</button>
@@ -182,7 +182,7 @@
               </template>
               <template v-else>
                 <td>{{ interfaceData.dns_servers.join(', ') }}
-                  <button @click="editDns">Edit</button>
+                  <button @click="editDns(name)">Edit</button>
                 </td>
               </template>
             </tr>
@@ -201,9 +201,9 @@ const route = useRoute();
 const machine = ref(null);
 const isEditingMemo = ref(false);
 const isEditingIp = ref({});
-const isEditingSubnet = ref(false);
-const isEditingGateway = ref(false);
-const isEditingDns = ref(false);
+const isEditingSubnet = ref({});
+const isEditingGateway = ref({});
+const isEditingDns = ref({});
 
 function editIp(interfaceName) {
   isEditingIp.value[interfaceName] = true;
@@ -222,15 +222,15 @@ function cancelEditIp(interfaceName) {
 }
 
 function editSubnet(interfaceName) {
-  isEditingSubnet.value = true;
+  isEditingSubnet.value[interfaceName] = true;
 }
 
 function editGateway(interfaceName) {
-  isEditingGateway.value = true;
+  isEditingGateway.value[interfaceName] = true;
 }
 
-function editDns() {
-  isEditingDns.value = true;
+function editDns(interfaceName) {
+  isEditingDns.value[interfaceName] = true;
 }
 
 async function saveNetworkSetting(interfaceName, settingType) {
@@ -250,23 +250,45 @@ async function saveNetworkSetting(interfaceName, settingType) {
 
   } else if (settingType === 'subnet') {
     // Update subnet mask
+    if (!interfaceData.subnet) {
+      alert('Subnet mask cannot be empty');
+      return;
+    }
+
     url = `http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}/update-subnet-mask`;
     body = { subnet_mask: interfaceData.subnet };
 
   } else if (settingType === 'gateway') {
     // Update gateway
+    if (!interfaceData.gateway) {
+      alert('Gateway cannot be empty');
+      return;
+    }
+
     url = `http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}/update-gateway`;
     body = { gateway: interfaceData.gateway };
 
   } else if (settingType === 'dns') {
     // Update DNS servers
-    if (!Array.isArray(interfaceData.dns_servers) || interfaceData.dns_servers.length === 0) {
+    let dnsServersArray;
+    if (typeof interfaceData.dns_servers === 'string' && interfaceData.dns_servers.trim()) {
+      // Convert comma-separated string to array of trimmed values
+      dnsServersArray = interfaceData.dns_servers.split(',').map(s => s.trim());
+    } else if (Array.isArray(interfaceData.dns_servers)) {
+      dnsServersArray = interfaceData.dns_servers;
+    } else {
+      alert('DNS servers cannot be empty');
+      return;
+    }
+
+    // Make sure array is not empty
+    if (dnsServersArray.length === 0) {
       alert('DNS servers cannot be empty');
       return;
     }
 
     url = `http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}/update-dns`;
-    body = { dns_servers: interfaceData.dns_servers };
+    body = { dns_servers: dnsServersArray };
   }
 
   try {
@@ -285,12 +307,12 @@ async function saveNetworkSetting(interfaceName, settingType) {
     // Reset editing state based on setting type
     if (settingType === 'ip') {
       isEditingIp.value[interfaceName] = false;
-      isEditingSubnet.value = false;
-      isEditingGateway.value = false;
     } else if (settingType === 'subnet') {
-      isEditingSubnet.value = false;
+      isEditingSubnet.value[interfaceName] = false;
     } else if (settingType === 'gateway') {
-      isEditingGateway.value = false;
+      isEditingGateway.value[interfaceName] = false;
+    } else if (settingType === 'dns') {
+      isEditingDns.value[interfaceName] = false;
     }
 
   } catch (err) {
@@ -301,11 +323,11 @@ async function saveNetworkSetting(interfaceName, settingType) {
 
 function cancelEditNetwork(interfaceName, settingType) {
   if (settingType === 'subnet') {
-    isEditingSubnet.value = false;
+    isEditingSubnet.value[interfaceName] = false;
   } else if (settingType === 'gateway') {
-    isEditingGateway.value = false;
+    isEditingGateway.value[interfaceName] = false;
   } else if (settingType === 'dns') {
-    isEditingDns.value = false;
+    isEditingDns.value[interfaceName] = false;
   }
 
   // Reload current values from server
