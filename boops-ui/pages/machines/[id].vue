@@ -62,7 +62,8 @@
           <template v-if="isEditingMemo">
             <td>
               <textarea v-model="machine.memo" rows="3"></textarea>
-              <button @click="updateMemo">Save</button>
+              <button @click="updateMemo" :disabled="isUpdatingMemo">Save</button>
+              <span v-if="isUpdatingMemo">Saving...</span>
               <button @click="cancelEditMemo">Cancel</button>
             </td>
           </template>
@@ -84,7 +85,8 @@
             <th>IP Address:</th>
             <td>
               <input v-model="interfaceData.ip" />
-              <button @click="saveNetworkSetting(name, 'ip')">Save</button>
+              <button @click="saveNetworkSetting(name, 'ip')" :disabled="isLoadingIp[name]">Save</button>
+              <span v-if="isLoadingIp[name]">Saving...</span>
               <button @click="cancelEditIp(name)">Cancel</button>
             </td>
           </tr>
@@ -95,10 +97,11 @@
           <template v-if="interfaceData">
             <tr>
               <th>Subnet Mask:</th>
-              <template v-if="isEditingSubnet">
+              <template v-if="isEditingSubnet[name]">
                 <td>
                   <input v-model="interfaceData.subnet" />
-                  <button @click="saveNetworkSetting(name, 'subnet')">Save</button>
+                  <button @click="saveNetworkSetting(name, 'subnet')" :disabled="isLoadingSubnet[name]">Save</button>
+                  <span v-if="isLoadingSubnet[name]">Saving...</span>
                   <button @click="cancelEditNetwork(name, 'subnet')">Cancel</button>
                 </td>
               </template>
@@ -110,16 +113,33 @@
             </tr>
             <tr>
               <th>Gateway:</th>
-              <template v-if="isEditingGateway">
+              <template v-if="isEditingGateway[name]">
                 <td>
                   <input v-model="interfaceData.gateway" />
-                  <button @click="saveNetworkSetting(name, 'gateway')">Save</button>
+                  <button @click="saveNetworkSetting(name, 'gateway')" :disabled="isLoadingGateway[name]">Save</button>
+                  <span v-if="isLoadingGateway[name]">Saving...</span>
                   <button @click="cancelEditNetwork(name, 'gateway')">Cancel</button>
                 </td>
               </template>
               <template v-else>
                 <td>{{ interfaceData.gateway || 'N/A' }}
                   <button @click="editGateway(name)">Edit</button>
+                </td>
+              </template>
+            </tr>
+            <tr>
+              <th>DNS Servers:</th>
+              <template v-if="isEditingDns[name]">
+                <td>
+                  <input v-model="interfaceData.dns_servers" />
+                  <button @click="saveNetworkSetting(name, 'dns')" :disabled="isLoadingDns[name]">Save</button>
+                  <span v-if="isLoadingDns[name]">Saving...</span>
+                  <button @click="cancelEditNetwork(name, 'dns')">Cancel</button>
+                </td>
+              </template>
+              <template v-else>
+                <td>{{ interfaceData.dns_servers.join(', ') }}
+                  <button @click="editDns(name)">Edit</button>
                 </td>
               </template>
             </tr>
@@ -146,7 +166,8 @@
               <template v-if="isEditingSubnet[name]">
                 <td>
                   <input v-model="interfaceData.subnet" />
-                  <button @click="saveNetworkSetting(name, 'subnet')">Save</button>
+                  <button @click="saveNetworkSetting(name, 'subnet')" :disabled="isLoadingSubnet[name]">Save</button>
+                  <span v-if="isLoadingSubnet[name]">Saving...</span>
                   <button @click="cancelEditNetwork(name, 'subnet')">Cancel</button>
                 </td>
               </template>
@@ -161,7 +182,8 @@
               <template v-if="isEditingGateway[name]">
                 <td>
                   <input v-model="interfaceData.gateway" />
-                  <button @click="saveNetworkSetting(name, 'gateway')">Save</button>
+                  <button @click="saveNetworkSetting(name, 'gateway')" :disabled="isLoadingGateway[name]">Save</button>
+                  <span v-if="isLoadingGateway[name]">Saving...</span>
                   <button @click="cancelEditNetwork(name, 'gateway')">Cancel</button>
                 </td>
               </template>
@@ -176,7 +198,8 @@
               <template v-if="isEditingDns[name]">
                 <td>
                   <input v-model="interfaceData.dns_servers" />
-                  <button @click="saveNetworkSetting(name, 'dns')">Save</button>
+                  <button @click="saveNetworkSetting(name, 'dns')" :disabled="isLoadingDns[name]">Save</button>
+                  <span v-if="isLoadingDns[name]">Saving...</span>
                   <button @click="cancelEditNetwork(name, 'dns')">Cancel</button>
                 </td>
               </template>
@@ -200,10 +223,15 @@ import { useRoute } from 'vue-router';
 const route = useRoute();
 const machine = ref(null);
 const isEditingMemo = ref(false);
+const isUpdatingMemo = ref(false); // New loading state for memo
 const isEditingIp = ref({});
+const isLoadingIp = ref({}); // Loading state for IP
 const isEditingSubnet = ref({});
+const isLoadingSubnet = ref({}); // Loading state for subnet
 const isEditingGateway = ref({});
+const isLoadingGateway = ref({}); // Loading state for gateway
 const isEditingDns = ref({});
+const isLoadingDns = ref({}); // Loading state for DNS
 
 function editIp(interfaceName) {
   isEditingIp.value[interfaceName] = true;
@@ -238,49 +266,61 @@ async function saveNetworkSetting(interfaceName, settingType) {
   let url = '';
   let body = {};
 
+  // Set loading state to true for the specific setting
   if (settingType === 'ip') {
-    // Update IP address
-    if (!interfaceData.ip) {
-      alert('IP address cannot be empty');
-      return;
-    }
-
-    url = `http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}`;
-    body = { ip_address: interfaceData.ip };
-
+    isLoadingIp.value[interfaceName] = true;
   } else if (settingType === 'subnet') {
-    // Update subnet mask
-    if (!interfaceData.subnet) {
-      alert('Subnet mask cannot be empty');
-      return;
-    }
-
-    url = `http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}/update-subnet-mask`;
-    body = { subnet_mask: interfaceData.subnet };
-
+    isLoadingSubnet.value[interfaceName] = true;
   } else if (settingType === 'gateway') {
-    // Update gateway - Allow empty values
-    url = `http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}/update-gateway`;
-    body = { gateway: interfaceData.gateway };
-
+    isLoadingGateway.value[interfaceName] = true;
   } else if (settingType === 'dns') {
-    // Update DNS servers - Allow empty values
-    let dnsServersArray;
-    if (typeof interfaceData.dns_servers === 'string' && interfaceData.dns_servers.trim()) {
-      // Convert comma-separated string to array of trimmed values
-      dnsServersArray = interfaceData.dns_servers.split(',').map(s => s.trim());
-    } else if (Array.isArray(interfaceData.dns_servers)) {
-      dnsServersArray = interfaceData.dns_servers;
-    } else {
-      // Allow empty array for blank DNS servers
-      dnsServersArray = [];
-    }
-
-    url = `http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}/update-dns`;
-    body = { dns_servers: dnsServersArray };
+    isLoadingDns.value[interfaceName] = true;
   }
 
   try {
+    // Set up request based on setting type
+    if (settingType === 'ip') {
+      // Update IP address
+      if (!interfaceData.ip) {
+        alert('IP address cannot be empty');
+        return;
+      }
+
+      url = `http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}`;
+      body = { ip_address: interfaceData.ip };
+
+    } else if (settingType === 'subnet') {
+      // Update subnet mask
+      if (!interfaceData.subnet) {
+        alert('Subnet mask cannot be empty');
+        return;
+      }
+
+      url = `http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}/update-subnet-mask`;
+      body = { subnet_mask: interfaceData.subnet };
+
+    } else if (settingType === 'gateway') {
+      // Update gateway - Allow empty values
+      url = `http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}/update-gateway`;
+      body = { gateway: interfaceData.gateway };
+
+    } else if (settingType === 'dns') {
+      // Update DNS servers - Allow empty values
+      let dnsServersArray;
+      if (typeof interfaceData.dns_servers === 'string' && interfaceData.dns_servers.trim()) {
+        // Convert comma-separated string to array of trimmed values
+        dnsServersArray = interfaceData.dns_servers.split(',').map(s => s.trim());
+      } else if (Array.isArray(interfaceData.dns_servers)) {
+        dnsServersArray = interfaceData.dns_servers;
+      } else {
+        // Allow empty array for blank DNS servers
+        dnsServersArray = [];
+      }
+
+      url = `http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}/update-dns`;
+      body = { dns_servers: dnsServersArray };
+    }
+
     const response = await fetch(url, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -293,30 +333,48 @@ async function saveNetworkSetting(interfaceName, settingType) {
       return;
     }
 
-    // Reset editing state based on setting type
+    // Reset editing and loading states based on setting type
     if (settingType === 'ip') {
       isEditingIp.value[interfaceName] = false;
+      isLoadingIp.value[interfaceName] = false;
     } else if (settingType === 'subnet') {
       isEditingSubnet.value[interfaceName] = false;
+      isLoadingSubnet.value[interfaceName] = false;
     } else if (settingType === 'gateway') {
       isEditingGateway.value[interfaceName] = false;
+      isLoadingGateway.value[interfaceName] = false;
     } else if (settingType === 'dns') {
       isEditingDns.value[interfaceName] = false;
+      isLoadingDns.value[interfaceName] = false;
     }
 
   } catch (err) {
     console.error(err);
     alert(`An error occurred while updating the ${settingType}`);
+
+    // Reset loading state on error
+    if (settingType === 'ip') {
+      isLoadingIp.value[interfaceName] = false;
+    } else if (settingType === 'subnet') {
+      isLoadingSubnet.value[interfaceName] = false;
+    } else if (settingType === 'gateway') {
+      isLoadingGateway.value[interfaceName] = false;
+    } else if (settingType === 'dns') {
+      isLoadingDns.value[interfaceName] = false;
+    }
   }
 }
 
 function cancelEditNetwork(interfaceName, settingType) {
   if (settingType === 'subnet') {
     isEditingSubnet.value[interfaceName] = false;
+    isLoadingSubnet.value[interfaceName] = false; // Reset loading state
   } else if (settingType === 'gateway') {
     isEditingGateway.value[interfaceName] = false;
+    isLoadingGateway.value[interfaceName] = false; // Reset loading state
   } else if (settingType === 'dns') {
     isEditingDns.value[interfaceName] = false;
+    isLoadingDns.value[interfaceName] = false; // Reset loading state
   }
 
   // Reload current values from server
@@ -350,11 +408,15 @@ onMounted(async () => {
 });
 
 async function updateMemo() {
+  isUpdatingMemo.value = true; // Set loading state
+
   const response = await fetch(`http://localhost:3001/api/machines/${machine.value.id}/update-memo`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ memo: machine.value.memo })
   });
+
+  isUpdatingMemo.value = false; // Reset loading state
 
   if (response.ok) {
     isEditingMemo.value = false;
