@@ -21,10 +21,6 @@
           </td>
         </tr>
         <tr>
-          <th>DNS Servers:</th>
-          <td>{{ machine.interfaces[Object.keys(machine.interfaces)[0]].dns_servers ? machine.interfaces[Object.keys(machine.interfaces)[0]].dns_servers.join(', ') : 'N/A' }}</td>
-        </tr>
-        <tr>
           <th>CPU Info:</th>
           <td>{{ machine.cpu_info || 'N/A' }}</td>
         </tr>
@@ -40,46 +36,46 @@
           <th>Disk Info:</th>
           <td>{{ machine.disk_info || 'N/A' }}</td>
         </tr>
-      <tr>
-        <th>Is Virtual Machine:</th>
-        <td>{{ machine.is_virtual ? 'Yes' : 'No' }}</td>
-      </tr>
-      <tr>
-        <th>Purpose:</th>
-        <td>{{ machine.purpose || 'N/A' }}</td>
-      </tr>
-      <tr v-if="machine.is_virtual">
-        <th>Parent Machine ID:</th>
-        <td>
-          {{ machine.parent_machine_id || 'N/A' }}
-          <button @click="copyToClipboard(machine.parent_machine_id, $event)" class="copy-btn">Copy</button>
-        </td>
-      </tr>
-      <tr v-if="machine.is_virtual && machine.parent_machine_id">
-        <th>Parent Machine:</th>
-        <td>
-          <a :href="`/machines/${machine.parent_machine_id}`">{{ machine.parentHostname || machine.hostname || 'Unknown' }}</a>
-        </td>
-      </tr>
-      <tr>
-        <th>Memo:</th>
-        <template v-if="isEditingMemo">
+        <tr>
+          <th>Is Virtual Machine:</th>
+          <td>{{ machine.is_virtual ? 'Yes' : 'No' }}</td>
+        </tr>
+        <tr>
+          <th>Purpose:</th>
+          <td>{{ machine.purpose || 'N/A' }}</td>
+        </tr>
+        <tr v-if="machine.is_virtual">
+          <th>Parent Machine ID:</th>
           <td>
-            <textarea v-model="machine.memo" rows="3"></textarea>
-            <button @click="updateMemo">Save</button>
-            <button @click="cancelEditMemo">Cancel</button>
+            {{ machine.parent_machine_id || 'N/A' }}
+            <button @click="copyToClipboard(machine.parent_machine_id, $event)" class="copy-btn">Copy</button>
           </td>
-        </template>
-        <template v-else>
-          <td>{{ machine.memo || 'N/A' }}
-            <button @click="enableEditMemo">Edit</button>
+        </tr>
+        <tr v-if="machine.is_virtual && machine.parent_machine_id">
+          <th>Parent Machine:</th>
+          <td>
+            <a :href="`/machines/${machine.parent_machine_id}`">{{ machine.parentHostname || machine.hostname || 'Unknown' }}</a>
           </td>
-        </template>
-      </tr>
-    </table>
-  </section>
+        </tr>
+        <tr>
+          <th>Memo:</th>
+          <template v-if="isEditingMemo">
+            <td>
+              <textarea v-model="machine.memo" rows="3"></textarea>
+              <button @click="updateMemo">Save</button>
+              <button @click="cancelEditMemo">Cancel</button>
+            </td>
+          </template>
+          <template v-else>
+            <td>{{ machine.memo || 'N/A' }}
+              <button @click="enableEditMemo">Edit</button>
+            </td>
+          </template>
+        </tr>
+      </table>
+    </section>
 
-    <!-- Interfaces -->
+      <!-- Interfaces -->
     <section v-for="(interfaceData, name) in machine.interfaces" :key="name">
       <h2>Interface: {{ name }}</h2>
       <template v-if="isEditingIp[name]">
@@ -88,7 +84,7 @@
             <th>IP Address:</th>
             <td>
               <input v-model="interfaceData.ip" />
-              <button @click="saveIpChange(name)">Save</button>
+              <button @click="saveNetworkSetting(name, 'ip')">Save</button>
               <button @click="cancelEditIp(name)">Cancel</button>
             </td>
           </tr>
@@ -96,14 +92,38 @@
             <th>MAC Address:</th>
             <td>{{ interfaceData.mac_address || 'N/A' }}</td>
           </tr>
-          <tr>
-            <th>Subnet Mask:</th>
-            <td>{{ interfaceData.subnet_mask || 'N/A' }}</td>
-          </tr>
-          <tr>
-            <th>Gateway:</th>
-            <td>{{ interfaceData.gateway || 'N/A' }}</td>
-          </tr>
+          <template v-if="interfaceData">
+            <tr>
+              <th>Subnet Mask:</th>
+              <template v-if="isEditingSubnet">
+                <td>
+                  <input v-model="interfaceData.subnet" />
+                  <button @click="saveNetworkSetting(name, 'subnet')">Save</button>
+                  <button @click="cancelEditNetwork(name, 'subnet')">Cancel</button>
+                </td>
+              </template>
+              <template v-else>
+                <td>{{ interfaceData.subnet || 'N/A' }}
+                  <button @click="editSubnet(name)">Edit</button>
+                </td>
+              </template>
+            </tr>
+            <tr>
+              <th>Gateway:</th>
+              <template v-if="isEditingGateway">
+                <td>
+                  <input v-model="interfaceData.gateway" />
+                  <button @click="saveNetworkSetting(name, 'gateway')">Save</button>
+                  <button @click="cancelEditNetwork(name, 'gateway')">Cancel</button>
+                </td>
+              </template>
+              <template v-else>
+                <td>{{ interfaceData.gateway || 'N/A' }}
+                  <button @click="editGateway(name)">Edit</button>
+                </td>
+              </template>
+            </tr>
+          </template>
         </table>
       </template>
       <template v-else>
@@ -111,7 +131,7 @@
           <tr>
             <th>IP Address:</th>
             <td>
-              {{ interfaceData.ip }}
+              {{ interfaceData.ip || 'N/A' }}
               <button @click="copyToClipboard(interfaceData.ip, $event)" class="copy-btn">Copy</button>
               <button @click="editIp(name)">Edit</button>
             </td>
@@ -120,14 +140,42 @@
             <th>MAC Address:</th>
             <td>{{ interfaceData.mac_address || 'N/A' }}</td>
           </tr>
-          <tr>
-            <th>Subnet Mask:</th>
-            <td>{{ interfaceData.subnet_mask || 'N/A' }}</td>
-          </tr>
-          <tr>
-            <th>Gateway:</th>
-            <td>{{ interfaceData.gateway || 'N/A' }}</td>
-          </tr>
+          <template v-if="interfaceData">
+            <tr>
+              <th>Subnet Mask:</th>
+              <template v-if="isEditingSubnet">
+                <td>
+                  <input v-model="interfaceData.subnet" />
+                  <button @click="saveNetworkSetting(name, 'subnet')">Save</button>
+                  <button @click="cancelEditNetwork(name, 'subnet')">Cancel</button>
+                </td>
+              </template>
+              <template v-else>
+                <td>{{ interfaceData.subnet || 'N/A' }}
+                  <button @click="editSubnet(name)">Edit</button>
+                </td>
+              </template>
+            </tr>
+            <tr>
+              <th>Gateway:</th>
+              <template v-if="isEditingGateway">
+                <td>
+                  <input v-model="interfaceData.gateway" />
+                  <button @click="saveNetworkSetting(name, 'gateway')">Save</button>
+                  <button @click="cancelEditNetwork(name, 'gateway')">Cancel</button>
+                </td>
+              </template>
+              <template v-else>
+                <td>{{ interfaceData.gateway || 'N/A' }}
+                  <button @click="editGateway(name)">Edit</button>
+                </td>
+              </template>
+            </tr>
+            <tr>
+              <th>DNS Severs:</th>
+              <td>{{ interfaceData.dns_servers.join(', ') }}</td>
+            </tr>
+          </template>
         </table>
       </template>
     </section>
@@ -142,40 +190,103 @@ const route = useRoute();
 const machine = ref(null);
 const isEditingMemo = ref(false);
 const isEditingIp = ref({});
+const isEditingSubnet = ref(false);
+const isEditingGateway = ref(false);
 
 function editIp(interfaceName) {
   isEditingIp.value[interfaceName] = true;
 }
 
-async function saveIpChange(interfaceName) {
+function cancelEditIp(interfaceName) {
+  isEditingIp.value[interfaceName] = false;
+
+  // Reload current values from server
+  fetch(`http://localhost:3001/api/machines/${route.params.id}`)
+    .then(response => response.json())
+    .then(data => {
+      machine.value.interfaces[interfaceName] = data.interfaces[interfaceName];
+    })
+    .catch(err => console.error(err));
+}
+
+function editSubnet(interfaceName) {
+  isEditingSubnet.value = true;
+}
+
+function editGateway(interfaceName) {
+  isEditingGateway.value = true;
+}
+
+async function saveNetworkSetting(interfaceName, settingType) {
   const interfaceData = machine.value.interfaces[interfaceName];
-  if (!interfaceData.ip) {
-    alert('IP address cannot be empty');
-    return;
+  let url = '';
+  let body = {};
+
+  if (settingType === 'ip') {
+    // Update IP address
+    if (!interfaceData.ip) {
+      alert('IP address cannot be empty');
+      return;
+    }
+
+    url = `http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}`;
+    body = { ip_address: interfaceData.ip };
+
+  } else if (settingType === 'subnet') {
+    // Update subnet mask
+    url = `http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}/update-subnet-mask`;
+    body = { subnet_mask: interfaceData.subnet };
+
+  } else if (settingType === 'gateway') {
+    // Update gateway
+    url = `http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}/update-gateway`;
+    body = { gateway: interfaceData.gateway };
   }
 
   try {
-    const response = await fetch(`http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}`, {
+    const response = await fetch(url, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ip_address: interfaceData.ip })
+      body: JSON.stringify(body)
     });
 
-    if (response.ok) {
-      isEditingIp.value[interfaceName] = false;
-      alert('IP address updated successfully');
-    } else {
+    if (!response.ok) {
       const errorData = await response.json();
-      alert(`Failed to update IP address: ${errorData.error || 'Unknown error'}`);
+      alert(`Failed to update ${settingType}: ${errorData.error || 'Unknown error'}`);
+      return;
     }
+
+    // Reset editing state based on setting type
+    if (settingType === 'ip') {
+      isEditingIp.value[interfaceName] = false;
+      isEditingSubnet.value = false;
+      isEditingGateway.value = false;
+    } else if (settingType === 'subnet') {
+      isEditingSubnet.value = false;
+    } else if (settingType === 'gateway') {
+      isEditingGateway.value = false;
+    }
+
   } catch (err) {
     console.error(err);
-    alert('An error occurred while updating the IP address');
+    alert(`An error occurred while updating the ${settingType}`);
   }
 }
 
-function cancelEditIp(interfaceName) {
-  isEditingIp.value[interfaceName] = false;
+function cancelEditNetwork(interfaceName, settingType) {
+  if (settingType === 'subnet') {
+    isEditingSubnet.value = false;
+  } else {
+    isEditingGateway.value = false;
+  }
+
+  // Reload current values from server
+  fetch(`http://localhost:3001/api/machines/${route.params.id}`)
+    .then(response => response.json())
+    .then(data => {
+      machine.value.interfaces[interfaceName] = data.interfaces[interfaceName];
+    })
+    .catch(err => console.error(err));
 }
 
 onMounted(async () => {
