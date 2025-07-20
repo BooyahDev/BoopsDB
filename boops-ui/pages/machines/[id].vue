@@ -78,7 +78,17 @@
 
       <!-- Interfaces -->
     <section v-for="(interfaceData, name) in machine.interfaces" :key="name">
-      <h2>Interface: {{ name }}</h2>
+      <h2 v-if="isEditingName[name]">
+        Interface Name:
+        <input v-model="interfaceData.name" />
+        <button @click="saveInterfaceName(name)" :disabled="isLoadingName[name]">Save</button>
+        <span v-if="isLoadingName[name]">Saving...</span>
+        <button @click="cancelEditInterfaceName(name)">Cancel</button>
+      </h2>
+      <h2 v-else>
+        Interface: {{ name }}
+        <button @click="editInterfaceName(name)">Edit</button>
+      </h2>
       <template v-if="isEditingIp[name]">
         <table>
           <tr>
@@ -232,6 +242,8 @@ const isEditingGateway = ref({});
 const isLoadingGateway = ref({}); // Loading state for gateway
 const isEditingDns = ref({});
 const isLoadingDns = ref({}); // Loading state for DNS
+const isEditingName = ref({}); // New state for editing interface name
+const isLoadingName = ref({}); // New loading state for interface name
 
 function editIp(interfaceName) {
   isEditingIp.value[interfaceName] = true;
@@ -259,6 +271,10 @@ function editGateway(interfaceName) {
 
 function editDns(interfaceName) {
   isEditingDns.value[interfaceName] = true;
+}
+
+function editInterfaceName(interfaceName) { // New function to enable editing interface name
+  isEditingName.value[interfaceName] = true;
 }
 
 async function saveNetworkSetting(interfaceName, settingType) {
@@ -365,6 +381,38 @@ async function saveNetworkSetting(interfaceName, settingType) {
   }
 }
 
+async function saveInterfaceName(interfaceName) { // New function to save interface name
+  const newName = machine.value.interfaces[interfaceName].name;
+
+  // Set loading state to true
+  isLoadingName.value[interfaceName] = true;
+
+  try {
+    const response = await fetch(`http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}/update-name`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newName })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      alert(`Failed to update interface name: ${errorData.error || 'Unknown error'}`);
+      return;
+    }
+
+    // Reset editing and loading states
+    isEditingName.value[interfaceName] = false;
+    isLoadingName.value[interfaceName] = false;
+
+  } catch (err) {
+    console.error(err);
+    alert('An error occurred while updating the interface name');
+
+    // Reset loading state on error
+    isLoadingName.value[interfaceName] = false;
+  }
+}
+
 function cancelEditNetwork(interfaceName, settingType) {
   if (settingType === 'subnet') {
     isEditingSubnet.value[interfaceName] = false;
@@ -376,6 +424,18 @@ function cancelEditNetwork(interfaceName, settingType) {
     isEditingDns.value[interfaceName] = false;
     isLoadingDns.value[interfaceName] = false; // Reset loading state
   }
+
+  // Reload current values from server
+  fetch(`http://localhost:3001/api/machines/${route.params.id}`)
+    .then(response => response.json())
+    .then(data => {
+      machine.value.interfaces[interfaceName] = data.interfaces[interfaceName];
+    })
+    .catch(err => console.error(err));
+}
+
+function cancelEditInterfaceName(interfaceName) { // New function to cancel editing interface name
+  isEditingName.value[interfaceName] = false;
 
   // Reload current values from server
   fetch(`http://localhost:3001/api/machines/${route.params.id}`)

@@ -208,6 +208,40 @@ app.put('/api/interfaces/:machineId/:interfaceName/update-dns', async (req, res)
   }
 });
 
+// PUT update interface name
+app.put('/api/interfaces/:machineId/:interfaceName/update-name', async (req, res) => {
+  const machineId = req.params.machineId;
+  const oldInterfaceName = req.params.interfaceName;
+  const { name } = req.body;
+
+  // Validate UUID format for machine ID
+  if (!/^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/.test(machineId)) {
+    return res.status(400).json({ error: 'Invalid machine UUID format' });
+  }
+
+  // Validate that name is provided
+  if (typeof name !== 'string' || !name.trim()) {
+    return res.status(400).json({ error: 'Interface name must be a non-empty string' });
+  }
+
+  try {
+    await db.query(
+      'UPDATE interfaces SET name = ? WHERE machine_id = ? AND name = ?',
+      [name, machineId, oldInterfaceName]
+    );
+
+    // Check if any rows were affected
+    const [result] = await db.query('SELECT ROW_COUNT() AS count');
+    if (result[0].count > 0) {
+      res.json({ message: 'Interface name updated' });
+    } else {
+      res.status(404).json({ error: 'Interface not found for this machine' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PUT update subnet mask for a specific interface
 app.put('/api/interfaces/:machineId/:interfaceName/update-subnet-mask', async (req, res) => {
   const machineId = req.params.machineId;
