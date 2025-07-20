@@ -74,6 +74,57 @@ app.post('/api/machines', async (req, res) => {
   }
 });
 
+// POST add new interface to a machine
+app.post('/api/machines/:id/interfaces', async (req, res) => {
+  const machineId = req.params.id;
+  const { name, ip_address, subnet_mask, gateway, dns_servers, mac_address } = req.body;
+
+  // Validate UUID format for machine ID
+  if (!/^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/.test(machineId)) {
+    return res.status(400).json({ error: 'Invalid machine UUID format' });
+  }
+
+  // Validate required fields
+  if (!name || !ip_address) {
+    return res.status(400).json({ error: 'Interface name and IP address are required' });
+  }
+
+  try {
+    // Check if machine exists
+    const [machine] = await db.query('SELECT id FROM machines WHERE id = ?', [machineId]);
+    if (machine.length === 0) {
+      return res.status(404).json({ error: 'Machine not found' });
+    }
+
+    // Check if interface with this name already exists
+    const [existingInterface] = await db.query(
+      'SELECT id FROM interfaces WHERE machine_id = ? AND name = ?',
+      [machineId, name]
+    );
+    if (existingInterface.length > 0) {
+      return res.status(400).json({ error: 'Interface with this name already exists' });
+    }
+
+    // Insert new interface
+    await db.query(
+      'INSERT INTO interfaces (machine_id, name, ip_address, subnet_mask, gateway, dns_servers, mac_address) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [
+        machineId,
+        name,
+        ip_address,
+        subnet_mask || '',
+        gateway || '',
+        Array.isArray(dns_servers) ? dns_servers.join(',') : '',
+        mac_address || ''
+      ]
+    );
+
+    res.json({ message: 'Interface added successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PUT update machine with interfaces
 app.put('/api/machines/:id', async (req, res) => {
   const machineId = req.params.id;

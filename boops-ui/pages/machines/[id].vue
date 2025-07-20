@@ -223,6 +223,41 @@
         </table>
       </template>
     </section>
+
+    <!-- 新しいインターフェイス追加セクション -->
+    <section>
+      <h2>Add New Interface</h2>
+      <div class="add-interface-form">
+        <div>
+          <label>Name:</label>
+          <input v-model="newInterface.name" placeholder="eth0" />
+        </div>
+        <div>
+          <label>IP Address:</label>
+          <input v-model="newInterface.ip_address" placeholder="192.168.1.100" />
+        </div>
+        <div>
+          <label>Subnet Mask:</label>
+          <input v-model="newInterface.subnet_mask" placeholder="255.255.255.0" />
+        </div>
+        <div>
+          <label>Gateway:</label>
+          <input v-model="newInterface.gateway" placeholder="192.168.1.1" />
+        </div>
+        <div>
+          <label>DNS Servers (comma separated):</label>
+          <input v-model="newInterface.dns_servers" placeholder="8.8.8.8, 8.8.4.4" />
+        </div>
+        <div>
+          <label>MAC Address:</label>
+          <input v-model="newInterface.mac_address" placeholder="00:1A:2B:3C:4D:5E" />
+        </div>
+        <button @click="addNewInterface" :disabled="isAddingInterface">
+          {{ isAddingInterface ? 'Adding...' : 'Add Interface' }}
+        </button>
+        <span v-if="addInterfaceError" class="error">{{ addInterfaceError }}</span>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -244,6 +279,68 @@ const isEditingDns = ref({});
 const isLoadingDns = ref({}); // Loading state for DNS
 const isEditingName = ref({}); // New state for editing interface name
 const isLoadingName = ref({}); // New loading state for interface name
+
+const isAddingInterface = ref(false);
+const addInterfaceError = ref('');
+const newInterface = ref({
+  name: '',
+  ip_address: '',
+  subnet_mask: '',
+  gateway: '',
+  dns_servers: '',
+  mac_address: ''
+});
+
+// 新しいインターフェイスを追加する関数
+async function addNewInterface() {
+  if (!newInterface.value.name || !newInterface.value.ip_address) {
+    addInterfaceError.value = 'Name and IP address are required';
+    return;
+  }
+
+  isAddingInterface.value = true;
+  addInterfaceError.value = '';
+
+  try {
+    const response = await fetch(`http://localhost:3001/api/machines/${machine.value.id}/interfaces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: newInterface.value.name,
+        ip_address: newInterface.value.ip_address,
+        subnet_mask: newInterface.value.subnet_mask,
+        gateway: newInterface.value.gateway,
+        dns_servers: newInterface.value.dns_servers.split(',').map(s => s.trim()),
+        mac_address: newInterface.value.mac_address
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to add interface');
+    }
+
+    // 成功したらフォームをリセットし、マシンデータを再読み込み
+    newInterface.value = {
+      name: '',
+      ip_address: '',
+      subnet_mask: '',
+      gateway: '',
+      dns_servers: '',
+      mac_address: ''
+    };
+
+    // マシンデータを再読み込み
+    const updatedResponse = await fetch(`http://localhost:3001/api/machines/${route.params.id}`);
+    if (updatedResponse.ok) {
+      machine.value = await updatedResponse.json();
+    }
+  } catch (err) {
+    addInterfaceError.value = err.message;
+  } finally {
+    isAddingInterface.value = false;
+  }
+}
 
 function editIp(interfaceName) {
   isEditingIp.value[interfaceName] = true;
@@ -560,5 +657,55 @@ th {
 
 .copy-btn:hover {
   background-color: #0069d9;
+}
+
+.add-interface-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  padding: 1rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.add-interface-form div {
+  display: flex;
+  flex-direction: column;
+}
+
+.add-interface-form label {
+  font-weight: bold;
+  margin-bottom: 0.25rem;
+}
+
+.add-interface-form input {
+  padding: 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+}
+
+.add-interface-form button {
+  align-self: flex-start;
+  padding: 0.5rem 1rem;
+  background-color: #28a745;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.add-interface-form button:hover {
+  background-color: #218838;
+}
+
+.add-interface-form button:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+}
+
+.error {
+  color: #dc3545;
+  margin-top: 0.5rem;
 }
 </style>
