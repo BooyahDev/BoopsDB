@@ -119,7 +119,7 @@
       <h2 v-else>
         Interface: {{ name }}
         <button @click="editInterfaceName(name)">Edit</button>
-        <button @click="confirmDeleteInterface(name)" class="delete-btn">Delete</button>
+        <button @click="confirmDeleteInterface(name)">Delete</button>
       </h2>
       <template v-if="isEditingIp[name]">
         <table>
@@ -322,13 +322,29 @@
         </tr>
       </table>
     </section>
+
+    <div class="actions">
+      <button @click="confirmMachineDelete" class="delete-btn">Delete Machine</button>
+    </div>
+
+    <!-- 削除確認ダイアログ -->
+    <dialog ref="deleteDialog">
+      <p>本当にこのマシンを削除しますか？</p>
+      <p class="warning-text">この操作は元に戻せません！</p>
+      <div class="dialog-buttons">
+        <button @click="deleteMachine" class="confirm-btn">削除</button>
+        <button @click="cancelMachineDelete" class="cancel-btn">キャンセル</button>
+      </div>
+    </dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
+import { useRouter } from 'vue-router';
 
+const router = useRouter();
 const route = useRoute();
 const machine = ref(null);
 const isEditingMemo = ref(false);
@@ -365,11 +381,46 @@ const vmStatusEdit = ref({
   parent_machine_id: null
 });
 
-// 削除関連の新しいref
+// インターフェイス削除関連の新しいref
 const showDeleteModal = ref(false);
 const interfaceToDelete = ref('');
 const isDeletingInterface = ref(false);
 const deleteError = ref('');
+
+// マシンを削除関連
+const deleteDialog = ref(null);
+
+const isDeleting = ref(false);
+
+function confirmMachineDelete() {
+  deleteDialog.value.showModal();
+}
+
+function cancelMachineDelete() {
+  deleteDialog.value.close();
+}
+
+async function deleteMachine() {
+  isDeleting.value = true;
+  try {
+    const response = await fetch(`http://localhost:3001/api/machines/${machine.value.id}`, {
+      method: 'DELETE'
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to delete machine');
+    }
+
+    // 削除後はトップページに遷移
+    router.push('/');
+  } catch (err) {
+    console.error(err);
+    alert(err.message);
+  } finally {
+    isDeleting.value = false;
+    deleteDialog.value.close();
+  }
+}
 
 // インターフェイス削除を確認
 function confirmDeleteInterface(interfaceName) {
@@ -959,6 +1010,74 @@ th {
   color: white;
   border: none;
   padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.cancel-btn:hover {
+  background-color: #5a6268;
+}
+
+.actions {
+  margin-top: 2rem;
+  text-align: right;
+}
+
+.delete-btn {
+  background-color: #dc3545;
+  color: white;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.delete-btn:hover {
+  background-color: #c82333;
+}
+
+dialog {
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 1.5rem;
+  width: 400px;
+  max-width: 90%;
+}
+
+dialog::backdrop {
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+.warning-text {
+  color: #dc3545;
+  font-weight: bold;
+  margin: 1rem 0;
+}
+
+.dialog-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+}
+
+.confirm-btn {
+  background-color: #dc3545;
+  color: white;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.confirm-btn:hover {
+  background-color: #c82333;
+}
+
+.cancel-btn {
+  background-color: #6c757d;
+  color: white;
+  padding: 0.5rem 1rem;
+  border: none;
   border-radius: 4px;
   cursor: pointer;
 }
