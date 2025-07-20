@@ -15,10 +15,10 @@
           <tr>
             <th>Hostname</th>
             <th>IP Address</th>
-            <th>OS Name</th>
+            <!-- <th>OS Name</th> -->
             <th>Purpose</th>
-            <th>Is Virtual Machine</th>
-            <th>Parent ID</th>
+            <!-- <th>Is Virtual Machine</th> -->
+            <!-- <th>Parent ID</th> -->
             <th>Status</th>
             <th>Details</th>
           </tr>
@@ -29,15 +29,16 @@
             <td>
               <ul class="ip-list">
             <li v-for="(interfaceData, name) in machine.interfaces" :key="name">
-              {{ interfaceData.ip }} ({{ interfaceData.mac_address || 'N/A' }})
+              {{ interfaceData.ip }} 
+              <!-- ({{ interfaceData.mac_address || 'N/A' }}) -->
                 </li>
               </ul>
             </td>
-            <td>{{ machine.os_name || 'Unknown' }}</td>
+            <!-- <td>{{ machine.os_name || 'Unknown' }}</td> -->
             <td>{{ machine.purpose || 'N/A' }}</td>
-            <td>{{ machine.is_virtual ? 'Yes' : 'No' }}</td>
+            <!-- <td>{{ machine.is_virtual ? 'Yes' : 'No' }}</td>
             <td v-if="machine.is_virtual">{{ machine.parent_machine_id || 'None' }}</td>
-            <td v-else>N/A</td>
+            <td v-else>N/A</td> -->
             <td>{{ machine.status || 'Unknown' }}</td>
             <td>
               <nuxt-link :to="`/machines/${machine.id}`">View Details</nuxt-link>
