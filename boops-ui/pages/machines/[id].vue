@@ -274,6 +274,10 @@ function editDns(interfaceName) {
 }
 
 function editInterfaceName(interfaceName) {
+  // Ensure the interface name is properly set before entering edit mode
+  if (!machine.value.interfaces[interfaceName].name) {
+    machine.value.interfaces[interfaceName].name = interfaceName; // Use the key as fallback
+  }
   isEditingName.value[interfaceName] = true;
 }
 
