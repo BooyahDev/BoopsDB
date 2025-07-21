@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 
 	"boops/client"
@@ -190,6 +191,37 @@ func handleSync(machineID string) {
 		log.Printf("Disk info update failed with status code: %d", respDiskUpdate.StatusCode)
 	} else {
 		fmt.Printf("Successfully updated disk info\n")
+	}
+
+	// Update MAC addresses
+	if runtime.GOOS == "linux" {
+		macAddrs, err := system.GetMacAddresses()
+		if err != nil {
+			log.Printf("Failed to get MAC addresses: %v", err)
+		} else {
+			for ifName, macAddr := range macAddrs {
+				if _, exists := m.Interfaces[ifName]; exists {
+					updatePayload := fmt.Sprintf(`{"mac_address": "%s"}`, macAddr)
+					req, err = http.NewRequest(http.MethodPut,
+						fmt.Sprintf("%s/%s/interfaces/%s/update-mac_address", apiBase, machineID, ifName),
+						strings.NewReader(updatePayload))
+					if err != nil {
+						log.Printf("Failed to create MAC address update request for %s: %v", ifName, err)
+						continue
+					}
+					req.Header.Set("Content-Type", "application/json")
+					respMacUpdate, err := http.DefaultClient.Do(req)
+					if err != nil {
+						log.Printf("Failed to send MAC address update request for %s: %v", ifName, err)
+					} else if respMacUpdate.StatusCode >= 300 {
+						log.Printf("MAC address update failed for %s with status code: %d",
+							ifName, respMacUpdate.StatusCode)
+					} else {
+						fmt.Printf("Successfully updated MAC address for %s to: %s\n", ifName, macAddr)
+					}
+				}
+			}
+		}
 	}
 
 	req, err = http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-last-alive", apiBase, machineID), nil)

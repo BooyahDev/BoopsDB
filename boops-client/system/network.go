@@ -1,6 +1,7 @@
 package system
 
 import (
+	"bufio"
 	"fmt"
 	"os/exec"
 	"runtime"
@@ -23,6 +24,43 @@ func ApplyNetworkSettings(ifaces map[string]client.InterfaceInfo) error {
 		return applyWindows(ifaces)
 	}
 	return nil
+}
+
+func GetMacAddresses() (map[string]string, error) {
+	macAddrs := make(map[string]string)
+
+	cmd := exec.Command("ip", "link")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get network interfaces: %v", err)
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(string(output)))
+	var currentInterface string
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Check for interface name lines (usually at the start of each interface section)
+		if parts := strings.Split(line, ":"); len(parts) >= 2 {
+			ifName := strings.TrimSpace(parts[0])
+			currentInterface = ifName
+			continue
+		}
+
+		// Look for link/ether line which contains the MAC address
+		if strings.Contains(line, "link/ether") {
+			fields := strings.Fields(line)
+			for i, field := range fields {
+				if field == "link/ether" && i+1 < len(fields) {
+					macAddr := fields[i+1]
+					macAddrs[currentInterface] = macAddr
+					break
+				}
+			}
+		}
+	}
+
+	return macAddrs, nil
 }
 
 func applyLinux(ifaces map[string]client.InterfaceInfo) error {
