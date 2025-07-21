@@ -37,6 +37,7 @@ func GetMacAddresses() (map[string]string, error) {
 
 	scanner := bufio.NewScanner(strings.NewReader(string(output)))
 	var currentInterface string
+	var isLoopback bool
 	for scanner.Scan() {
 		line := scanner.Text()
 
@@ -44,6 +45,17 @@ func GetMacAddresses() (map[string]string, error) {
 		if parts := strings.Split(line, ":"); len(parts) >= 2 {
 			ifName := strings.TrimSpace(parts[0])
 			currentInterface = ifName
+			isLoopback = false
+
+			// Skip loopback interface by checking name and flags
+			if strings.ToLower(currentInterface) == "lo" || strings.Contains(strings.ToLower(line), "loopback") {
+				isLoopback = true
+			}
+			continue
+		}
+
+		// If this is a loopback interface, skip it
+		if isLoopback {
 			continue
 		}
 
