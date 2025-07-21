@@ -40,33 +40,34 @@ func GetMacAddresses() (map[string]string, error) {
 	scanner := bufio.NewScanner(strings.NewReader(string(output)))
 	var currentInterface string
 	var isLoopback bool
+
 	for scanner.Scan() {
-		line := scanner.Text()
+		line := strings.TrimSpace(scanner.Text())
 
-		// Check for interface name lines (usually at the start of each interface section)
-		if parts := strings.Split(line, ":"); len(parts) >= 2 {
-			ifName := strings.TrimSpace(parts[0])
-			currentInterface = ifName
-			isLoopback = false
+		// Check for interface name lines (lines that start with a number followed by ":")
+		if fields := strings.Fields(line); len(fields) > 0 {
+			firstField := fields[0]
+			if index := strings.Index(firstField, ":"); index != -1 {
+				// Extract the interface name part
+				ifNamePart := firstField[index+1:]
+				ifName := strings.TrimSpace(ifNamePart)
 
-			// Skip loopback interface by checking name and flags
-			if strings.ToLower(currentInterface) == "lo" || strings.Contains(strings.ToLower(line), "loopback") {
-				isLoopback = true
-				fmt.Printf("Skipping loopback interface: %s\n", currentInterface)
-			} else {
-				fmt.Printf("Processing interface: %s\n", currentInterface)
+				// Check if this is a new interface section
+				currentInterface = ifName
+
+				// Skip loopback interface by checking name and flags
+				isLoopback = (strings.ToLower(currentInterface) == "lo") ||
+					strings.Contains(strings.ToLower(line), "loopback")
+
+				fmt.Printf("Found interface: %s, isLoopback: %v\n", currentInterface, isLoopback)
+				continue
 			}
-			continue
 		}
 
-		// If this is a loopback interface, skip it
-		if isLoopback {
-			continue
-		}
-
-		// Look for link/ether line which contains the MAC address
-		if strings.Contains(line, "link/ether") {
+		// If this line contains a MAC address and we're not in a loopback section
+		if !isLoopback && strings.Contains(line, "link/ether") {
 			fmt.Printf("Found link/ether in line: %s\n", line)
+
 			fields := strings.Fields(line)
 			for i, field := range fields {
 				if field == "link/ether" && i+1 < len(fields) {
