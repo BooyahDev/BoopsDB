@@ -843,6 +843,36 @@ app.put('/api/machines/:id/update-disk_info', async (req, res) => {
   }
 });
 
+// PUT update OS name for a specific machine
+app.put('/api/machines/:id/update-os_name', async (req, res) => {
+  const machineId = req.params.id;
+  const { os_name } = req.body;
+
+  // Validate UUID format for machine ID
+  if (!/^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/.test(machineId)) {
+    return res.status(400).json({ error: 'Invalid machine UUID format' });
+  }
+
+  // Validate that os_name is provided
+  if (typeof os_name !== 'string' || !os_name.trim()) {
+    return res.status(400).json({ error: 'OS name must be a non-empty string' });
+  }
+
+  try {
+    await db.query('UPDATE machines SET os_name = ? WHERE id = ?', [os_name, machineId]);
+
+    // Check if any rows were affected
+    const [result] = await db.query('SELECT ROW_COUNT() AS count');
+    if (result[0].count > 0) {
+      res.json({ message: 'OS name updated' });
+    } else {
+      res.status(404).json({ error: 'Machine not found' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(port, () => {
   console.log(`API server running on http://localhost:${port}`);
 });
