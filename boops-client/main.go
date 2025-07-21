@@ -88,6 +88,19 @@ func handleSync(machineID string) {
 				}
 			}
 		}
+
+		// Set hostname
+		if m.Hostname != "" {
+			cmd := fmt.Sprintf("hostnamectl set-hostname %s", m.Hostname)
+			fmt.Printf("Setting hostname to: %s\n", m.Hostname)
+			cmdResult := exec.Command("sh", "-c", cmd)
+			output, err := cmdResult.CombinedOutput()
+			if err != nil {
+				log.Printf("Failed to set hostname with error: %v, output: %s", err, string(output))
+			} else {
+				fmt.Printf("Hostname set successfully\n")
+			}
+		}
 	} else if runtime.GOOS == "windows" && len(m.Interfaces) > 0 {
 		for name, info := range m.Interfaces {
 			if info.IP != "" {
