@@ -54,6 +54,9 @@ func handleRegist(machineID string) {
 }
 
 func handleSync(machineID string) {
+
+	fmt.Printf("runtime.GOOS : %s\n", runtime.GOOS)
+
 	resp, err := http.Get(fmt.Sprintf("%s/%s", apiBase, machineID))
 	if err != nil {
 		log.Fatalf("Failed to fetch machine info: %v", err)
