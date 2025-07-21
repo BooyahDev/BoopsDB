@@ -205,10 +205,19 @@ func handleSync(machineID string) {
 			fmt.Printf("Found interfaces with MAC addresses: %v\n", macAddrs)
 
 			for ifName, macAddr := range macAddrs {
-				if _, exists := m.Interfaces[ifName]; exists {
+				// Look for the interface name in a case-insensitive way
+				foundInterface := ""
+				for intfName := range m.Interfaces {
+					if strings.ToLower(intfName) == strings.ToLower(ifName) {
+						foundInterface = intfName
+						break
+					}
+				}
+
+				if foundInterface != "" {
 					updatePayload := fmt.Sprintf(`{"mac_address": "%s"}`, macAddr)
 					req, err = http.NewRequest(http.MethodPut,
-						fmt.Sprintf("%s/%s/interfaces/%s/update-mac_address", apiBase, machineID, ifName),
+						fmt.Sprintf("%s/%s/interfaces/%s/update-mac_address", apiBase, machineID, foundInterface),
 						strings.NewReader(updatePayload))
 					if err != nil {
 						log.Printf("Failed to create MAC address update request for %s: %v", ifName, err)
@@ -220,12 +229,12 @@ func handleSync(machineID string) {
 						log.Printf("Failed to send MAC address update request for %s: %v", ifName, err)
 					} else if respMacUpdate.StatusCode >= 300 {
 						log.Printf("MAC address update failed for %s with status code: %d",
-							ifName, respMacUpdate.StatusCode)
+							foundInterface, respMacUpdate.StatusCode)
 					} else {
-						fmt.Printf("Successfully updated MAC address for %s to: %s\n", ifName, macAddr)
+						fmt.Printf("Successfully updated MAC address for %s to: %s\n", foundInterface, macAddr)
 					}
 				} else {
-					fmt.Printf("Interface %s not found in machine interfaces map\n", ifName)
+					fmt.Printf("Interface %s not found in machine interfaces map (case-insensitive search)\n", ifName)
 				}
 			}
 		}
