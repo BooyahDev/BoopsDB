@@ -348,6 +348,7 @@
     </section>
 
     <div class="actions">
+      <button @click="duplicateMachine" class="duplicate-btn">Duplicate Machine</button>
       <button @click="confirmMachineDelete" class="delete-btn">Delete Machine</button>
     </div>
 
@@ -898,6 +899,26 @@ onMounted(async () => {
   }
 });
 
+// Duplicate machine function
+function duplicateMachine() {
+  if (!machine.value) return;
+
+  const duplicateData = {
+    ...machine.value,
+    hostname: `${machine.value.hostname}`,
+    parent_machine_id: null
+  };
+
+  const storageKey = `duplicate_machine_${Date.now()}`;
+  const storageItem = {
+    data: duplicateData,
+    expires: Date.now() + 600000 // 10 minutes
+  };
+
+  localStorage.setItem(storageKey, JSON.stringify(storageItem));
+  window.open(`/machines/register?duplicate=${storageKey}`, '_blank');
+}
+
 async function updateMemo() {
   isUpdatingMemo.value = true; // Set loading state
 
@@ -1187,6 +1208,20 @@ dialog::backdrop {
 
 .cancel-btn:hover {
   background-color: #5a6268;
+}
+
+.duplicate-btn {
+  background-color: #28a745;
+  color: white;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-right: 1rem;
+}
+
+.duplicate-btn:hover {
+  background-color: #218838;
 }
 
 .error {

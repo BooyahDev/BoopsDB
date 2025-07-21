@@ -95,10 +95,11 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { ref, onMounted } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
 
 const router = useRouter();
+const route = useRoute();
 const newMachine = ref({
   hostname: '',
   cpu_info: '',
@@ -108,17 +109,19 @@ const newMachine = ref({
   os_name: '',
   is_virtual: false,
   parent_machine_id: null, // Set to null by default
-      interfaces: {},
-      interfaceNames: ['eth0'],
-      memo: ''
-    });
+  interfaces: {},
+  interfaceNames: ['eth0'],
+  memo: '',
+  purpose: ''
+});
 
 function initializeInterface() {
   return {
     ip_address: '',
     subnet_mask: '',
     gateway: '',
-    dns_servers: ''
+    dns_servers: '',
+    mac_address: ''
   };
 }
 
@@ -157,6 +160,49 @@ function addInterface() {
   newMachine.value.interfaceNames.push(defaultName);
   Vue.set(newMachine.value.interfaces, defaultName, initializeInterface());
 }
+
+onMounted(() => {
+  const storageKey = route.query.duplicate;
+  if (storageKey) {
+    try {
+      const storageItem = JSON.parse(localStorage.getItem(storageKey));
+      
+      if (storageItem && storageItem.data) {
+        const duplicateData = storageItem.data;
+        
+        // Set basic machine info
+        newMachine.value.hostname = duplicateData.hostname;
+        newMachine.value.cpu_info = duplicateData.cpu_info || '';
+        newMachine.value.cpu_arch = duplicateData.cpu_arch || '';
+        newMachine.value.memory_size = duplicateData.memory_size || '';
+        newMachine.value.disk_info = duplicateData.disk_info || '';
+        newMachine.value.os_name = duplicateData.os_name || '';
+        newMachine.value.is_virtual = duplicateData.is_virtual;
+        newMachine.value.purpose = duplicateData.purpose || '';
+        newMachine.value.memo = duplicateData.memo || '';
+        
+        // Set interfaces
+        newMachine.value.interfaceNames = Object.keys(duplicateData.interfaces);
+        newMachine.value.interfaces = {};
+        
+        Object.entries(duplicateData.interfaces).forEach(([name, intf]) => {
+          newMachine.value.interfaces[name] = {
+            ip_address: intf.ip || '',
+            subnet_mask: intf.subnet || '',
+            gateway: intf.gateway || '',
+            dns_servers: intf.dns_servers?.join(',') || '',
+            mac_address: intf.mac_address || ''
+          };
+        });
+        
+        // Clean up
+        localStorage.removeItem(storageKey);
+      }
+    } catch (e) {
+      console.error('Failed to load duplicate data', e);
+    }
+  }
+});
 
 async function addMachine() {
       // Convert interfaces object to the format expected by API
