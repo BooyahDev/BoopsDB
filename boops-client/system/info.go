@@ -63,7 +63,7 @@ func getMemorySize() string {
 		}
 		return "0GB"
 	}
-	out, _ := exec.Command("sh", "-c", "free -g | grep Mem | awk '{print $2 "GB"}'").Output()
+	out, _ := exec.Command("sh", "-c", "free -g | grep Mem | awk '{print $2 \"GB\"}'").Output()
 	return strings.TrimSpace(string(out))
 }
 
@@ -81,7 +81,7 @@ func getDiskInfo() string {
 		}
 		return strings.Join(results, "\n")
 	}
-	out, _ := exec.Command("sh", "-c", "lsblk -b -o NAME,SIZE -dn | awk '{printf("/dev/%s : %.0fGB\\n", $1, $2/1024/1024/1024)}'").Output()
+	out, _ := exec.Command("sh", "-c", "lsblk -b -o NAME,SIZE -dn | awk '{printf(\"/dev/%s : %.0fGB\\n\", $1, $2/1024/1024/1024)}'").Output()
 	return strings.TrimSpace(string(out))
 }
 
