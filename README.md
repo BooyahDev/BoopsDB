@@ -253,6 +253,68 @@ curl -X PUT http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee2
   }'
 ```
 
+### マシンのlast_aliveを更新する（PUT）
+
+```bash
+# このコマンドは指定されたIDのマシンのlast_aliveフィールドを現在の日時に更新します。
+curl -X PUT http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee2048/update-last-alive
+```
+
+### マシンのCPUアーキテクチャを更新する（PUT）
+
+```bash
+# このコマンドは指定されたUUIDのマシンのCPUアーキテクチャを更新します。例としてUUID=70ae9891-fc07-45b9-8364-3ab159ee2048を使用しています。
+curl -X PUT http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee2048/update-cpu_arch \
+  -H "Content-Type: application/json" \
+  -d '{
+    "cpu_arch": "arm64"
+  }'
+```
+
+### マシンのメモリサイズを更新する（PUT）
+
+```bash
+# このコマンドは指定されたUUIDのマシンのメモリサイズを更新します。例としてUUID=70ae9891-fc07-45b9-8364-3ab159ee2048を使用しています。
+curl -X PUT http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee2048/update-memory_size \
+  -H "Content-Type: application/json" \
+  -d '{
+    "memory_size": "16GB"
+  }'
+```
+
+### マシンのディスク情報を更新する（PUT）
+
+```bash
+# このコマンドは指定されたUUIDのマシンのディスク情報を更新します。例としてUUID=70ae9891-fc07-45b9-8364-3ab159ee2048を使用しています。
+curl -X PUT http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee2048/update-disk_info \
+  -H "Content-Type: application/json" \
+  -d '{
+    "disk_info": "SSD, 500GB"
+  }'
+```
+
+### マシンのOS名を更新する（PUT）
+
+```bash
+# このコマンドは指定されたUUIDのマシンのOS名を更新します。例としてUUID=70ae9891-fc07-45b9-8364-3ab159ee2048を使用しています。
+curl -X PUT http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee2048/update-os_name \
+  -H "Content-Type: application/json" \
+  -d '{
+    "os_name": "Ubuntu 22.04"
+  }'
+```
+
+### インターフェースのMACアドレスを更新する（PUT）
+
+```bash
+# このコマンドは指定されたUUIDのマシンのインターフェースのMACアドレスを更新します。例としてマシンUUID=70ae9891-fc07-45b9-8364-3ab159ee2048、インターフェース名="eth0"を使用しています。
+curl -X PUT http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee2048/interfaces/eth0/update-mac_address \
+  -H "Content-Type: application/json" \
+  -d '{
+    "mac_address": "00:1a:2b:3c:4d:5e"
+  }'
+```
+
 ## ライセンス
 
 このプロジェクトはMITライセンスの下で公開されています。詳細はLICENSEファイルをご覧ください。
