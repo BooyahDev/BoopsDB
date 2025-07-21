@@ -873,6 +873,40 @@ app.put('/api/machines/:id/update-os_name', async (req, res) => {
   }
 });
 
+// PUT update MAC address for a specific interface
+app.put('/api/machines/:machineId/interfaces/:interfaceName/update-mac_address', async (req, res) => {
+  const machineId = req.params.machineId;
+  const interfaceName = req.params.interfaceName;
+  const { mac_address } = req.body;
+
+  // Validate UUID format for machine ID
+  if (!/^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/.test(machineId)) {
+    return res.status(400).json({ error: 'Invalid machine UUID format' });
+  }
+
+  // Validate MAC address
+  if (typeof mac_address !== 'string' || !mac_address.trim()) {
+    return res.status(400).json({ error: 'MAC address must be a non-empty string' });
+  }
+
+  try {
+    await db.query(
+      'UPDATE interfaces SET mac_address = ? WHERE machine_id = ? AND name = ?',
+      [mac_address, machineId, interfaceName]
+    );
+
+    // Check if any rows were affected
+    const [result] = await db.query('SELECT ROW_COUNT() AS count');
+    if (result[0].count > 0) {
+      res.json({ message: 'MAC address updated' });
+    } else {
+      res.status(404).json({ error: 'Interface not found for this machine' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(port, () => {
   console.log(`API server running on http://localhost:${port}`);
 });
