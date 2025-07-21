@@ -117,6 +117,24 @@ func handleSync(machineID string) {
 		fmt.Printf("Successfully updated OS name to: %s\n", sysInfo.OsName)
 	}
 
+	// Update memory size
+	sysInfo = system.GatherSystemInfo()
+	updateMemoryPayload := fmt.Sprintf(`{"memory_size": "%s"}`, sysInfo.MemorySize)
+	fmt.Printf("Updating memory size to: %s\n", sysInfo.MemorySize)
+	req, err = http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-memory_size", apiBase, machineID), strings.NewReader(updateMemoryPayload))
+	if err != nil {
+		log.Fatalf("Failed to create memory size update request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	respMemUpdate, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Printf("Failed to send memory size update request: %v", err)
+	} else if respMemUpdate.StatusCode >= 300 {
+		log.Printf("Memory size update failed with status code: %d", respMemUpdate.StatusCode)
+	} else {
+		fmt.Printf("Successfully updated memory size to: %s\n", sysInfo.MemorySize)
+	}
+
 	req, err = http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-last-alive", apiBase, machineID), nil)
 	if err != nil {
 		log.Fatalf("Failed to create request: %v", err)
