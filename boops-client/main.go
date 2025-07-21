@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"boops/client"
 	"boops/system"
@@ -66,11 +65,14 @@ func handleSync(machineID string) {
 		log.Fatalf("Failed to apply network settings: %v", err)
 	}
 
-	http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-last-alive", apiBase, machineID), nil)
-	http.DefaultClient.Do(&http.Request{
-		Method: http.MethodPut,
-		URL:    mustParse(fmt.Sprintf("%s/%s/update-last-alive", apiBase, machineID)),
-	})
+	req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-last-alive", apiBase, machineID), nil)
+	if err != nil {
+		log.Fatalf("Failed to create request: %v", err)
+	}
+	_, err = http.DefaultClient.Do(req)
+	if err != nil {
+		log.Fatalf("Failed to send update-last-alive request: %v", err)
+	}
 }
 
 func postJSON(data any) {
@@ -81,12 +83,4 @@ func postJSON(data any) {
 	}
 	defer res.Body.Close()
 	log.Println("Registered successfully.")
-}
-
-func mustParse(url string) *http.URL {
-	u, err := http.NewRequest("PUT", url, nil)
-	if err != nil {
-		panic(err)
-	}
-	return u.URL
 }
