@@ -35,6 +35,8 @@ func GetMacAddresses() (map[string]string, error) {
 		return nil, fmt.Errorf("failed to get network interfaces: %v", err)
 	}
 
+	fmt.Printf("IP link output:\n%s\n", string(output))
+
 	scanner := bufio.NewScanner(strings.NewReader(string(output)))
 	var currentInterface string
 	var isLoopback bool
@@ -50,6 +52,9 @@ func GetMacAddresses() (map[string]string, error) {
 			// Skip loopback interface by checking name and flags
 			if strings.ToLower(currentInterface) == "lo" || strings.Contains(strings.ToLower(line), "loopback") {
 				isLoopback = true
+				fmt.Printf("Skipping loopback interface: %s\n", currentInterface)
+			} else {
+				fmt.Printf("Processing interface: %s\n", currentInterface)
 			}
 			continue
 		}
@@ -61,11 +66,13 @@ func GetMacAddresses() (map[string]string, error) {
 
 		// Look for link/ether line which contains the MAC address
 		if strings.Contains(line, "link/ether") {
+			fmt.Printf("Found link/ether in line: %s\n", line)
 			fields := strings.Fields(line)
 			for i, field := range fields {
 				if field == "link/ether" && i+1 < len(fields) {
 					macAddr := fields[i+1]
 					macAddrs[currentInterface] = macAddr
+					fmt.Printf("Found MAC address %s for interface %s\n", macAddr, currentInterface)
 					break
 				}
 			}
