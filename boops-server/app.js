@@ -753,6 +753,36 @@ app.put('/api/machines/:id/update-last-alive', async (req, res) => {
   }
 });
 
+// PUT update CPU architecture for a specific machine
+app.put('/api/machines/:id/update-cpu_arch', async (req, res) => {
+  const machineId = req.params.id;
+  const { cpu_arch } = req.body;
+
+  // Validate UUID format for machine ID
+  if (!/^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/.test(machineId)) {
+    return res.status(400).json({ error: 'Invalid machine UUID format' });
+  }
+
+  // Validate that cpu_arch is provided
+  if (typeof cpu_arch !== 'string' || !cpu_arch.trim()) {
+    return res.status(400).json({ error: 'CPU architecture must be a non-empty string' });
+  }
+
+  try {
+    await db.query('UPDATE machines SET cpu_arch = ? WHERE id = ?', [cpu_arch, machineId]);
+
+    // Check if any rows were affected
+    const [result] = await db.query('SELECT ROW_COUNT() AS count');
+    if (result[0].count > 0) {
+      res.json({ message: 'CPU architecture updated' });
+    } else {
+      res.status(404).json({ error: 'Machine not found' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.listen(port, () => {
   console.log(`API server running on http://localhost:${port}`);
 });
