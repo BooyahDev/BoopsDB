@@ -33,7 +33,7 @@ func getOSInfo() string {
 		out, _ := exec.Command("cmd", "/C", "ver").Output()
 		return strings.TrimSpace(string(out))
 	}
-	out, _ := exec.Command("lsb_release", "-d").Output()
+	out, _ := exec.Command("lsb_release", "-d", "|", "sed", "'s/\t/ /g'").Output()
 	if len(out) == 0 {
 		out, _ = exec.Command("uname", "-a").Output()
 	}
