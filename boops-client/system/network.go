@@ -44,24 +44,33 @@ func GetMacAddresses() (map[string]string, error) {
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 
-		// Check for interface name lines (lines that start with a number followed by ":")
-		if fields := strings.Fields(line); len(fields) > 0 {
-			firstField := fields[0]
-			if index := strings.Index(firstField, ":"); index != -1 {
-				// Extract the interface name part
-				ifNamePart := firstField[index+1:]
-				ifName := strings.TrimSpace(ifNamePart)
-
-				// Check if this is a new interface section
-				currentInterface = ifName
-
-				// Skip loopback interface by checking name and flags
-				isLoopback = (strings.ToLower(currentInterface) == "lo") ||
-					strings.Contains(strings.ToLower(line), "loopback")
-
-				fmt.Printf("Found interface: %s, isLoopback: %v\n", currentInterface, isLoopback)
+		// Look for lines that define interfaces (start with a number followed by ":")
+		if fields := strings.Fields(line); len(fields) > 0 && strings.Contains(fields[0], ":") {
+			// The interface name is between the first ":" and any "<"
+			parts := strings.SplitN(fields[0], ":", 2)
+			if len(parts) != 2 {
 				continue
 			}
+
+			index := strings.Index(parts[1], "<")
+			var ifName string
+			if index == -1 {
+				// No "<" found, use the whole part after ":"
+				ifName = strings.TrimSpace(parts[1])
+			} else {
+				// Extract only the interface name before "<"
+				ifName = strings.TrimSpace(parts[1][:index])
+			}
+
+			// Check if this is a new interface section
+			currentInterface = ifName
+
+			// Skip loopback interface by checking name and flags
+			isLoopback = (strings.ToLower(currentInterface) == "lo") ||
+				strings.Contains(strings.ToLower(line), "loopback")
+
+			fmt.Printf("Found interface: %s, isLoopback: %v\n", currentInterface, isLoopback)
+			continue
 		}
 
 		// If this line contains a MAC address and we're not in a loopback section
