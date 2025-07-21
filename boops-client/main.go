@@ -102,6 +102,7 @@ func handleSync(machineID string) {
 	// Get current OS name and update it in the server
 	sysInfo := system.GatherSystemInfo()
 	updateOsName := fmt.Sprintf(`{"os_name": "%s"}`, sysInfo.OsName)
+	fmt.Printf("Current OS name: %s\n", updateOsName)
 	req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-os_name", apiBase, machineID), strings.NewReader(updateOsName))
 	if err != nil {
 		log.Fatalf("Failed to create OS name update request: %v", err)
