@@ -99,7 +99,24 @@ func handleSync(machineID string) {
 		}
 	}
 
-	req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-last-alive", apiBase, machineID), nil)
+	// Get current OS name and update it in the server
+	sysInfo := system.GatherSystemInfo()
+	updateOsName := fmt.Sprintf(`{"os_name": "%s"}`, sysInfo.OsName)
+	req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-os_name", apiBase, machineID), strings.NewReader(updateOsName))
+	if err != nil {
+		log.Fatalf("Failed to create OS name update request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	respUpdate, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Printf("Failed to send OS name update request: %v", err)
+	} else if respUpdate.StatusCode >= 300 {
+		log.Printf("OS name update failed with status code: %d", respUpdate.StatusCode)
+	} else {
+		fmt.Printf("Successfully updated OS name to: %s\n", sysInfo.OsName)
+	}
+
+	req, err = http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-last-alive", apiBase, machineID), nil)
 	if err != nil {
 		log.Fatalf("Failed to create request: %v", err)
 	}
