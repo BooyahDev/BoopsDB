@@ -141,7 +141,7 @@ app.delete('/api/machines/:machineId/interfaces/:interfaceName', async (req, res
       'SELECT id FROM interfaces WHERE machine_id = ? AND name = ?',
       [machineId, interfaceName]
     );
-    
+
     if (existingInterface.length === 0) {
       return res.status(404).json({ error: 'Interface not found' });
     }
@@ -179,7 +179,7 @@ app.put('/api/machines/:id/update-parent-id', async (req, res) => {
     if (machines.length === 0) {
       return res.status(404).json({ error: 'Machine not found' });
     }
-    
+
     if (!machines[0].is_virtual) {
       return res.status(400).json({ error: 'Only virtual machines can have a parent machine ID' });
     }
@@ -240,7 +240,7 @@ app.put('/api/machines/:id/update-vm-status', async (req, res) => {
       [is_virtual, is_virtual ? parent_machine_id || null : null, machineId]
     );
 
-    res.json({ 
+    res.json({
       message: 'Virtual machine status updated successfully',
       is_virtual,
       parent_machine_id: is_virtual ? parent_machine_id || null : null
@@ -352,7 +352,6 @@ app.put('/api/interfaces/:machineId/:interfaceName', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 
 // PUT update gateway for a specific interface
 app.put('/api/interfaces/:machineId/:interfaceName/update-gateway', async (req, res) => {
@@ -485,6 +484,35 @@ app.put('/api/interfaces/:machineId/:interfaceName/update-subnet-mask', async (r
   }
 });
 
+// PUT update CPU info for a specific machine
+app.put('/api/machines/:id/update-cpu_info', async (req, res) => {
+  const machineId = req.params.id;
+  const { cpu_info } = req.body;
+
+  // Validate UUID format for machine ID
+  if (!/^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/.test(machineId)) {
+    return res.status(400).json({ error: 'Invalid machine UUID format' });
+  }
+
+  // Validate that cpu_info is provided
+  if (typeof cpu_info !== 'string' || !cpu_info.trim()) {
+    return res.status(400).json({ error: 'CPU info must be a non-empty string' });
+  }
+
+  try {
+    await db.query('UPDATE machines SET cpu_info = ? WHERE id = ?', [cpu_info, machineId]);
+
+    // Check if any rows were affected
+    const [result] = await db.query('SELECT ROW_COUNT() AS count');
+    if (result[0].count > 0) {
+      res.json({ message: 'CPU info updated' });
+    } else {
+      res.status(404).json({ error: 'Machine not found' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // DELETE machine and interfaces
 app.delete('/api/machines/:id', async (req, res) => {
@@ -708,7 +736,7 @@ app.put('/api/machines/:id/update-last-alive', async (req, res) => {
     return res.status(400).json({ error: 'Invalid UUID format' });
   }
 
-  // Format the current time in MySQL DATETIME format (YYYY-MM-DD HH:MM:SS)
+  // Format the current time in MySQL DATETIME format (YYYY-MM-DD HH:MM:SS)G
   const currentTime = new Date().toISOString().slice(0, 19).replace('T', ' ');
   try {
     await db.query('UPDATE machines SET last_alive = ? WHERE id = ?', [currentTime, machineId]);
