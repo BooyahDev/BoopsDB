@@ -202,6 +202,8 @@ func handleSync(machineID string) {
 		if err != nil {
 			log.Printf("Failed to get MAC addresses: %v", err)
 		} else {
+			fmt.Printf("Found interfaces with MAC addresses: %v\n", macAddrs)
+
 			for ifName, macAddr := range macAddrs {
 				if _, exists := m.Interfaces[ifName]; exists {
 					updatePayload := fmt.Sprintf(`{"mac_address": "%s"}`, macAddr)
@@ -222,6 +224,8 @@ func handleSync(machineID string) {
 					} else {
 						fmt.Printf("Successfully updated MAC address for %s to: %s\n", ifName, macAddr)
 					}
+				} else {
+					fmt.Printf("Interface %s not found in machine interfaces map\n", ifName)
 				}
 			}
 		}
