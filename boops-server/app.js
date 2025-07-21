@@ -753,6 +753,36 @@ app.put('/api/machines/:id/update-last-alive', async (req, res) => {
   }
 });
 
+// PUT update memory size for a specific machine
+app.put('/api/machines/:id/update-memory_size', async (req, res) => {
+  const machineId = req.params.id;
+  const { memory_size } = req.body;
+
+  // Validate UUID format for machine ID
+  if (!/^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/.test(machineId)) {
+    return res.status(400).json({ error: 'Invalid machine UUID format' });
+  }
+
+  // Validate that memory_size is provided
+  if (typeof memory_size !== 'string' || !memory_size.trim()) {
+    return res.status(400).json({ error: 'Memory size must be a non-empty string' });
+  }
+
+  try {
+    await db.query('UPDATE machines SET memory_size = ? WHERE id = ?', [memory_size, machineId]);
+
+    // Check if any rows were affected
+    const [result] = await db.query('SELECT ROW_COUNT() AS count');
+    if (result[0].count > 0) {
+      res.json({ message: 'Memory size updated' });
+    } else {
+      res.status(404).json({ error: 'Machine not found' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PUT update CPU architecture for a specific machine
 app.put('/api/machines/:id/update-cpu_arch', async (req, res) => {
   const machineId = req.params.id;
