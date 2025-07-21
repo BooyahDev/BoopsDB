@@ -1,0 +1,11 @@
+[Unit]
+Description=Boops Client Sync Service
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/boops sync
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+
