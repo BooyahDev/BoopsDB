@@ -15,10 +15,21 @@
         </tr>
         <tr>
           <th>Hostname:</th>
-          <td>
-            {{ machine.hostname }}
-            <button @click="copyToClipboard(machine.hostname, $event)" class="copy-btn">Copy</button>
-          </td>
+          <template v-if="isEditingHostname">
+            <td>
+              <input v-model="machine.hostname" />
+              <button @click="saveHostname" :disabled="isUpdatingHostname">Save</button>
+              <span v-if="isUpdatingHostname">Saving...</span>
+              <button @click="cancelEditHostname">Cancel</button>
+            </td>
+          </template>
+          <template v-else>
+            <td>
+              {{ machine.hostname }}
+              <button @click="copyToClipboard(machine.hostname, $event)" class="copy-btn">Copy</button>
+              <button @click="enableEditHostname">Edit</button>
+            </td>
+          </template>
         </tr>
         <tr>
           <th>CPU Info:</th>
@@ -361,6 +372,9 @@ const isEditingName = ref({}); // New state for editing interface name
 const isLoadingName = ref({}); // New loading state for interface name
 const isEditingParentId = ref(false);
 const isUpdatingParentId = ref(false);
+
+const isEditingHostname = ref(false); // State for hostname edit mode
+const isUpdatingHostname = ref(false); // Loading state for hostname update
 
 const isAddingInterface = ref(false);
 const addInterfaceError = ref('');
@@ -893,6 +907,42 @@ function enableEditMemo() {
 
 function cancelEditMemo() {
   isEditingMemo.value = false;
+}
+
+function enableEditHostname() {
+  isEditingHostname.value = true;
+}
+
+function cancelEditHostname() {
+  isEditingHostname.value = false;
+
+  // Reload current hostname from server
+  fetch(`http://localhost:3001/api/machines/${route.params.id}`)
+    .then(response => response.json())
+    .then(data => {
+      machine.value.hostname = data.hostname;
+    })
+    .catch(err => console.error(err));
+}
+
+async function saveHostname() {
+  isUpdatingHostname.value = true;
+
+  const response = await fetch(`http://localhost:3001/api/machines/${machine.value.id}/update-hostname`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hostname: machine.value.hostname })
+  });
+
+  isUpdatingHostname.value = false;
+
+  if (response.ok) {
+    isEditingHostname.value = false;
+    alert('Hostname updated successfully');
+  } else {
+    const errorData = await response.json();
+    alert(`Failed to update hostname: ${errorData.error || 'Unknown error'}`);
+  }
 }
 
 function copyToClipboard(id, event) {

@@ -609,6 +609,35 @@ app.get('/api/machines/:uuid', async (req, res) => {
 });
 
 // PUT update machine's last_alive timestamp
+app.put('/api/machines/:id/update-hostname', async (req, res) => {
+  const machineId = req.params.id;
+  const { hostname } = req.body;
+
+  // Validate UUID format
+  if (!/^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/.test(machineId)) {
+    return res.status(400).json({ error: 'Invalid UUID format' });
+  }
+
+  // Validate that hostname is provided
+  if (typeof hostname !== 'string' || !hostname.trim()) {
+    return res.status(400).json({ error: 'Hostname must be a non-empty string' });
+  }
+
+  try {
+    await db.query('UPDATE machines SET hostname = ? WHERE id = ?', [hostname, machineId]);
+
+    // Check if any rows were affected
+    const [result] = await db.query('SELECT ROW_COUNT() AS count');
+    if (result[0].count > 0) {
+      res.json({ message: 'Hostname updated' });
+    } else {
+      res.status(404).json({ error: 'Machine not found' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.put('/api/machines/:id/update-memo', async (req, res) => {
   const machineId = req.params.id;
   const { memo } = req.body;
