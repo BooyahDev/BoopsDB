@@ -173,6 +173,24 @@ func handleSync(machineID string) {
 		fmt.Printf("Successfully updated CPU model info to: %s\n", cpuInfo)
 	}
 
+	// Update disk info
+	sysInfo = system.GatherSystemInfo()
+	diskInfoPayload := fmt.Sprintf(`{"disk_info": "%s"}`, sysInfo.DiskInfo)
+	fmt.Printf("Updating disk info to: %s\n", diskInfoPayload)
+	req, err = http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-disk_info", apiBase, machineID), strings.NewReader(diskInfoPayload))
+	if err != nil {
+		log.Fatalf("Failed to create disk info update request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	respDiskUpdate, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Printf("Failed to send disk info update request: %v", err)
+	} else if respDiskUpdate.StatusCode >= 300 {
+		log.Printf("Disk info update failed with status code: %d", respDiskUpdate.StatusCode)
+	} else {
+		fmt.Printf("Successfully updated disk info\n")
+	}
+
 	req, err = http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-last-alive", apiBase, machineID), nil)
 	if err != nil {
 		log.Fatalf("Failed to create request: %v", err)
