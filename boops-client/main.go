@@ -175,7 +175,8 @@ func handleSync(machineID string) {
 
 	// Update disk info
 	sysInfo = system.GatherSystemInfo()
-	diskInfoPayload := fmt.Sprintf(`{"disk_info": "%s"}`, sysInfo.DiskInfo)
+	diskInfo := strings.ReplaceAll(sysInfo.DiskInfo, "\n", " ")
+	diskInfoPayload := fmt.Sprintf(`{"disk_info": "%s"}`, diskInfo)
 	fmt.Printf("Updating disk info to: %s\n", diskInfoPayload)
 	req, err = http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-disk_info", apiBase, machineID), strings.NewReader(diskInfoPayload))
 	if err != nil {
