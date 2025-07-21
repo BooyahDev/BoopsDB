@@ -46,7 +46,7 @@ func GetMacAddresses() (map[string]string, error) {
 
 		// Look for lines that define interfaces (start with a number followed by ":")
 		if fields := strings.Fields(line); len(fields) > 0 && strings.Contains(fields[0], ":") {
-			// The interface name is between the first ":" and any "<"
+			// The interface name is the part after ":" and before "<"
 			parts := strings.SplitN(fields[0], ":", 2)
 			if len(parts) != 2 {
 				continue
@@ -56,10 +56,10 @@ func GetMacAddresses() (map[string]string, error) {
 			var ifName string
 			if index == -1 {
 				// No "<" found, use the whole part after ":"
-				ifName = strings.TrimSpace(parts[1])
+				ifName = parts[0] // This was incorrectly using parts[1]
 			} else {
 				// Extract only the interface name before "<"
-				ifName = strings.TrimSpace(parts[1][:index])
+				ifName = parts[0] // This was incorrectly using parts[1][:index]
 			}
 
 			// Check if this is a new interface section

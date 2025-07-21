@@ -204,6 +204,15 @@ func handleSync(machineID string) {
 		} else {
 			fmt.Printf("Found interfaces with MAC addresses: %v\n", macAddrs)
 
+			// Print all interface names from the server
+			fmt.Println("Interface names in machine data:")
+			for intfName := range m.Interfaces {
+				fmt.Printf("- '%s' (length: %d, raw bytes: [%#v])\n",
+					intfName,
+					len(intfName),
+					[]byte(intfName))
+			}
+
 			for ifName, macAddr := range macAddrs {
 				// Look for the interface name in a case-insensitive way
 				foundInterface := ""
