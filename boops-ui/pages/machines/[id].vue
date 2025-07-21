@@ -73,7 +73,20 @@
         </tr>
         <tr>
           <th>Purpose:</th>
-          <td>{{ machine.purpose || 'N/A' }}</td>
+          <template v-if="isEditingPurpose">
+            <td>
+              <input v-model="machine.purpose" />
+              <button @click="updatePurpose" :disabled="isUpdatingPurpose">Save</button>
+              <span v-if="isUpdatingPurpose">Saving...</span>
+              <button @click="cancelEditPurpose">Cancel</button>
+            </td>
+          </template>
+          <template v-else>
+            <td>
+              {{ machine.purpose || 'N/A' }}
+              <button @click="enableEditPurpose">Edit</button>
+            </td>
+          </template>
         </tr>
         <tr v-if="machine.is_virtual">
           <th>Parent Machine ID:</th>
@@ -375,6 +388,10 @@ const isUpdatingParentId = ref(false);
 
 const isEditingHostname = ref(false); // State for hostname edit mode
 const isUpdatingHostname = ref(false); // Loading state for hostname update
+
+// Add states for editing purpose
+const isEditingPurpose = ref(false);
+const isUpdatingPurpose = ref(false);
 
 const isAddingInterface = ref(false);
 const addInterfaceError = ref('');
@@ -942,6 +959,42 @@ async function saveHostname() {
   } else {
     const errorData = await response.json();
     alert(`Failed to update hostname: ${errorData.error || 'Unknown error'}`);
+  }
+}
+
+function enableEditPurpose() {
+  isEditingPurpose.value = true;
+}
+
+function cancelEditPurpose() {
+  isEditingPurpose.value = false;
+
+  // Reload current purpose from server
+  fetch(`http://localhost:3001/api/machines/${route.params.id}`)
+    .then(response => response.json())
+    .then(data => {
+      machine.value.purpose = data.purpose;
+    })
+    .catch(err => console.error(err));
+}
+
+async function updatePurpose() {
+  isUpdatingPurpose.value = true;
+
+  const response = await fetch(`http://localhost:3001/api/machines/${machine.value.id}/update-purpose`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ purpose: machine.value.purpose })
+  });
+
+  isUpdatingPurpose.value = false;
+
+  if (response.ok) {
+    isEditingPurpose.value = false;
+    alert('Purpose updated successfully');
+  } else {
+    const errorData = await response.json();
+    alert(`Failed to update purpose: ${errorData.error || 'Unknown error'}`);
   }
 }
 

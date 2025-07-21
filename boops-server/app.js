@@ -286,6 +286,39 @@ app.put('/api/machines/:id', async (req, res) => {
   }
 });
 
+// PUT update purpose for a specific machine
+app.put('/api/machines/:id/update-purpose', async (req, res) => {
+  const machineId = req.params.id;
+  const { purpose } = req.body;
+
+  // Validate UUID format for machine ID
+  if (!/^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/.test(machineId)) {
+    return res.status(400).json({ error: 'Invalid machine UUID format' });
+  }
+
+  // Validate purpose
+  if (typeof purpose !== 'string') {
+    return res.status(400).json({ error: 'Purpose must be a string' });
+  }
+
+  try {
+    await db.query(
+      'UPDATE machines SET purpose = ? WHERE id = ?',
+      [purpose, machineId]
+    );
+
+    // Check if any rows were affected
+    const [result] = await db.query('SELECT ROW_COUNT() AS count');
+    if (result[0].count > 0) {
+      res.json({ message: 'Purpose updated' });
+    } else {
+      res.status(404).json({ error: 'Machine not found' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PUT update IP address for a specific interface
 app.put('/api/interfaces/:machineId/:interfaceName', async (req, res) => {
   const machineId = req.params.machineId;
