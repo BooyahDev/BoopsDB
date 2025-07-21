@@ -56,10 +56,10 @@ func GetMacAddresses() (map[string]string, error) {
 			var ifName string
 			if index == -1 {
 				// No "<" found, use the whole part after ":"
-				ifName = parts[0] // This was incorrectly using parts[1]
+				ifName = parts[1]
 			} else {
 				// Extract only the interface name before "<"
-				ifName = parts[0] // This was incorrectly using parts[1][:index]
+				ifName = parts[1][:index]
 			}
 
 			// Check if this is a new interface section
