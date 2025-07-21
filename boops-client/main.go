@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 
 	"boops/client"
@@ -61,8 +63,50 @@ func handleSync(machineID string) {
 		log.Fatalf("Invalid JSON from API: %v", err)
 	}
 
-	if err := system.ApplyNetworkSettings(m.Interfaces); err != nil {
-		log.Fatalf("Failed to apply network settings: %v", err)
+	fmt.Printf("Applying network settings for interfaces: %v\n", m.Interfaces)
+
+	if runtime.GOOS == "linux" && len(m.Interfaces) > 0 {
+		for name, info := range m.Interfaces {
+			if info.IP != "" {
+				cmds := []string{
+					fmt.Sprintf("ip addr flush dev %s", name),
+					fmt.Sprintf("ip addr add %s/%s dev %s", info.IP, system.MaskToCIDR(info.Subnet), name),
+				}
+				if info.Gateway != "" {
+					cmds = append(cmds, fmt.Sprintf("ip route add default via %s dev %s", info.Gateway, name))
+				}
+
+				for _, cmd := range cmds {
+					fmt.Printf("Running command: %s\n", cmd)
+					cmdResult := exec.Command("sh", "-c", cmd)
+					output, err := cmdResult.CombinedOutput()
+					if err != nil {
+						log.Printf("Command failed with error: %v, output: %s", err, string(output))
+					} else {
+						fmt.Printf("Command succeeded with output: %s\n", string(output))
+					}
+				}
+			}
+		}
+	} else if runtime.GOOS == "windows" && len(m.Interfaces) > 0 {
+		for name, info := range m.Interfaces {
+			if info.IP != "" {
+				args := []string{
+					"interface ip set address", fmt.Sprintf("name=\"%s\"", name), fmt.Sprintf("static %s %s", info.IP, info.Subnet),
+				}
+				if info.Gateway != "" {
+					args = append(args, info.Gateway)
+				}
+
+				cmd := exec.Command("netsh", args...)
+				output, err := cmd.CombinedOutput()
+				if err != nil {
+					log.Printf("Command failed with error: %v, output: %s", err, string(output))
+				} else {
+					fmt.Printf("Network settings applied successfully for interface %s\n", name)
+				}
+			}
+		}
 	}
 
 	req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-last-alive", apiBase, machineID), nil)
@@ -73,6 +117,8 @@ func handleSync(machineID string) {
 	if err != nil {
 		log.Fatalf("Failed to send update-last-alive request: %v", err)
 	}
+
+	fmt.Println("Sync completed successfully.")
 }
 
 func postJSON(data any) {

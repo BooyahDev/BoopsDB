@@ -10,19 +10,26 @@ import (
 )
 
 func ApplyNetworkSettings(ifaces map[string]client.InterfaceInfo) error {
+	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
+		return fmt.Errorf("unsupported OS: %s", runtime.GOOS)
+	}
+	if len(ifaces) == 0 {
+		return fmt.Errorf("no network interfaces provided")
+	}
+
 	if runtime.GOOS == "linux" {
 		return applyLinux(ifaces)
 	} else if runtime.GOOS == "windows" {
 		return applyWindows(ifaces)
 	}
-	return fmt.Errorf("unsupported OS")
+	return nil
 }
 
 func applyLinux(ifaces map[string]client.InterfaceInfo) error {
 	for name, info := range ifaces {
 		cmds := []string{
 			fmt.Sprintf("ip addr flush dev %s", name),
-			fmt.Sprintf("ip addr add %s/%s dev %s", info.IP, maskToCIDR(info.Subnet), name),
+			fmt.Sprintf("ip addr add %s/%s dev %s", info.IP, MaskToCIDR(info.Subnet), name),
 		}
 		if info.Gateway != "" {
 			cmds = append(cmds, fmt.Sprintf("ip route add default via %s dev %s", info.Gateway, name))
@@ -47,7 +54,7 @@ func applyWindows(ifaces map[string]client.InterfaceInfo) error {
 	return nil
 }
 
-func maskToCIDR(mask string) string {
+func MaskToCIDR(mask string) string {
 	parts := strings.Split(mask, ".")
 	bits := 0
 	for _, part := range parts {
