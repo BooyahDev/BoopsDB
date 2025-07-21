@@ -135,6 +135,24 @@ func handleSync(machineID string) {
 		fmt.Printf("Successfully updated memory size to: %s\n", sysInfo.MemorySize)
 	}
 
+	// Update CPU architecture
+	sysInfo = system.GatherSystemInfo()
+	cpuArchPayload := fmt.Sprintf(`{"cpu_arch": "%s"}`, sysInfo.CpuArch)
+	fmt.Printf("Updating CPU architecture to: %s\n", sysInfo.CpuArch)
+	req, err = http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-cpu_arch", apiBase, machineID), strings.NewReader(cpuArchPayload))
+	if err != nil {
+		log.Fatalf("Failed to create CPU architecture update request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	respCpuUpdate, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Printf("Failed to send CPU architecture update request: %v", err)
+	} else if respCpuUpdate.StatusCode >= 300 {
+		log.Printf("CPU architecture update failed with status code: %d", respCpuUpdate.StatusCode)
+	} else {
+		fmt.Printf("Successfully updated CPU architecture to: %s\n", sysInfo.CpuArch)
+	}
+
 	req, err = http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-last-alive", apiBase, machineID), nil)
 	if err != nil {
 		log.Fatalf("Failed to create request: %v", err)

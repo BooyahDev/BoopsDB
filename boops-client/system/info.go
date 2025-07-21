@@ -49,7 +49,7 @@ func getCPUModel() string {
 		}
 		return "Unknown"
 	}
-	out, _ := exec.Command("sh", "-c", "lscpu | grep 'Model name' | cut -d: -f2").Output()
+	out, _ := exec.Command("sh", "-c", "lscpu | grep 'Model name' | cut -d: -f2 | sed 's/^[[:space:]]\\+//'").Output()
 	return strings.TrimSpace(string(out))
 }
 
