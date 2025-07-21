@@ -76,19 +76,6 @@ func handleSync(machineID string) {
 			log.Printf("Failed to apply network settings: %v", err)
 		}
 
-		// Set hostname if changed
-		if m.Hostname != "" && (prevState == nil || prevState.Hostname != m.Hostname) {
-			cmd := fmt.Sprintf("hostnamectl set-hostname %s", m.Hostname)
-			fmt.Printf("Setting hostname to: %s\n", m.Hostname)
-			cmdResult := exec.Command("sh", "-c", cmd)
-			output, err := cmdResult.CombinedOutput()
-			if err != nil {
-				log.Printf("Failed to set hostname with error: %v, output: %s", err, string(output))
-			} else {
-				fmt.Printf("Hostname set successfully\n")
-			}
-		}
-
 		// Save new state
 		state := &client.MachineState{
 			Interfaces: m.Interfaces,
@@ -96,6 +83,19 @@ func handleSync(machineID string) {
 		}
 		if err := client.SaveMachineState(state); err != nil {
 			log.Printf("Failed to save machine state: %v", err)
+		}
+	}
+
+	// Set hostname if changed
+	if m.Hostname != "" && (prevState == nil || prevState.Hostname != m.Hostname) {
+		cmd := fmt.Sprintf("hostnamectl set-hostname %s", m.Hostname)
+		fmt.Printf("Setting hostname to: %s\n", m.Hostname)
+		cmdResult := exec.Command("sh", "-c", cmd)
+		output, err := cmdResult.CombinedOutput()
+		if err != nil {
+			log.Printf("Failed to set hostname with error: %v, output: %s", err, string(output))
+		} else {
+			fmt.Printf("Hostname set successfully\n")
 		}
 	}
 
