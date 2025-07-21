@@ -13,13 +13,13 @@ import (
 func GatherSystemInfo() client.Machine {
 	return client.Machine{
 		Hostname:   getHostname(),
-		OSName:     getOSInfo(),
-		CPUInfo:    getCPUModel(),
-		CPUArch:    runtime.GOARCH,
+		OsName:     getOSInfo(),
+		CpuInfo:    getCPUModel(),
+		CpuArch:    runtime.GOARCH,
 		MemorySize: getMemorySize(),
 		DiskInfo:   getDiskInfo(),
 		Interfaces: getInterfaces(),
-		IsVirtual:  1,
+		IsVirtual:  isVirtual(),
 	}
 }
 
@@ -103,11 +103,20 @@ func getInterfaces() map[string]client.InterfaceInfo {
 			IP:         ip,
 			Subnet:     mask,
 			Gateway:    "",
-			DNSServers: []string{},
-			MACAddress: mac,
+			DnsServers: []string{},
+			MacAddress: mac,
 		}
 	}
 	return result
+}
+
+func isVirtual() int {
+	out, _ := exec.Command("systemd-detect-virt").Output()
+	virtType := strings.TrimSpace(string(out))
+	if virtType == "" || virtType == "none" {
+		return 0
+	}
+	return 1
 }
 
 func toGB(raw string) int64 {

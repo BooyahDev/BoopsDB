@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 
 	"boops/client"
@@ -16,6 +15,9 @@ import (
 )
 
 var apiBase = "http://localhost:3001/api/machines"
+
+// Store current network settings
+var currentSettings map[string]client.InterfaceInfo
 
 func main() {
 	if len(os.Args) < 2 {
@@ -65,32 +67,17 @@ func handleSync(machineID string) {
 
 	fmt.Printf("Applying network settings for interfaces: %v\n", m.Interfaces)
 
-	if runtime.GOOS == "linux" && len(m.Interfaces) > 0 {
-		for name, info := range m.Interfaces {
-			if info.IP != "" {
-				cmds := []string{
-					fmt.Sprintf("ip addr flush dev %s", name),
-					fmt.Sprintf("ip addr add %s/%s dev %s", info.IP, system.MaskToCIDR(info.Subnet), name),
-				}
-				if info.Gateway != "" {
-					cmds = append(cmds, fmt.Sprintf("ip route add default via %s dev %s", info.Gateway, name))
-				}
+	// Load previous machine state
+	prevState, _ := client.LoadMachineState()
+	stateChanged := prevState == nil || !client.InterfacesEqual(prevState.Interfaces, m.Interfaces)
 
-				for _, cmd := range cmds {
-					fmt.Printf("Running command: %s\n", cmd)
-					cmdResult := exec.Command("sh", "-c", cmd)
-					output, err := cmdResult.CombinedOutput()
-					if err != nil {
-						log.Printf("Command failed with error: %v, output: %s", err, string(output))
-					} else {
-						fmt.Printf("Command succeeded with output: %s\n", string(output))
-					}
-				}
-			}
+	if len(m.Interfaces) > 0 && stateChanged {
+		if err := system.ApplyNetworkSettings(m.Interfaces); err != nil {
+			log.Printf("Failed to apply network settings: %v", err)
 		}
 
-		// Set hostname
-		if m.Hostname != "" {
+		// Set hostname if changed
+		if m.Hostname != "" && (prevState == nil || prevState.Hostname != m.Hostname) {
 			cmd := fmt.Sprintf("hostnamectl set-hostname %s", m.Hostname)
 			fmt.Printf("Setting hostname to: %s\n", m.Hostname)
 			cmdResult := exec.Command("sh", "-c", cmd)
@@ -101,24 +88,14 @@ func handleSync(machineID string) {
 				fmt.Printf("Hostname set successfully\n")
 			}
 		}
-	} else if runtime.GOOS == "windows" && len(m.Interfaces) > 0 {
-		for name, info := range m.Interfaces {
-			if info.IP != "" {
-				args := []string{
-					"interface ip set address", fmt.Sprintf("name=\"%s\"", name), fmt.Sprintf("static %s %s", info.IP, info.Subnet),
-				}
-				if info.Gateway != "" {
-					args = append(args, info.Gateway)
-				}
 
-				cmd := exec.Command("netsh", args...)
-				output, err := cmd.CombinedOutput()
-				if err != nil {
-					log.Printf("Command failed with error: %v, output: %s", err, string(output))
-				} else {
-					fmt.Printf("Network settings applied successfully for interface %s\n", name)
-				}
-			}
+		// Save new state
+		state := &client.MachineState{
+			Interfaces: m.Interfaces,
+			Hostname:   m.Hostname,
+		}
+		if err := client.SaveMachineState(state); err != nil {
+			log.Printf("Failed to save machine state: %v", err)
 		}
 	}
 
