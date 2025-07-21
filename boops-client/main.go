@@ -153,6 +153,24 @@ func handleSync(machineID string) {
 		fmt.Printf("Successfully updated CPU architecture to: %s\n", sysInfo.CpuArch)
 	}
 
+	// Update CPU model info
+	sysInfo = system.GatherSystemInfo()
+	cpuInfoPayload := fmt.Sprintf(`{"cpu_info": "%s"}`, sysInfo.CpuInfo)
+	fmt.Printf("Updating CPU model info to: %s\n", sysInfo.CpuInfo)
+	req, err = http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-cpu_info", apiBase, machineID), strings.NewReader(cpuInfoPayload))
+	if err != nil {
+		log.Fatalf("Failed to create CPU info update request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	respCpuModelUpdate, err := http.DefaultClient.Do(req)
+	if err != nil {
+		log.Printf("Failed to send CPU info update request: %v", err)
+	} else if respCpuModelUpdate.StatusCode >= 300 {
+		log.Printf("CPU info update failed with status code: %d", respCpuModelUpdate.StatusCode)
+	} else {
+		fmt.Printf("Successfully updated CPU model info to: %s\n", sysInfo.CpuInfo)
+	}
+
 	req, err = http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-last-alive", apiBase, machineID), nil)
 	if err != nil {
 		log.Fatalf("Failed to create request: %v", err)
