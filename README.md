@@ -161,6 +161,98 @@ curl -X PUT http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee2
 curl -X DELETE http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee2048
 ```
 
+### 新しいインターフェースをマシンに追加する（POST）
+
+```bash
+# このコマンドは指定されたUUIDのマシンに新しいネットワークインターフェースを追加します。例としてUUID=70ae9891-fc07-45b9-8364-3ab159ee2048を使用しています。
+curl -X POST http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee2048/interfaces \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "eth1",
+    "ip_address": "192.168.2.100",
+    "subnet_mask": "255.255.255.0",
+    "gateway": "192.168.2.1",
+    "dns_servers": ["8.8.8.8", "8.8.4.4"]
+  }'
+```
+
+### マシンからインターフェースを削除する（DELETE）
+
+```bash
+# このコマンドは指定されたUUIDのマシンから特定のネットワークインターフェースを削除します。例としてマシンUUID=70ae9891-fc07-45b9-8364-3ab159ee2048、インターフェース名="eth1"を使用しています。
+curl -X DELETE http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee2048/interfaces/eth1
+```
+
+### 仮想マシンの親マシンIDを更新する（PUT）
+
+```bash
+# このコマンドは指定されたUUIDの仮想マシンの親マシンIDを更新します。例としてUUID=70ae9891-fc07-45b9-8364-3ab159ee2048を使用しています。
+curl -X PUT http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee2048/update-parent-id \
+  -H "Content-Type: application/json" \
+  -d '{
+    "parent_machine_id": "e7e3f8a7-bfde-45c7-b9f6-aaa9b97b2c19"
+  }'
+```
+
+### 仮想マシンのフラグと親IDを更新する（PUT）
+
+```bash
+# このコマンドは指定されたUUIDのマシンの仮想マシンフラグと親マシンIDを更新します。例としてUUID=70ae9891-fc07-45b9-8364-3ab159ee2048を使用しています。
+curl -X PUT http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee2048/update-vm-status \
+  -H "Content-Type: application/json" \
+  -d '{
+    "is_virtual": true,
+    "parent_machine_id": "e7e3f8a7-bfde-45c7-b9f6-aaa9b97b2c19"
+  }'
+```
+
+### マシンを検索する（GET）
+
+```bash
+# このコマンドは指定されたクエリに基づいてマシンを検索します。
+curl http://localhost:3001/api/machines/search?q=example-host
+```
+
+### UUIDで特定のマシンを取得する（GET）
+
+```bash
+# このコマンドは指定されたUUIDのマシン情報を取得します。例としてUUID=70ae9891-fc07-45b9-8364-3ab159ee2048を使用しています。
+curl http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee2048
+```
+
+### マシンの目的を更新する（PUT）
+
+```bash
+# このコマンドは指定されたUUIDのマシンの使用目的を更新します。例としてUUID=70ae9891-fc07-45b9-8364-3ab159ee2048を使用しています。
+curl -X PUT http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee2048/update-purpose \
+  -H "Content-Type: application/json" \
+  -d '{
+    "purpose": "New purpose for this machine"
+  }'
+```
+
+### マシンのホスト名を更新する（PUT）
+
+```bash
+# このコマンドは指定されたUUIDのマシンのホスト名を更新します。例としてUUID=70ae9891-fc07-45b9-8364-3ab159ee2048を使用しています。
+curl -X PUT http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee2048/update-hostname \
+  -H "Content-Type: application/json" \
+  -d '{
+    "hostname": "new-example-host"
+  }'
+```
+
+### マシンのメモを更新する（PUT）
+
+```bash
+# このコマンドは指定されたUUIDのマシンのメモを更新します。例としてUUID=70ae9891-fc07-45b9-8364-3ab159ee2048を使用しています。
+curl -X PUT http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee2048/update-memo \
+  -H "Content-Type: application/json" \
+  -d '{
+    "memo": "Updated memo for this machine"
+  }'
+```
+
 ## ライセンス
 
 このプロジェクトはMITライセンスの下で公開されています。詳細はLICENSEファイルをご覧ください。
