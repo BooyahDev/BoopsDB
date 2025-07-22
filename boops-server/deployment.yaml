@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: boops-server-deployment
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: boops-server
+  template:
+    metadata:
+      labels:
+        app: boops-server
+    spec:
+      containers:
+      - name: boops-server-container
+        image: boops-server:latest
+        ports:
+        - containerPort: 3000
+        envFrom:
+        - configMapRef:
+            name: boops-server-config

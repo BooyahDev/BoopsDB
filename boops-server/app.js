@@ -907,6 +907,6 @@ app.put('/api/machines/:machineId/interfaces/:interfaceName/update-mac_address',
   }
 });
 
-app.listen(port, () => {
-  console.log(`API server running on http://localhost:${port}`);
+app.listen(port, '0.0.0.0', () => {
+  console.log(`API server running on http://0.0.0.0:${port}`);
 });

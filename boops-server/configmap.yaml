@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: boops-server-config
+data:
+  # Add any environment variables used by the application here
+  # Example:
+  NODE_ENV: production
