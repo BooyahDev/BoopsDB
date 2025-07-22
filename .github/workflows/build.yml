@@ -35,6 +35,10 @@ jobs:
         go build -o boops-${{ matrix.arch }} main.go
       working-directory: ./boops-client
 
+    - name: Set executable permissions on postinst script
+      run: chmod 755 debian/DEBIAN/postinst
+      working-directory: ./boops-client
+
     - name: Create Debian package
       run: |
         mkdir -p debian/usr/local/bin
