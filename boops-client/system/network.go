@@ -10,6 +10,41 @@ import (
 	"boops/client"
 )
 
+// ANSI color codes for styled output
+const (
+	Reset       = "\033[0m"
+	Bold        = "\033[1m"
+	Cyan        = "\033[36m"
+	Yellow      = "\033[33m"
+	Green       = "\033[32m"
+	Red         = "\033[31m"
+	BlackOnCyan = "\033[46;30m" // Black text on cyan background
+)
+
+// PrintStyledMessage prints a styled message with type and border
+func PrintStyledMessage(msgType string, msg string) {
+	var colorCode string
+
+	switch strings.ToLower(msgType) {
+	case "info":
+		colorCode = Cyan + Bold
+	case "success":
+		colorCode = Green + Bold
+	case "warning":
+		colorCode = Yellow + Bold
+	case "error":
+		colorCode = Red + Bold
+	default:
+		colorCode = Cyan + Bold // Default to info style
+	}
+
+	// Border and padding for the message box
+	fmt.Println()
+	fmt.Printf("%s%s%s\n", BlackOnCyan, strings.ToUpper(msgType)+":", Reset)
+	fmt.Printf("%s %s %s\n", colorCode, msg, Reset)
+	fmt.Println()
+}
+
 func ApplyNetworkSettings(ifaces map[string]client.InterfaceInfo) error {
 	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
 		return fmt.Errorf("unsupported OS: %s", runtime.GOOS)
@@ -35,7 +70,7 @@ func GetMacAddresses() (map[string]string, error) {
 		return nil, fmt.Errorf("failed to get network interfaces: %v", err)
 	}
 
-	fmt.Printf("IP link output:\n%s\n", string(output))
+	PrintStyledMessage("info", fmt.Sprintf("IP link output:\n%s", string(output)))
 
 	scanner := bufio.NewScanner(strings.NewReader(string(output)))
 	var currentInterface string
@@ -69,20 +104,20 @@ func GetMacAddresses() (map[string]string, error) {
 			isLoopback = (strings.ToLower(currentInterface) == "lo") ||
 				strings.Contains(strings.ToLower(line), "loopback")
 
-			fmt.Printf("Found interface: %s, isLoopback: %v\n", currentInterface, isLoopback)
+			PrintStyledMessage("info", fmt.Sprintf("Found interface: %s, isLoopback: %v", currentInterface, isLoopback))
 			continue
 		}
 
 		// If this line contains a MAC address and we're not in a loopback section
 		if !isLoopback && strings.Contains(line, "link/ether") {
-			fmt.Printf("Found link/ether in line: %s\n", line)
+			PrintStyledMessage("info", fmt.Sprintf("Found link/ether in line: %s", line))
 
 			fields := strings.Fields(line)
 			for i, field := range fields {
 				if field == "link/ether" && i+1 < len(fields) {
 					macAddr := fields[i+1]
 					macAddrs[currentInterface] = macAddr
-					fmt.Printf("Found MAC address %s for interface %s\n", macAddr, currentInterface)
+					PrintStyledMessage("info", fmt.Sprintf("Found MAC address %s for interface %s", macAddr, currentInterface))
 					break
 				}
 			}
