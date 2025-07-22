@@ -372,6 +372,7 @@
 import { ref, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { useRouter } from 'vue-router';
+import { apiBaseUrl } from '@/apiConfig';
 
 const router = useRouter();
 const route = useRoute();
@@ -439,7 +440,7 @@ function cancelMachineDelete() {
 async function deleteMachine() {
   isDeleting.value = true;
   try {
-    const response = await fetch(`http://localhost:3001/api/machines/${machine.value.id}`, {
+    const response = await fetch(`${apiBaseUrl}/machines/${machine.value.id}`, {
       method: 'DELETE'
     });
 
@@ -500,7 +501,7 @@ async function saveVmStatus() {
       vmStatusEdit.value.parent_machine_id = null;
     }
 
-    const response = await fetch(`http://localhost:3001/api/machines/${machine.value.id}/update-vm-status`, {
+    const response = await fetch(`${apiBaseUrl}/machines/${machine.value.id}/update-vm-status`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -515,14 +516,14 @@ async function saveVmStatus() {
     }
 
     // 更新後のデータを取得
-    const updatedResponse = await fetch(`http://localhost:3001/api/machines/${machine.value.id}`);
+    const updatedResponse = await fetch(`${apiBaseUrl}/machines/${machine.value.id}`);
     if (updatedResponse.ok) {
       machine.value = await updatedResponse.json();
       isEditingVmStatus.value = false;
       
       // 親マシンのホスト名を更新
       if (machine.value.is_virtual && machine.value.parent_machine_id) {
-        const parentResponse = await fetch(`http://localhost:3001/api/machines/${machine.value.parent_machine_id}`);
+        const parentResponse = await fetch(`${apiBaseUrl}/machines/${machine.value.parent_machine_id}`);
         if (parentResponse.ok) {
           const parentMachine = await parentResponse.json();
           machine.value.parentHostname = parentMachine.hostname;
@@ -546,7 +547,7 @@ async function deleteInterface() {
 
   try {
     const response = await fetch(
-      `http://localhost:3001/api/machines/${machine.value.id}/interfaces/${interfaceToDelete.value}`,
+      `${apiBaseUrl}/machines/${machine.value.id}/interfaces/${interfaceToDelete.value}`,
       {
         method: 'DELETE'
       }
@@ -562,7 +563,7 @@ async function deleteInterface() {
     interfaceToDelete.value = '';
 
     // マシンデータを再読み込み
-    const updatedResponse = await fetch(`http://localhost:3001/api/machines/${route.params.id}`);
+    const updatedResponse = await fetch(`${apiBaseUrl}/machines/${route.params.id}`);
     if (updatedResponse.ok) {
       machine.value = await updatedResponse.json();
     }
@@ -584,7 +585,7 @@ async function addNewInterface() {
   addInterfaceError.value = '';
 
   try {
-    const response = await fetch(`http://localhost:3001/api/machines/${machine.value.id}/interfaces`, {
+    const response = await fetch(`${apiBaseUrl}/machines/${machine.value.id}/interfaces`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -613,7 +614,7 @@ async function addNewInterface() {
     };
 
     // マシンデータを再読み込み
-    const updatedResponse = await fetch(`http://localhost:3001/api/machines/${route.params.id}`);
+    const updatedResponse = await fetch(`${apiBaseUrl}/machines/${route.params.id}`);
     if (updatedResponse.ok) {
       machine.value = await updatedResponse.json();
     }
@@ -632,7 +633,7 @@ function cancelEditIp(interfaceName) {
   isEditingIp.value[interfaceName] = false;
 
   // Reload current values from server
-  fetch(`http://localhost:3001/api/machines/${route.params.id}`)
+  fetch(`${apiBaseUrl}/machines/${route.params.id}`)
     .then(response => response.json())
     .then(data => {
       machine.value.interfaces[interfaceName] = data.interfaces[interfaceName];
@@ -652,7 +653,7 @@ async function updateParentId() {
   isUpdatingParentId.value = true;
 
   try {
-    const response = await fetch(`http://localhost:3001/api/machines/${machine.value.id}/update-parent-id`, {
+    const response = await fetch(`${apiBaseUrl}/machines/${machine.value.id}/update-parent-id`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -669,7 +670,7 @@ async function updateParentId() {
     
     // 親マシンのホスト名を再取得
     if (machine.value.parent_machine_id) {
-      const parentResponse = await fetch(`http://localhost:3001/api/machines/${machine.value.parent_machine_id}`);
+      const parentResponse = await fetch(`${apiBaseUrl}/machines/${machine.value.parent_machine_id}`);
       if (parentResponse.ok) {
         const parentMachine = await parentResponse.json();
         machine.value.parentHostname = parentMachine.hostname;
@@ -730,7 +731,7 @@ async function saveNetworkSetting(interfaceName, settingType) {
         return;
       }
 
-      url = `http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}`;
+      url = `${apiBaseUrl}/interfaces/${machine.value.id}/${interfaceName}`;
       body = { ip_address: interfaceData.ip };
 
     } else if (settingType === 'subnet') {
@@ -740,12 +741,12 @@ async function saveNetworkSetting(interfaceName, settingType) {
         return;
       }
 
-      url = `http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}/update-subnet-mask`;
+      url = `${apiBaseUrl}/interfaces/${machine.value.id}/${interfaceName}/update-subnet-mask`;
       body = { subnet_mask: interfaceData.subnet };
 
     } else if (settingType === 'gateway') {
       // Update gateway - Allow empty values
-      url = `http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}/update-gateway`;
+      url = `${apiBaseUrl}/interfaces/${machine.value.id}/${interfaceName}/update-gateway`;
       body = { gateway: interfaceData.gateway };
 
     } else if (settingType === 'dns') {
@@ -761,7 +762,7 @@ async function saveNetworkSetting(interfaceName, settingType) {
         dnsServersArray = [];
       }
 
-      url = `http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}/update-dns`;
+      url = `${apiBaseUrl}/interfaces/${machine.value.id}/${interfaceName}/update-dns`;
       body = { dns_servers: dnsServersArray };
     }
 
@@ -816,7 +817,7 @@ async function saveInterfaceName(interfaceName) { // New function to save interf
   isLoadingName.value[interfaceName] = true;
 
   try {
-    const response = await fetch(`http://localhost:3001/api/interfaces/${machine.value.id}/${interfaceName}/update-name`, {
+    const response = await fetch(`${apiBaseUrl}/interfaces/${machine.value.id}/${interfaceName}/update-name`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: newName })
@@ -833,7 +834,7 @@ async function saveInterfaceName(interfaceName) { // New function to save interf
     isLoadingName.value[interfaceName] = false;
 
     // Reload machine data after successful update
-    const updatedResponse = await fetch(`http://localhost:3001/api/machines/${route.params.id}`);
+    const updatedResponse = await fetch(`${apiBaseUrl}/machines/${route.params.id}`);
     if (updatedResponse.ok) {
       machine.value = await updatedResponse.json();
     } else {
@@ -862,7 +863,7 @@ function cancelEditNetwork(interfaceName, settingType) {
   }
 
   // Reload current values from server
-  fetch(`http://localhost:3001/api/machines/${route.params.id}`)
+  fetch(`${apiBaseUrl}/machines/${route.params.id}`)
     .then(response => response.json())
     .then(data => {
       machine.value.interfaces[interfaceName] = data.interfaces[interfaceName];
@@ -874,7 +875,7 @@ function cancelEditInterfaceName(interfaceName) { // New function to cancel edit
   isEditingName.value[interfaceName] = false;
 
   // Reload current values from server
-  fetch(`http://localhost:3001/api/machines/${route.params.id}`)
+  fetch(`${apiBaseUrl}/machines/${route.params.id}`)
     .then(response => response.json())
     .then(data => {
       machine.value.interfaces[interfaceName] = data.interfaces[interfaceName];
@@ -883,13 +884,13 @@ function cancelEditInterfaceName(interfaceName) { // New function to cancel edit
 }
 
 onMounted(async () => {
-  const response = await fetch(`http://localhost:3001/api/machines/${route.params.id}`);
+  const response = await fetch(`${apiBaseUrl}/machines/${route.params.id}`);
   if (response.ok) {
     machine.value = await response.json();
 
     // If this is a virtual machine with a parent, fetch the parent machine details
     if (machine.value.is_virtual && machine.value.parent_machine_id) {
-      const parentResponse = await fetch(`http://localhost:3001/api/machines/${machine.value.parent_machine_id}`);
+      const parentResponse = await fetch(`${apiBaseUrl}/machines/${machine.value.parent_machine_id}`);
       if (parentResponse.ok) {
         const parentMachine = await parentResponse.json();
         // Store the parent hostname to display in the link
@@ -926,7 +927,7 @@ function duplicateMachine() {
 async function updateMemo() {
   isUpdatingMemo.value = true; // Set loading state
 
-  const response = await fetch(`http://localhost:3001/api/machines/${machine.value.id}/update-memo`, {
+  const response = await fetch(`${apiBaseUrl}/machines/${machine.value.id}/update-memo`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ memo: machine.value.memo })
@@ -959,7 +960,7 @@ function cancelEditHostname() {
   isEditingHostname.value = false;
 
   // Reload current hostname from server
-  fetch(`http://localhost:3001/api/machines/${route.params.id}`)
+  fetch(`${apiBaseUrl}/machines/${route.params.id}`)
     .then(response => response.json())
     .then(data => {
       machine.value.hostname = data.hostname;
@@ -970,7 +971,7 @@ function cancelEditHostname() {
 async function saveHostname() {
   isUpdatingHostname.value = true;
 
-  const response = await fetch(`http://localhost:3001/api/machines/${machine.value.id}/update-hostname`, {
+  const response = await fetch(`${apiBaseUrl}/machines/${machine.value.id}/update-hostname`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ hostname: machine.value.hostname })
@@ -995,7 +996,7 @@ function cancelEditPurpose() {
   isEditingPurpose.value = false;
 
   // Reload current purpose from server
-  fetch(`http://localhost:3001/api/machines/${route.params.id}`)
+  fetch(`${apiBaseUrl}/machines/${route.params.id}`)
     .then(response => response.json())
     .then(data => {
       machine.value.purpose = data.purpose;
@@ -1006,7 +1007,7 @@ function cancelEditPurpose() {
 async function updatePurpose() {
   isUpdatingPurpose.value = true;
 
-  const response = await fetch(`http://localhost:3001/api/machines/${machine.value.id}/update-purpose`, {
+  const response = await fetch(`${apiBaseUrl}/machines/${machine.value.id}/update-purpose`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ purpose: machine.value.purpose })

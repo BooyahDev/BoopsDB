@@ -97,6 +97,7 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
+import { apiBaseUrl } from '@/apiConfig';
 
 const router = useRouter();
 const route = useRoute();
@@ -221,7 +222,7 @@ async function addMachine() {
     }
   }
 
-  const response = await fetch('http://localhost:3001/api/machines', {
+  const response = await fetch(`${apiBaseUrl}/machines`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

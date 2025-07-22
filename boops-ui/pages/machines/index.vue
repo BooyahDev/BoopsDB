@@ -53,6 +53,7 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
+import { apiBaseUrl } from '@/apiConfig';
 
 const route = useRoute();
 const router = useRouter();
@@ -71,7 +72,7 @@ onMounted(() => {
 });
 
 async function fetchAllMachines() {
-  const response = await fetch('http://localhost:3001/api/machines');
+  const response = await fetch(`${apiBaseUrl}/machines`);
   if (response.ok) {
     searchResults.value = await response.json();
   } else {
@@ -83,7 +84,7 @@ async function performSearch(query) {
   isLoading.value = true;
 
   try {
-    const response = await fetch(`http://localhost:3001/api/machines/search?q=${encodeURIComponent(query)}`);
+    const response = await fetch(`${apiBaseUrl}/machines/search?q=${encodeURIComponent(query)}`);
     if (response.ok) {
       searchResults.value = await response.json();
     } else {
