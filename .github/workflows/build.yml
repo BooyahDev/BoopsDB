@@ -33,28 +33,32 @@ jobs:
         GOARCH: ${{ matrix.arch }}
       run: |
         go build -o boops-${{ matrix.arch }} main.go
+      working-directory: ./boops-client
 
     - name: Create Debian package
       run: |
         mkdir -p debian/usr/local/bin
         cp boops-${{ matrix.arch }} debian/usr/local/bin/boops
         dpkg-deb --build debian/ boops_0.1_${{ matrix.arch }}.deb
+      working-directory: ./boops-client
 
     - name: Create RPM source tarball
       run: |
         tar -czf boops-0.1.tar.gz main.go go.mod go.sum client system boops.spec boops.service boops.timer
+      working-directory: ./boops-client
 
     - name: Build RPM package for ${{ matrix.arch }}
       env:
         GOARCH: ${{ matrix.arch }}
       run: |
         rpmbuild --define "_topdir $HOME/rpmbuild" --define "_target_cpu ${GOARCH}" -tb boops-0.1.tar.gz
+      working-directory: ./boops-client
 
     - name: Upload Debian package artifact
       uses: actions/upload-artifact@v2
       with:
         name: boops_0.1_${{ matrix.arch }}.deb
-        path: boops_0.1_${{ matrix.arch }}.deb
+        path: ./boops-client/boops_0.1_${{ matrix.arch }}.deb
 
     - name: Upload RPM package artifact
       uses: actions/upload-artifact@v2
