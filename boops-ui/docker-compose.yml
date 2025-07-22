@@ -8,6 +8,6 @@ services:
     platform: linux/amd64
     restart: always
     ports:
-      - "3000:3000"
+      - "3100:3000"
     environment:
       - NODE_ENV=production
