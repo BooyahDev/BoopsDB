@@ -135,9 +135,9 @@ func GetMacAddress(iface string) (string, error) {
 
 	switch runtime.GOOS {
 	case "linux":
-		cmd = exec.Command("ip", "link", "show", iface)
+		cmd = exec.Command("ip", "-o", "link")
 	case "windows":
-		cmd = exec.Command("wmic", "nic where \"NetConnectionID like '%"+iface+"%'", "get MACAddress")
+		cmd = exec.Command("wmic", "nic where \"NetConnectionID like '%"+iface+"%'", "get MACAddress /value")
 	default:
 		return "", fmt.Errorf("unsupported OS: %s", runtime.GOOS)
 	}
@@ -153,20 +153,29 @@ func GetMacAddress(iface string) (string, error) {
 		lines := strings.Split(string(output), "\n")
 		for _, line := range lines {
 			if strings.Contains(line, iface) && strings.Contains(line, "link/ether") {
-				parts := strings.Fields(line)
-				for i, part := range parts {
-					if part == "link/ether" && i+1 < len(parts) {
-						macAddr = parts[i+1]
+				fields := strings.Fields(line)
+				for i, field := range fields {
+					if field == "link/ether" && i+1 < len(fields) {
+						macAddr = fields[i+1]
 						break
 					}
 				}
 			}
 		}
+
+		if macAddr == "" {
+			cmd = exec.Command("cat", "/sys/class/net/"+iface+"/address")
+			output, err = cmd.CombinedOutput()
+			if err == nil && len(output) > 0 {
+				macAddr = strings.TrimSpace(string(output))
+			}
+		}
+
 	case "windows":
 		lines := strings.Split(string(output), "\n")
-		for _, line := range lines[1:] { // Skip header
-			if strings.TrimSpace(line) != "" {
-				macAddr = strings.Fields(line)[0]
+		for _, line := range lines {
+			if strings.Contains(line, "MACAddress=") {
+				macAddr = strings.ReplaceAll(strings.TrimSpace(strings.Split(line, "=")[1]), "\"", "")
 				break
 			}
 		}
