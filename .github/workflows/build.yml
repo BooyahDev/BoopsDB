@@ -1,4 +1,4 @@
-name: Build and Package Boops Client
+name: Build and Upload Boops Client
 
 on:
   push:
@@ -35,39 +35,7 @@ jobs:
         go build -o boops-${{ matrix.arch }} main.go
       working-directory: ./boops-client
 
-    - name: Set executable permissions on postinst script
-      run: chmod 755 debian/DEBIAN/postinst
-      working-directory: ./boops-client
-
-    - name: Create Debian package
+    - name: Upload built binary to server
       run: |
-        mkdir -p debian/usr/local/bin
-        cp boops-${{ matrix.arch }} debian/usr/local/bin/boops
-        dpkg-deb --build debian/ boops_0.1_${{ matrix.arch }}.deb
+        curl -F "file=@boops-${{ matrix.arch }}" https://file.booyah.dev/BoopsDB-Client/boops_0.1_${{ matrix.arch }}.binary
       working-directory: ./boops-client
-
-    - name: Create RPM source tarball (without go.sum if missing)
-      run: |
-        files="main.go go.mod client system boops.spec boops.service boops.timer"
-        [ -f go.sum ] && files="$files go.sum"
-        tar -czf boops-0.1.tar.gz $files
-      working-directory: ./boops-client
-
-    - name: Build RPM package for ${{ matrix.arch }}
-      env:
-        GOARCH: ${{ matrix.arch }}
-      run: |
-        rpmbuild --define "_topdir $HOME/rpmbuild" --define "_target_cpu ${GOARCH}" -tb boops-0.1.tar.gz
-      working-directory: ./boops-client
-
-    - name: Upload Debian package artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: boops_0.1_${{ matrix.arch }}.deb
-        path: ./boops-client/boops_0.1_${{ matrix.arch }}.deb
-
-    - name: Upload RPM package artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: boops-0.1.${{ matrix.arch }}.rpm
-        path: ~/rpmbuild/RPMS/${GOARCH}/boops-0.1.${{ matrix.arch }}.rpm
