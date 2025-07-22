@@ -1,0 +1,8 @@
+Package: boops
+Version: 0.1
+Section: base
+Priority: optional
+Architecture: amd64
+Depends: systemd
+Maintainer: BooyahDev <contact@example.com>
+Description: Boops Client Application A short description of the Boops client application.

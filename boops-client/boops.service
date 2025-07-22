@@ -1,0 +1,13 @@
+[Unit]
+Description=Boops Client Service
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/boops
+Restart=always
+User=nobody
+Group=nogroup
+WorkingDirectory=/etc/boops
+
+[Install]
+WantedBy=multi-user.target
