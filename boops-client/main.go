@@ -246,6 +246,40 @@ func handleSync(machineID string) {
 		log.Fatalf("Failed to send update-last-alive request: %v", err)
 	}
 
+	// Update MAC addresses for all interfaces
+	for ifaceName := range m.Interfaces {
+		macAddr, err := system.GetMacAddress(ifaceName)
+		if err != nil {
+			PrintStyledMessage("warning", fmt.Sprintf("Failed to get MAC address for interface %s: %v", ifaceName, err))
+			continue
+		}
+
+		// Only update if the MAC address is different or empty in the server data
+		currentMac := m.Interfaces[ifaceName].MacAddress
+		if currentMac == "" || currentMac != macAddr {
+			updatePayload := fmt.Sprintf(`{"mac_address": "%s"}`, macAddr)
+			req, err = http.NewRequest(
+				http.MethodPut,
+				fmt.Sprintf("%s/%s/interfaces/%s/update-mac_address", apiBase, machineID, ifaceName),
+				strings.NewReader(updatePayload),
+			)
+			if err != nil {
+				PrintStyledMessage("error", fmt.Sprintf("Failed to create MAC address update request for %s: %v", ifaceName, err))
+				continue
+			}
+			req.Header.Set("Content-Type", "application/json")
+
+			respMacUpdate, err := http.DefaultClient.Do(req)
+			if err != nil {
+				PrintStyledMessage("error", fmt.Sprintf("Failed to send MAC address update request for %s: %v", ifaceName, err))
+			} else if respMacUpdate.StatusCode >= 300 {
+				PrintStyledMessage("warning", fmt.Sprintf("MAC address update failed for %s with status code: %d", ifaceName, respMacUpdate.StatusCode))
+			} else {
+				PrintStyledMessage("success", fmt.Sprintf("Successfully updated MAC address for interface %s to %s", ifaceName, macAddr))
+			}
+		}
+	}
+
 	PrintStyledMessage("success", "Sync completed successfully.")
 }
 

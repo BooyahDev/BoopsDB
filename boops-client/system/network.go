@@ -102,3 +102,79 @@ func MaskToCIDR(mask string) string {
 	}
 	return fmt.Sprintf("%d", bits)
 }
+
+// GatherNetworkInterfaces returns a map of network interfaces and their current information
+// func GatherNetworkInterfaces() map[string]client.InterfaceInfo {
+// 	out, _ := exec.Command("ip", "-j", "addr").Output()
+// 	var data []map[string]interface{}
+// 	json.Unmarshal(out, &data)
+// 	result := make(map[string]client.InterfaceInfo)
+// 	for _, iface := range data {
+// 		name := iface["ifname"].(string)
+// 		mac := iface["address"].(string)
+// 		var ip, mask string
+// 		if addrs, ok := iface["addr_info"].([]interface{}); ok && len(addrs) > 0 {
+// 			addr := addrs[0].(map[string]interface{})
+// 			ip = addr["local"].(string)
+// 			mask = cidrToMask(int(addr["prefixlen"].(float64)))
+// 		}
+// 		result[name] = client.InterfaceInfo{
+// 			IP:         ip,
+// 			Subnet:     mask,
+// 			Gateway:    "",
+// 			DnsServers: []string{},
+// 			MacAddress: mac,
+// 		}
+// 	}
+// 	return result
+// }
+
+// GetMacAddress retrieves the MAC address for a given interface name using platform-specific commands
+func GetMacAddress(iface string) (string, error) {
+	var cmd *exec.Cmd
+
+	switch runtime.GOOS {
+	case "linux":
+		cmd = exec.Command("ip", "link", "show", iface)
+	case "windows":
+		cmd = exec.Command("wmic", "nic where \"NetConnectionID like '%"+iface+"%'", "get MACAddress")
+	default:
+		return "", fmt.Errorf("unsupported OS: %s", runtime.GOOS)
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("command failed with error: %v, output: %s", err, string(output))
+	}
+
+	var macAddr string
+	switch runtime.GOOS {
+	case "linux":
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines {
+			if strings.Contains(line, iface) && strings.Contains(line, "link/ether") {
+				parts := strings.Fields(line)
+				for i, part := range parts {
+					if part == "link/ether" && i+1 < len(parts) {
+						macAddr = parts[i+1]
+						break
+					}
+				}
+			}
+		}
+	case "windows":
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines[1:] { // Skip header
+			if strings.TrimSpace(line) != "" {
+				macAddr = strings.Fields(line)[0]
+				break
+			}
+		}
+	}
+
+	if macAddr == "" {
+		return "", fmt.Errorf("MAC address not found for interface: %s", iface)
+	}
+
+	return macAddr, nil
+}
