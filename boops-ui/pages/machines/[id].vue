@@ -32,6 +32,10 @@
           </template>
         </tr>
         <tr>
+          <th>OS:</th>
+          <td>{{ machine.os_name || 'N/A' }}</td>
+        </tr>
+        <tr>
           <th>CPU Info:</th>
           <td>{{ machine.cpu_info || 'N/A' }}</td>
         </tr>
