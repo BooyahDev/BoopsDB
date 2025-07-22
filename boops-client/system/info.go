@@ -63,8 +63,20 @@ func getMemorySize() string {
 		}
 		return "0GB"
 	}
-	out, _ := exec.Command("sh", "-c", "free -g | grep Mem | awk '{print $2 \"GB\"}'").Output()
-	return strings.TrimSpace(string(out))
+
+	// Use free -b for bytes, then convert to GB with proper handling of decimal values
+	out, _ := exec.Command("sh", "-c", "free -b | grep Mem").Output()
+	lines := strings.Split(string(out), "\n")
+	if len(lines) > 0 {
+		fields := strings.Fields(strings.TrimSpace(lines[0]))
+		if len(fields) >= 2 {
+			var bytes int64
+			fmt.Sscanf(fields[1], "%d", &bytes)
+			gb := float64(bytes) / (1024 * 1024 * 1024)
+			return fmt.Sprintf("%.1fGB", gb)
+		}
+	}
+	return "0GB"
 }
 
 func getDiskInfo() string {
