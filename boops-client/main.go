@@ -237,50 +237,6 @@ func handleSync(machineID string) {
 		PrintStyledMessage("success", "Successfully updated disk info")
 	}
 
-	// Update MAC addresses
-	if runtime.GOOS == "linux" {
-		macAddrs, err := system.GetMacAddresses()
-		if err != nil {
-			PrintStyledMessage("error", fmt.Sprintf("Failed to get MAC addresses: %v", err))
-		} else {
-			PrintStyledMessage("info", fmt.Sprintf("Found interfaces with MAC addresses: %v", macAddrs))
-
-			for ifName, macAddr := range macAddrs {
-				// Look for the interface name in a case-insensitive way
-				foundInterface := ""
-				for intfName := range m.Interfaces {
-					if strings.ToLower(intfName) == strings.ToLower(ifName) {
-						foundInterface = intfName
-						break
-					}
-				}
-
-				if foundInterface != "" {
-					updatePayload := fmt.Sprintf(`{"mac_address": "%s"}`, macAddr)
-					req, err = http.NewRequest(http.MethodPut,
-						fmt.Sprintf("%s/%s/interfaces/%s/update-mac_address", apiBase, machineID, foundInterface),
-						strings.NewReader(updatePayload))
-					if err != nil {
-						PrintStyledMessage("error", fmt.Sprintf("Failed to create MAC address update request for %s: %v", ifName, err))
-						continue
-					}
-					req.Header.Set("Content-Type", "application/json")
-					respMacUpdate, err := http.DefaultClient.Do(req)
-					if err != nil {
-						PrintStyledMessage("error", fmt.Sprintf("Failed to send MAC address update request for %s: %v", ifName, err))
-					} else if respMacUpdate.StatusCode >= 300 {
-						PrintStyledMessage("warning", fmt.Sprintf("MAC address update failed for %s with status code: %d",
-							foundInterface, respMacUpdate.StatusCode))
-					} else {
-						PrintStyledMessage("success", fmt.Sprintf("Successfully updated MAC address for %s to: %s", foundInterface, macAddr))
-					}
-				} else {
-					PrintStyledMessage("warning", fmt.Sprintf("Interface %s not found in machine interfaces map (case-insensitive search)", ifName))
-				}
-			}
-		}
-	}
-
 	req, err = http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-last-alive", apiBase, machineID), nil)
 	if err != nil {
 		log.Fatalf("Failed to create request: %v", err)

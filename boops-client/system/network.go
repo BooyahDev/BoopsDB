@@ -1,7 +1,6 @@
 package system
 
 import (
-	"bufio"
 	"fmt"
 	"os/exec"
 	"runtime"
@@ -59,72 +58,6 @@ func ApplyNetworkSettings(ifaces map[string]client.InterfaceInfo) error {
 		return applyWindows(ifaces)
 	}
 	return nil
-}
-
-func GetMacAddresses() (map[string]string, error) {
-	macAddrs := make(map[string]string)
-
-	cmd := exec.Command("ip", "link")
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get network interfaces: %v", err)
-	}
-
-	PrintStyledMessage("info", fmt.Sprintf("IP link output:\n%s", string(output)))
-
-	scanner := bufio.NewScanner(strings.NewReader(string(output)))
-	var currentInterface string
-	var isLoopback bool
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-
-		// Look for lines that define interfaces (start with a number followed by ":")
-		if fields := strings.Fields(line); len(fields) > 0 && strings.Contains(fields[0], ":") {
-			// The interface name is the part after ":" and before "<"
-			parts := strings.SplitN(fields[0], ":", 2)
-			if len(parts) != 2 {
-				continue
-			}
-
-			index := strings.Index(parts[1], "<")
-			var ifName string
-			if index == -1 {
-				// No "<" found, use the whole part after ":"
-				ifName = parts[1]
-			} else {
-				// Extract only the interface name before "<"
-				ifName = parts[1][:index]
-			}
-
-			// Check if this is a new interface section
-			currentInterface = ifName
-
-			// Skip loopback interface by checking name and flags
-			isLoopback = (strings.ToLower(currentInterface) == "lo") ||
-				strings.Contains(strings.ToLower(line), "loopback")
-
-			PrintStyledMessage("info", fmt.Sprintf("Found interface: %s, isLoopback: %v", currentInterface, isLoopback))
-			continue
-		}
-
-		// If this line contains a MAC address and we're not in a loopback section
-		if !isLoopback && strings.Contains(line, "link/ether") {
-			PrintStyledMessage("info", fmt.Sprintf("Found link/ether in line: %s", line))
-
-			fields := strings.Fields(line)
-			for i, field := range fields {
-				if field == "link/ether" && i+1 < len(fields) {
-					macAddr := fields[i+1]
-					macAddrs[currentInterface] = macAddr
-					PrintStyledMessage("info", fmt.Sprintf("Found MAC address %s for interface %s", macAddr, currentInterface))
-					break
-				}
-			}
-		}
-	}
-
-	return macAddrs, nil
 }
 
 func applyLinux(ifaces map[string]client.InterfaceInfo) error {
