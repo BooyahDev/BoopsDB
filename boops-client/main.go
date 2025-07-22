@@ -15,7 +15,7 @@ import (
 	"boops/system"
 )
 
-var apiBase = "http://localhost:3001/api/machines"
+var apiBase = "https://boopsdb-api.booyah.dev/api/machines"
 
 // Store current network settings
 var currentSettings map[string]client.InterfaceInfo
