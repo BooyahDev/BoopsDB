@@ -3,11 +3,8 @@ Description=Boops Client Service
 After=network.target
 
 [Service]
-ExecStart=/usr/local/bin/boops
+ExecStart=/usr/local/bin/boops sync
 Restart=always
-User=nobody
-Group=nogroup
+User=root
+Group=root
 WorkingDirectory=/etc/boops
-
-[Install]
-WantedBy=multi-user.target

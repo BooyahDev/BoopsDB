@@ -1,0 +1,10 @@
+[Unit]
+Description=Runs Boops Client every minute
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+AccuracySec=1us
+
+[Install]
+WantedBy=timers.target

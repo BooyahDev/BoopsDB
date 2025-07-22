@@ -10,6 +10,10 @@ on:
 
 jobs:
   build:
+    strategy:
+      matrix:
+        arch: [ amd64, arm64 ]
+
     runs-on: ubuntu-latest
 
     steps:
@@ -22,35 +26,38 @@ jobs:
         go-version: '^1.18'
 
     - name: Install build dependencies
-      run: sudo apt-get update && sudo apt-get install -y rpm build-essential dpkg-dev
+      run: sudo apt-get update && sudo apt-get install -y rpm build-essential dpkg-dev qemu-user-static
 
-    - name: Build Go binary
+    - name: Build Go binary for ${{ matrix.arch }}
+      env:
+        GOARCH: ${{ matrix.arch }}
       run: |
-        go build -o boops main.go
+        go build -o boops-${{ matrix.arch }} main.go
 
     - name: Create Debian package
       run: |
-        mkdir -p debian/usr/local/bin debian/usr/share/doc/boops
-        cp boops debian/usr/local/bin/
-        cp boops.service debian/usr/share/doc/boops/
-        dpkg-deb --build debian/ boops_0.1_amd64.deb
+        mkdir -p debian/usr/local/bin
+        cp boops-${{ matrix.arch }} debian/usr/local/bin/boops
+        dpkg-deb --build debian/ boops_0.1_${{ matrix.arch }}.deb
 
     - name: Create RPM source tarball
       run: |
-        tar -czf boops-0.1.tar.gz main.go go.mod go.sum client system boops.spec boops.service
+        tar -czf boops-0.1.tar.gz main.go go.mod go.sum client system boops.spec boops.service boops.timer
 
-    - name: Build RPM package
+    - name: Build RPM package for ${{ matrix.arch }}
+      env:
+        GOARCH: ${{ matrix.arch }}
       run: |
-        rpmbuild --define "_topdir $HOME/rpmbuild" -tb boops-0.1.tar.gz
+        rpmbuild --define "_topdir $HOME/rpmbuild" --define "_target_cpu ${GOARCH}" -tb boops-0.1.tar.gz
 
     - name: Upload Debian package artifact
       uses: actions/upload-artifact@v2
       with:
-        name: boops_0.1_amd64.deb
-        path: boops_0.1_amd64.deb
+        name: boops_0.1_${{ matrix.arch }}.deb
+        path: boops_0.1_${{ matrix.arch }}.deb
 
     - name: Upload RPM package artifact
       uses: actions/upload-artifact@v2
       with:
-        name: boops-0.1.x86_64.rpm
-        path: ~/rpmbuild/RPMS/x86_64/boops-0.1.x86_64.rpm
+        name: boops-0.1.${{ matrix.arch }}.rpm
+        path: ~/rpmbuild/RPMS/${GOARCH}/boops-0.1.${{ matrix.arch }}.rpm

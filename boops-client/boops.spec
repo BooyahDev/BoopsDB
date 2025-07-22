@@ -29,13 +29,14 @@ touch /etc/boops/config.json
 chmod 644 /etc/boops/config.json
 
 %post
-# Copy systemd service file to /etc/systemd/system/
+# Copy systemd service and timer files to /etc/systemd/system/
 cp %{_builddir}/%{name}-%{version}/boops.service /etc/systemd/system/
+cp %{_builddir}/%{name}-%{version}/boops.timer /etc/systemd/system/
 
-# Reload systemd and enable the boops service
+# Reload systemd and enable the boops timer
 systemctl daemon-reload
-systemctl enable boops.service
-systemctl start boops.service
+systemctl enable boops.timer
+systemctl start boops.timer
 
 %files
 /usr/local/bin/boops
