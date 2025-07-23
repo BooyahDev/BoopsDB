@@ -61,17 +61,100 @@ func ApplyNetworkSettings(ifaces map[string]client.InterfaceInfo) error {
 }
 
 func applyLinux(ifaces map[string]client.InterfaceInfo) error {
+	isUbuntu, err := isUbuntuSystem()
+	if err != nil {
+		return fmt.Errorf("unable to determine system type: %v", err)
+	}
+
 	for name, info := range ifaces {
-		cmds := []string{
-			fmt.Sprintf("ip addr flush dev %s", name),
-			fmt.Sprintf("ip addr add %s/%s dev %s", info.IP, MaskToCIDR(info.Subnet), name),
+		if isUbuntu {
+			err = applyNetplan(name, info)
+		} else {
+			err = applyNmcli(name, info)
 		}
-		if info.Gateway != "" {
-			cmds = append(cmds, fmt.Sprintf("ip route add default via %s dev %s", info.Gateway, name))
+		if err != nil {
+			return fmt.Errorf("failed to apply settings for interface %s: %v", name, err)
 		}
-		for _, cmd := range cmds {
-			exec.Command("sh", "-c", cmd).Run()
-		}
+	}
+
+	return nil
+}
+
+func isUbuntuSystem() (bool, error) {
+	output, err := exec.Command("lsb_release", "-is").CombinedOutput()
+	if err != nil {
+		return false, fmt.Errorf("unable to determine OS type: %v, output: %s", err, string(output))
+	}
+	osType := strings.TrimSpace(string(output))
+	return osType == "Ubuntu", nil
+}
+
+func applyNetplan(iface string, info client.InterfaceInfo) error {
+	configPath := "/etc/netplan/01-netcfg.yaml"
+	content := fmt.Sprintf(`
+network:
+  version: 2
+  ethernets:
+    %s:
+      dhcp4: no
+      addresses:
+        - "%s/%s"
+      gateway4: %s
+      nameservers:
+        addresses:
+          - "%s"
+`, iface, info.IP, MaskToCIDR(info.Subnet), info.Gateway, strings.Join(info.DnsServers, ","))
+
+	// Remove all existing netplan configurations to avoid conflicts
+	cmd := exec.Command("sh", "-c", "sudo rm -f /etc/netplan/*.yaml")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to remove existing netplan configs: %v, output: %s", err, string(output))
+	}
+
+	err = writeNetplanConfig(configPath, content)
+	if err != nil {
+		return fmt.Errorf("failed to write netplan config: %v", err)
+	}
+
+	cmd = exec.Command("sh", "-c", "sudo netplan apply")
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("netplan apply failed with error: %v, output: %s", err, string(output))
+	}
+	return nil
+}
+
+func writeNetplanConfig(path, content string) error {
+	cmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | sudo tee %s > /dev/null", content, path))
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to write config: %v, output: %s", err, string(output))
+	}
+	return nil
+}
+
+func applyNmcli(iface string, info client.InterfaceInfo) error {
+	cmds := []string{
+		fmt.Sprintf("nmcli dev disconnect iface %s", iface),
+		fmt.Sprintf("nmcli dev set %s ipv4.addresses %s/%s ipv4.method manual connection.autoconnect yes", iface, info.IP, MaskToCIDR(info.Subnet)),
+	}
+	if info.Gateway != "" {
+		cmds = append(cmds, fmt.Sprintf("nmcli dev set %s ipv4.gateway %s", iface, info.Gateway))
+	}
+	for _, cmd := range cmds {
+		exec.Command("sh", "-c", "sudo "+cmd).Run()
+	}
+
+	if len(info.DnsServers) > 0 {
+		cmd := fmt.Sprintf("nmcli dev set %s ipv4.dns \"%s\"", iface, strings.Join(info.DnsServers, ","))
+		exec.Command("sh", "-c", "sudo "+cmd).Run()
+	}
+
+	cmd := exec.Command("sh", "-c", "sudo nmcli con up "+iface)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("nmcli connection up failed with error: %v, output: %s", err, string(output))
 	}
 	return nil
 }
