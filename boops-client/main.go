@@ -108,28 +108,9 @@ func handleSync(machineID string) {
 		log.Fatalf("Invalid JSON from API: %v", err)
 	}
 
-	PrintStyledMessage("info", fmt.Sprintf("Applying network settings for interfaces: %v", m.Interfaces))
-
 	// Load previous machine state
 	prevState, _ := client.LoadMachineState()
 	stateChanged := prevState == nil || !client.InterfacesEqual(prevState.Interfaces, m.Interfaces)
-
-	if len(m.Interfaces) > 0 && stateChanged {
-		if err := system.ApplyNetworkSettings(m.Interfaces); err != nil {
-			PrintStyledMessage("error", fmt.Sprintf("Failed to apply network settings: %v", err))
-		}
-
-		// Save new state
-		state := &client.MachineState{
-			Interfaces: m.Interfaces,
-			Hostname:   m.Hostname,
-		}
-		if err := client.SaveMachineState(state); err != nil {
-			PrintStyledMessage("error", fmt.Sprintf("Failed to save machine state: %v", err))
-		} else {
-			PrintStyledMessage("success", "Successfully saved new machine state")
-		}
-	}
 
 	// Set hostname if changed
 	if m.Hostname != "" && (prevState == nil || prevState.Hostname != m.Hostname) {
@@ -277,6 +258,25 @@ func handleSync(machineID string) {
 			} else {
 				PrintStyledMessage("success", fmt.Sprintf("Successfully updated MAC address for interface %s to %s", ifaceName, macAddr))
 			}
+		}
+	}
+
+	PrintStyledMessage("info", fmt.Sprintf("Applying network settings for interfaces: %v", m.Interfaces))
+
+	if len(m.Interfaces) > 0 && stateChanged {
+		if err := system.ApplyNetworkSettings(m.Interfaces); err != nil {
+			PrintStyledMessage("error", fmt.Sprintf("Failed to apply network settings: %v", err))
+		}
+
+		// Save new state
+		state := &client.MachineState{
+			Interfaces: m.Interfaces,
+			Hostname:   m.Hostname,
+		}
+		if err := client.SaveMachineState(state); err != nil {
+			PrintStyledMessage("error", fmt.Sprintf("Failed to save machine state: %v", err))
+		} else {
+			PrintStyledMessage("success", "Successfully saved new machine state")
 		}
 	}
 
