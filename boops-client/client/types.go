@@ -21,9 +21,13 @@ type Machine struct {
 }
 
 type InterfaceInfo struct {
-	IP         string   `json:"ip"`
-	Subnet     string   `json:"subnet"`
+	IPs        []IPInfo `json:"ips"`
 	Gateway    string   `json:"gateway"`
 	DnsServers []string `json:"dns_servers,omitempty"`
 	MacAddress string   `json:"mac_address,omitempty"`
+}
+
+type IPInfo struct {
+	IP     string `json:"ip_address"`
+	Subnet string `json:"subnet_mask"`
 }

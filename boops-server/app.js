@@ -8,6 +8,20 @@ const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
+// Global error handler for uncaught exceptions
+process.on('uncaughtException', (err) => {
+  console.error(`Uncaught Exception: ${err.message}`);
+  console.error(err.stack);
+  process.exit(1); // Exit with failure code
+});
+
+// Global error handler for unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error(`Unhandled Rejection at: ${promise}`);
+  console.error(`Reason: ${reason}`);
+  process.exit(1); // Exit with failure code
+});
+
 const port = 3001;
 
 // GET all machines with interfaces
@@ -18,19 +32,19 @@ app.get('/api/machines', async (req, res) => {
 
     for (const machine of machines) {
       const [interfaces] = await db.query(
-        'SELECT name, ip_address, subnet_mask, gateway, dns_servers, mac_address FROM interfaces WHERE machine_id = ?',
+        'SELECT id, name, gateway, dns_servers, mac_address FROM interfaces WHERE machine_id = ?',
         [machine.id]
       );
-      results.push({ ...machine, interfaces: interfaces.reduce((acc, cur) => {
-        acc[cur.name] = {
-          ip: cur.ip_address,
-          subnet: cur.subnet_mask,
-          gateway: cur.gateway,
-          dns_servers: cur.dns_servers ? cur.dns_servers.split(',').map(s => s.trim()) : [],
-          mac_address: cur.mac_address || ''
-        };
-        return acc;
-      }, {}) });
+
+      for (const iface of interfaces) {
+        const [ips] = await db.query(
+          'SELECT ip_address, subnet_mask FROM interface_ips WHERE interface_id = ?',
+          [iface.id]
+        );
+        iface.ips = ips;
+      }
+
+      results.push({ ...machine, interfaces });
     }
 
     res.json(results);
@@ -54,14 +68,27 @@ app.post('/api/machines', async (req, res) => {
       [machineId, hostname, model_info, usage_desc, memo, purpose || '', last_alive, cpu_info || '', cpu_arch || '', memory_size || '', disk_info || '', os_name || '', is_virtual === true, parent_machine_id || null]
     );
 
-    for (const [name, { ip_address: ip, subnet_mask: subnet, gateway, dns_servers, mac_address }] of Object.entries(interfaces)) {
-      if (!ip) {
-        return res.status(400).json({ error: `IP address cannot be null for interface ${name}` });
-      }
+    for (const [name, { ips, gateway, dns_servers, mac_address }] of Object.entries(interfaces)) {
       await conn.query(
-        'INSERT INTO interfaces (machine_id, name, ip_address, subnet_mask, gateway, dns_servers, mac_address) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [machineId, name, ip, subnet || '', gateway || '', Array.isArray(dns_servers) ? dns_servers.join(',') : '', mac_address || '']
+        'INSERT INTO interfaces (machine_id, name, gateway, dns_servers, mac_address) VALUES (?, ?, ?, ?, ?)',
+        [machineId, name, gateway || '', Array.isArray(dns_servers) ? dns_servers.join(',') : '', mac_address || '']
       );
+
+      const [interfaceResult] = await conn.query(
+        'SELECT id FROM interfaces WHERE machine_id = ? AND name = ? ORDER BY id DESC LIMIT 1',
+        [machineId, name]
+      );
+      const interfaceId = interfaceResult[0].id;
+
+      for (const { ip_address: ip, subnet_mask: subnet } of ips) {
+        if (!ip) {
+          return res.status(400).json({ error: `IP address cannot be null for interface ${name}` });
+        }
+        await conn.query(
+          'INSERT INTO interface_ips (interface_id, ip_address, subnet_mask) VALUES (?, ?, ?)',
+          [interfaceId, ip, subnet || '']
+        );
+      }
     }
 
     await conn.commit();
@@ -77,7 +104,7 @@ app.post('/api/machines', async (req, res) => {
 // POST add new interface to a machine
 app.post('/api/machines/:id/interfaces', async (req, res) => {
   const machineId = req.params.id;
-  const { name, ip_address, subnet_mask, gateway, dns_servers, mac_address } = req.body;
+  const { name, ips, gateway, dns_servers, mac_address } = req.body;
 
   // Validate UUID format for machine ID
   if (!/^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/.test(machineId)) {
@@ -85,8 +112,8 @@ app.post('/api/machines/:id/interfaces', async (req, res) => {
   }
 
   // Validate required fields
-  if (!name || !ip_address) {
-    return res.status(400).json({ error: 'Interface name and IP address are required' });
+  if (!name || !ips || ips.length === 0) {
+    return res.status(400).json({ error: 'Interface name and at least one IP address are required' });
   }
 
   try {
@@ -107,17 +134,32 @@ app.post('/api/machines/:id/interfaces', async (req, res) => {
 
     // Insert new interface
     await db.query(
-      'INSERT INTO interfaces (machine_id, name, ip_address, subnet_mask, gateway, dns_servers, mac_address) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO interfaces (machine_id, name, gateway, dns_servers, mac_address) VALUES (?, ?, ?, ?, ?)',
       [
         machineId,
         name,
-        ip_address,
-        subnet_mask || '',
         gateway || '',
         Array.isArray(dns_servers) ? dns_servers.join(',') : '',
         mac_address || ''
       ]
     );
+
+    const [interfaceResult] = await db.query(
+      'SELECT id FROM interfaces WHERE machine_id = ? AND name = ? ORDER BY id DESC LIMIT 1',
+      [machineId, name]
+    );
+    const interfaceId = interfaceResult[0].id;
+
+    // Insert IP addresses
+    for (const { ip_address: ip, subnet_mask: subnet } of ips) {
+      if (!ip) {
+        return res.status(400).json({ error: `IP address cannot be null for interface ${name}` });
+      }
+      await db.query(
+        'INSERT INTO interface_ips (interface_id, ip_address, subnet_mask) VALUES (?, ?, ?)',
+        [interfaceId, ip, subnet || '']
+      );
+    }
 
     res.json({ message: 'Interface added successfully' });
   } catch (err) {
@@ -146,12 +188,20 @@ app.delete('/api/machines/:machineId/interfaces/:interfaceName', async (req, res
       return res.status(404).json({ error: 'Interface not found' });
     }
 
-    // Delete the interface
-    await db.query(
+    // Delete the interface and its IP addresses
+    const conn = await db.getConnection();
+    await conn.beginTransaction();
+
+    await conn.query(
+      'DELETE FROM interface_ips WHERE interface_id = ?',
+      [existingInterface[0].id]
+    );
+    await conn.query(
       'DELETE FROM interfaces WHERE machine_id = ? AND name = ?',
       [machineId, interfaceName]
     );
 
+    await conn.commit();
     res.json({ message: 'Interface deleted successfully' });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -265,15 +315,33 @@ app.put('/api/machines/:id', async (req, res) => {
     );
 
     await conn.query('DELETE FROM interfaces WHERE machine_id = ?', [machineId]);
+    await conn.query('DELETE FROM interface_ips WHERE interface_id IN (SELECT id FROM interfaces WHERE machine_id = ?)', [machineId]);
 
-    for (const [name, { ip_address: ip, subnet_mask: subnet, gateway, dns_servers, mac_address }] of Object.entries(interfaces)) {
-      if (!ip) {
-        return res.status(400).json({ error: `IP address cannot be null for interface ${name}` });
+    for (const [name, { ips, gateway, dns_servers, mac_address }] of Object.entries(interfaces)) {
+      if (!ips || ips.length === 0) {
+        return res.status(400).json({ error: `At least one IP address is required for interface ${name}` });
       }
+
       await conn.query(
-        'INSERT INTO interfaces (machine_id, name, ip_address, subnet_mask, gateway, dns_servers, mac_address) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [machineId, name, ip, subnet || '', gateway || '', Array.isArray(dns_servers) ? dns_servers.join(',') : '', mac_address || '']
+        'INSERT INTO interfaces (machine_id, name, gateway, dns_servers, mac_address) VALUES (?, ?, ?, ?, ?)',
+        [machineId, name, gateway || '', Array.isArray(dns_servers) ? dns_servers.join(',') : '', mac_address || '']
       );
+
+      const [interfaceResult] = await conn.query(
+        'SELECT id FROM interfaces WHERE machine_id = ? AND name = ? ORDER BY id DESC LIMIT 1',
+        [machineId, name]
+      );
+      const interfaceId = interfaceResult[0].id;
+
+      for (const { ip_address: ip, subnet_mask: subnet } of ips) {
+        if (!ip) {
+          return res.status(400).json({ error: `IP address cannot be null for interface ${name}` });
+        }
+        await conn.query(
+          'INSERT INTO interface_ips (interface_id, ip_address, subnet_mask) VALUES (?, ?, ?)',
+          [interfaceId, ip, subnet || '']
+        );
+      }
     }
 
     await conn.commit();
@@ -319,35 +387,54 @@ app.put('/api/machines/:id/update-purpose', async (req, res) => {
   }
 });
 
-// PUT update IP address for a specific interface
-app.put('/api/interfaces/:machineId/:interfaceName', async (req, res) => {
+// PUT update IP addresses for a specific interface
+app.put('/api/interfaces/:machineId/:interfaceName/ips', async (req, res) => {
   const machineId = req.params.machineId;
   const interfaceName = req.params.interfaceName;
-  const { ip_address } = req.body;
+  const { ips } = req.body;
 
   // Validate UUID format for machine ID
   if (!/^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/.test(machineId)) {
     return res.status(400).json({ error: 'Invalid machine UUID format' });
   }
 
-  // Validate IP address
-  if (typeof ip_address !== 'string' || !ip_address.trim()) {
-    return res.status(400).json({ error: 'IP address must be a non-empty string' });
+  // Validate IP addresses
+  if (!Array.isArray(ips) || ips.length === 0) {
+    return res.status(400).json({ error: 'IP addresses must be an array with at least one valid IP address' });
   }
 
   try {
-    await db.query(
-      'UPDATE interfaces SET ip_address = ? WHERE machine_id = ? AND name = ?',
-      [ip_address, machineId, interfaceName]
+    const [interfaceResult] = await db.query(
+      'SELECT id FROM interfaces WHERE machine_id = ? AND name = ?',
+      [machineId, interfaceName]
     );
 
-    // Check if any rows were affected
-    const [result] = await db.query('SELECT ROW_COUNT() AS count');
-    if (result[0].count > 0) {
-      res.json({ message: 'IP address updated' });
-    } else {
-      res.status(404).json({ error: 'Interface not found for this machine' });
+    if (interfaceResult.length === 0) {
+      return res.status(404).json({ error: 'Interface not found for this machine' });
     }
+
+    const conn = await db.getConnection();
+    await conn.beginTransaction();
+
+    // Delete existing IP addresses
+    await conn.query(
+      'DELETE FROM interface_ips WHERE interface_id = ?',
+      [interfaceResult[0].id]
+    );
+
+    // Insert new IP addresses
+    for (const { ip_address: ip, subnet_mask: subnet } of ips) {
+      if (!ip) {
+        return res.status(400).json({ error: `IP address cannot be null` });
+      }
+      await conn.query(
+        'INSERT INTO interface_ips (interface_id, ip_address, subnet_mask) VALUES (?, ?, ?)',
+        [interfaceResult[0].id, ip, subnet || '']
+      );
+    }
+
+    await conn.commit();
+    res.json({ message: 'IP addresses updated' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -450,40 +537,6 @@ app.put('/api/interfaces/:machineId/:interfaceName/update-name', async (req, res
   }
 });
 
-// PUT update subnet mask for a specific interface
-app.put('/api/interfaces/:machineId/:interfaceName/update-subnet-mask', async (req, res) => {
-  const machineId = req.params.machineId;
-  const interfaceName = req.params.interfaceName;
-  const { subnet_mask } = req.body;
-
-  // Validate UUID format for machine ID
-  if (!/^[0-9a-fA-F]{8}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{4}\b-[0-9a-fA-F]{12}$/.test(machineId)) {
-    return res.status(400).json({ error: 'Invalid machine UUID format' });
-  }
-
-  // Validate subnet mask
-  if (typeof subnet_mask !== 'string' || !subnet_mask.trim()) {
-    return res.status(400).json({ error: 'Subnet mask must be a non-empty string' });
-  }
-
-  try {
-    await db.query(
-      'UPDATE interfaces SET subnet_mask = ? WHERE machine_id = ? AND name = ?',
-      [subnet_mask, machineId, interfaceName]
-    );
-
-    // Check if any rows were affected
-    const [result] = await db.query('SELECT ROW_COUNT() AS count');
-    if (result[0].count > 0) {
-      res.json({ message: 'Subnet mask updated' });
-    } else {
-      res.status(404).json({ error: 'Interface not found for this machine' });
-    }
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // PUT update CPU info for a specific machine
 app.put('/api/machines/:id/update-cpu_info', async (req, res) => {
   const machineId = req.params.id;
@@ -544,19 +597,19 @@ app.get('/api/machines/search', async (req, res) => {
     if (machines.length > 0) {
       for (const machine of machines) {
         const [interfaces] = await db.query(
-          'SELECT name, ip_address, subnet_mask, gateway, dns_servers, mac_address FROM interfaces WHERE machine_id = ?',
+          'SELECT id, name, gateway, dns_servers, mac_address FROM interfaces WHERE machine_id = ?',
           [machine.id]
         );
-        results.push({ ...machine, interfaces: interfaces.reduce((acc, cur) => {
-          acc[cur.name] = {
-            ip: cur.ip_address,
-            subnet: cur.subnet_mask,
-            gateway: cur.gateway,
-            dns_servers: cur.dns_servers ? cur.dns_servers.split(',').map(s => s.trim()) : [],
-            mac_address: cur.mac_address || ''
-          };
-          return acc;
-        }, {}) });
+
+        for (const iface of interfaces) {
+          const [ips] = await db.query(
+            'SELECT ip_address, subnet_mask FROM interface_ips WHERE interface_id = ?',
+            [iface.id]
+          );
+          iface.ips = ips;
+        }
+
+        results.push({ ...machine, interfaces });
       }
     } else {
       // If no matches, search for hostname
@@ -568,24 +621,24 @@ app.get('/api/machines/search', async (req, res) => {
       if (hostnameMachines.length > 0) {
         for (const machine of hostnameMachines) {
           const [interfaces] = await db.query(
-            'SELECT name, ip_address, subnet_mask, gateway, dns_servers, mac_address FROM interfaces WHERE machine_id = ?',
+            'SELECT id, name, gateway, dns_servers, mac_address FROM interfaces WHERE machine_id = ?',
             [machine.id]
           );
-          results.push({ ...machine, interfaces: interfaces.reduce((acc, cur) => {
-            acc[cur.name] = {
-              ip: cur.ip_address,
-              subnet: cur.subnet_mask,
-              gateway: cur.gateway,
-              dns_servers: cur.dns_servers ? cur.dns_servers.split(',').map(s => s.trim()) : [],
-              mac_address: cur.mac_address || ''
-            };
-            return acc;
-          }, {}) });
+
+          for (const iface of interfaces) {
+            const [ips] = await db.query(
+              'SELECT ip_address, subnet_mask FROM interface_ips WHERE interface_id = ?',
+              [iface.id]
+            );
+            iface.ips = ips;
+          }
+
+          results.push({ ...machine, interfaces });
         }
       } else {
         // If no hostname matches, search for interfaces by IP
         const [interfaces] = await db.query(
-          'SELECT * FROM interfaces WHERE ip_address LIKE ?',
+          'SELECT i.*, m.id as machine_id FROM interfaces i JOIN interface_ips ip ON i.id = ip.interface_id WHERE ip.ip_address LIKE ?',
           [`%${query}%`]
         );
 
@@ -598,20 +651,19 @@ app.get('/api/machines/search', async (req, res) => {
             );
             if (machine.length > 0) {
               const [allInterfaces] = await db.query(
-                'SELECT name, ip_address, subnet_mask, gateway, dns_servers, mac_address FROM interfaces WHERE machine_id = ?',
+                'SELECT id, name, gateway, dns_servers, mac_address FROM interfaces WHERE machine_id = ?',
                 [machineId]
               );
 
-              results.push({ ...machine[0], interfaces: allInterfaces.reduce((acc, cur) => {
-                acc[cur.name] = {
-                  ip: cur.ip_address,
-                  subnet: cur.subnet_mask,
-                  gateway: cur.gateway,
-                  dns_servers: cur.dns_servers ? cur.dns_servers.split(',').map(s => s.trim()) : [],
-                  mac_address: cur.mac_address || ''
-                };
-                return acc;
-              }, {}) });
+              for (const iface of allInterfaces) {
+                const [ips] = await db.query(
+                  'SELECT ip_address, subnet_mask FROM interface_ips WHERE interface_id = ?',
+                  [iface.id]
+                );
+                iface.ips = ips;
+              }
+
+              results.push({ ...machine[0], interfaces: allInterfaces });
             }
           }
         }
@@ -645,23 +697,19 @@ app.get('/api/machines/:uuid', async (req, res) => {
 
     // Get interfaces for the machine
     const [interfaces] = await db.query(
-      'SELECT name, ip_address, subnet_mask, gateway, dns_servers, mac_address FROM interfaces WHERE machine_id = ?',
+      'SELECT id, name, gateway, dns_servers, mac_address FROM interfaces WHERE machine_id = ?',
       [machine.id]
     );
 
-    const result = {
-      ...machine,
-      interfaces: interfaces.reduce((acc, cur) => {
-        acc[cur.name] = {
-          ip: cur.ip_address,
-          subnet: cur.subnet_mask,
-          gateway: cur.gateway,
-          dns_servers: cur.dns_servers ? cur.dns_servers.split(',').map(s => s.trim()) : [],
-          mac_address: cur.mac_address || ''
-        };
-        return acc;
-      }, {})
-    };
+    for (const iface of interfaces) {
+      const [ips] = await db.query(
+        'SELECT ip_address, subnet_mask FROM interface_ips WHERE interface_id = ?',
+        [iface.id]
+      );
+      iface.ips = ips;
+    }
+
+    const result = { ...machine, interfaces };
 
     res.json(result);
   } catch (err) {
@@ -736,7 +784,7 @@ app.put('/api/machines/:id/update-last-alive', async (req, res) => {
     return res.status(400).json({ error: 'Invalid UUID format' });
   }
 
-  // Format the current time in MySQL DATETIME format (YYYY-MM-DD HH:MM:SS)G
+  // Format the current time in MySQL DATETIME format (YYYY-MM-DD HH:MM:SS)
   const currentTime = new Date().toISOString().slice(0, 19).replace('T', ' ');
   try {
     await db.query('UPDATE machines SET last_alive = ? WHERE id = ?', [currentTime, machineId]);
@@ -907,6 +955,11 @@ app.put('/api/machines/:machineId/interfaces/:interfaceName/update-mac_address',
   }
 });
 
-app.listen(port, '0.0.0.0', () => {
-  console.log(`API server running on http://0.0.0.0:${port}`);
-});
+// Wrap app.listen in a try/catch to handle any startup errors
+try {
+  app.listen(port, '0.0.0.0', () => {
+    console.log(`API server running on http://0.0.0.0:${port}`);
+  });
+} catch (err) {
+  console.error('Failed to start server:', err);
+}

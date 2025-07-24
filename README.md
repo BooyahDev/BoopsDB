@@ -86,10 +86,16 @@ npm run dev
 - `id`: 自動生成されるプライマリキー
 - `machine_id`: 所属するマシンのID（外部キー）
 - `name`: インターフェース名
-- `ip_address`: IPアドレス
-- `subnet_mask`: サブネットマスク
 - `gateway`: ゲートウェイ
 - `dns_servers`: DNSサーバーのリスト（カンマ区切り文字列形式で保存。APIでは配列として取得・送信）
+- `mac_address`: MACアドレス
+
+### interface_ipsテーブル
+
+- `id`: 自動生成されるプライマリキー
+- `interface_id`: 所属するインターフェースのID（外部キー）
+- `ip_address`: IPアドレス
+- `subnet_mask`: サブネットマスク
 
 ## API使用例
 
@@ -126,8 +132,22 @@ curl -X POST http://localhost:3001/api/machines \
     "memory_size": "",
     "disk_info": "",
     "interfaces": {
-      "eth0": { "ip_address": "192.168.1.1", "subnet_mask": "255.255.255.0", "gateway": "192.168.1.254", "dns_servers": ["8.8.8.8", "8.8.4.4"] },
-      "lo": { "ip_address": "127.0.0.1", "subnet_mask": "255.0.0.0", "gateway": "", "dns_servers": [] }
+      "eth0": {
+        "ips": [
+          { "ip_address": "192.168.1.1", "subnet_mask": "255.255.255.0" },
+          { "ip_address": "10.0.0.1", "subnet_mask": "255.0.0.0" }
+        ],
+        "gateway": "192.168.1.254",
+        "dns_servers": ["8.8.8.8", "8.8.4.4"],
+        "mac_address": "00:11:22:33:44:55"
+      },
+      "lo": {
+        "ips": [
+          { "ip_address": "127.0.0.1", "subnet_mask": "255.0.0.0" }
+        ],
+        "gateway": "",
+        "dns_servers": []
+      }
     }
   }'
 ```
@@ -148,8 +168,22 @@ curl -X PUT http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee2
     "memory_size": "",
     "disk_info": "",
     "interfaces": {
-      "eth0": { "ip_address": "192.168.1.1", "subnet_mask": "255.255.255.0", "gateway": "192.168.1.254", "dns_servers": ["8.8.8.8", "8.8.4.4"] },
-      "lo": { "ip_address": "127.0.0.1", "subnet_mask": "255.0.0.0", "gateway": "", "dns_servers": [] }
+      "eth0": {
+        "ips": [
+          { "ip_address": "192.168.1.1", "subnet_mask": "255.255.255.0" },
+          { "ip_address": "10.0.0.1", "subnet_mask": "255.0.0.0" }
+        ],
+        "gateway": "192.168.1.254",
+        "dns_servers": ["8.8.8.8", "8.8.4.4"],
+        "mac_address": "00:11:22:33:44:55"
+      },
+      "lo": {
+        "ips": [
+          { "ip_address": "127.0.0.1", "subnet_mask": "255.0.0.0" }
+        ],
+        "gateway": "",
+        "dns_servers": []
+      }
     }
   }'
 ```
@@ -169,10 +203,13 @@ curl -X POST http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee
   -H "Content-Type: application/json" \
   -d '{
     "name": "eth1",
-    "ip_address": "192.168.2.100",
-    "subnet_mask": "255.255.255.0",
-    "gateway": "192.168.2.1",
-    "dns_servers": ["8.8.8.8", "8.8.4.4"]
+    "ips": [
+      { "ip_address": "192.168.2.1", "subnet_mask": "255.255.255.0" },
+      { "ip_address": "172.16.0.1", "subnet_mask": "255.240.0.0" }
+    ],
+    "gateway": "192.168.2.254",
+    "dns_servers": ["1.1.1.1"],
+    "mac_address": "aa:bb:cc:dd:ee:ff"
   }'
 ```
 

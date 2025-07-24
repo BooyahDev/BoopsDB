@@ -1,6 +1,7 @@
 package system
 
 import (
+	"encoding/json"
 	"fmt"
 	"os/exec"
 	"runtime"
@@ -91,6 +92,12 @@ func isUbuntuSystem() (bool, error) {
 
 func applyNetplan(iface string, info client.InterfaceInfo) error {
 	configPath := "/etc/netplan/01-netcfg.yaml"
+	var addresses []string
+
+	for _, ipInfo := range info.IPs {
+		addresses = append(addresses, fmt.Sprintf("%s/%s", ipInfo.IP, MaskToCIDR(ipInfo.Subnet)))
+	}
+
 	content := fmt.Sprintf(`
 network:
   version: 2
@@ -98,12 +105,12 @@ network:
     %s:
       dhcp4: no
       addresses:
-        - "%s/%s"
+        %s
       gateway4: %s
       nameservers:
         addresses:
           - "%s"
-`, iface, info.IP, MaskToCIDR(info.Subnet), info.Gateway, strings.Join(info.DnsServers, ","))
+`, iface, strings.Join(addresses, "\n        "), info.Gateway, strings.Join(info.DnsServers, ","))
 
 	// Remove all existing netplan configurations to avoid conflicts
 	cmd := exec.Command("sh", "-c", "sudo rm -f /etc/netplan/*.yaml")
@@ -135,10 +142,18 @@ func writeNetplanConfig(path, content string) error {
 }
 
 func applyNmcli(iface string, info client.InterfaceInfo) error {
+	var addressCmds []string
+
+	for _, ipInfo := range info.IPs {
+		addressCmds = append(addressCmds,
+			fmt.Sprintf("nmcli dev set %s ipv4.addresses \"%s/%s\" ipv4.method manual connection.autoconnect yes", iface, ipInfo.IP, MaskToCIDR(ipInfo.Subnet)))
+	}
+
 	cmds := []string{
 		fmt.Sprintf("nmcli dev disconnect iface %s", iface),
-		fmt.Sprintf("nmcli dev set %s ipv4.addresses %s/%s ipv4.method manual connection.autoconnect yes", iface, info.IP, MaskToCIDR(info.Subnet)),
 	}
+	cmds = append(cmds, addressCmds...)
+
 	if info.Gateway != "" {
 		cmds = append(cmds, fmt.Sprintf("nmcli dev set %s ipv4.gateway %s", iface, info.Gateway))
 	}
@@ -161,13 +176,15 @@ func applyNmcli(iface string, info client.InterfaceInfo) error {
 
 func applyWindows(ifaces map[string]client.InterfaceInfo) error {
 	for name, info := range ifaces {
-		args := []string{
-			"interface ip set address", fmt.Sprintf("name=\"%s\"", name), fmt.Sprintf("static %s %s", info.IP, info.Subnet),
+		for _, ipInfo := range info.IPs {
+			args := []string{
+				"interface ip set address", fmt.Sprintf("name=\"%s\"", name), fmt.Sprintf("static %s %s", ipInfo.IP, ipInfo.Subnet),
+			}
+			if info.Gateway != "" {
+				args = append(args, info.Gateway)
+			}
+			exec.Command("netsh", args...).Run()
 		}
-		if info.Gateway != "" {
-			args = append(args, info.Gateway)
-		}
-		exec.Command("netsh", args...).Run()
 	}
 	return nil
 }
@@ -187,30 +204,72 @@ func MaskToCIDR(mask string) string {
 }
 
 // GatherNetworkInterfaces returns a map of network interfaces and their current information
-// func GatherNetworkInterfaces() map[string]client.InterfaceInfo {
-// 	out, _ := exec.Command("ip", "-j", "addr").Output()
-// 	var data []map[string]interface{}
-// 	json.Unmarshal(out, &data)
-// 	result := make(map[string]client.InterfaceInfo)
-// 	for _, iface := range data {
-// 		name := iface["ifname"].(string)
-// 		mac := iface["address"].(string)
-// 		var ip, mask string
-// 		if addrs, ok := iface["addr_info"].([]interface{}); ok && len(addrs) > 0 {
-// 			addr := addrs[0].(map[string]interface{})
-// 			ip = addr["local"].(string)
-// 			mask = cidrToMask(int(addr["prefixlen"].(float64)))
-// 		}
-// 		result[name] = client.InterfaceInfo{
-// 			IP:         ip,
-// 			Subnet:     mask,
-// 			Gateway:    "",
-// 			DnsServers: []string{},
-// 			MacAddress: mac,
-// 		}
-// 	}
-// 	return result
-// }
+func GatherNetworkInterfaces() (map[string]client.InterfaceInfo, error) {
+	out, err := exec.Command("ip", "-j", "addr").CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("command failed with error: %v, output: %s", err, string(out))
+	}
+	var data []map[string]interface{}
+	err = json.Unmarshal(out, &data)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse JSON: %v", err)
+	}
+
+	result := make(map[string]client.InterfaceInfo)
+	for _, ifaceData := range data {
+		name := ifaceData["ifname"].(string)
+
+		var macAddr string
+		macCmd := exec.Command("ip", "-o", "link")
+		macOutput, err := macCmd.CombinedOutput()
+		if err == nil {
+			lines := strings.Split(string(macOutput), "\n")
+			for _, line := range lines {
+				if strings.Contains(line, name) && strings.Contains(line, "link/ether") {
+					fields := strings.Fields(line)
+					for i, field := range fields {
+						if field == "link/ether" && i+1 < len(fields) {
+							macAddr = fields[i+1]
+							break
+						}
+					}
+				}
+			}
+
+			if macAddr == "" {
+				cmd := exec.Command("cat", "/sys/class/net/"+name+"/address")
+				output, err := cmd.CombinedOutput()
+				if err == nil && len(output) > 0 {
+					macAddr = strings.TrimSpace(string(output))
+				}
+			}
+		}
+
+		var ipInfos []client.IPInfo
+		if addrs, ok := ifaceData["addr_info"].([]interface{}); ok && len(addrs) > 0 {
+			for _, addrData := range addrs {
+				addrMap := addrData.(map[string]interface{})
+				local := addrMap["local"].(string)
+				prefixlen := int(addrMap["prefixlen"].(float64))
+				subnet := cidrToMask(prefixlen)
+
+				ipInfos = append(ipInfos, client.IPInfo{
+					IP:     local,
+					Subnet: subnet,
+				})
+			}
+		}
+
+		result[name] = client.InterfaceInfo{
+			IPs:        ipInfos,
+			Gateway:    "",
+			DnsServers: []string{},
+			MacAddress: macAddr,
+		}
+	}
+
+	return result, nil
+}
 
 // GetMacAddress retrieves the MAC address for a given interface name using platform-specific commands
 func GetMacAddress(iface string) (string, error) {

@@ -58,8 +58,28 @@ func InterfacesEqual(a, b map[string]InterfaceInfo) bool {
 	}
 	for name, infoA := range a {
 		infoB, exists := b[name]
-		if !exists || infoA.IP != infoB.IP || infoA.Subnet != infoB.Subnet || infoA.Gateway != infoB.Gateway {
+		if !exists || infoA.Gateway != infoB.Gateway || len(infoA.IPs) != len(infoB.IPs) {
 			return false
+		}
+
+		// Check if IPs match (ignoring order)
+		aIpMap := make(map[string]string)
+		for _, ipInfo := range infoA.IPs {
+			aIpMap[ipInfo.IP] = ipInfo.Subnet
+		}
+		bIpMap := make(map[string]string)
+		for _, ipInfo := range infoB.IPs {
+			bIpMap[ipInfo.IP] = ipInfo.Subnet
+		}
+
+		if len(aIpMap) != len(bIpMap) {
+			return false
+		}
+
+		for ip, subnet := range aIpMap {
+			if bSubnet, exists := bIpMap[ip]; !exists || subnet != bSubnet {
+				return false
+			}
 		}
 	}
 	return true

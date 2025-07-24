@@ -25,10 +25,16 @@ CREATE TABLE interfaces (
   id INT AUTO_INCREMENT PRIMARY KEY,
   machine_id CHAR(36) NOT NULL,
   name VARCHAR(50) NOT NULL,
-  ip_address VARCHAR(45) NOT NULL,
-  subnet_mask VARCHAR(45) NOT NULL,
   gateway VARCHAR(45),
   dns_servers TEXT, -- Comma-separated list of DNS servers
   mac_address VARCHAR(17), -- MAC address field (e.g., '00:1A:2B:3C:4D:5E')
   FOREIGN KEY (machine_id) REFERENCES machines(id) ON DELETE CASCADE
+);
+
+CREATE TABLE interface_ips (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  interface_id INT NOT NULL,
+  ip_address VARCHAR(45) NOT NULL,
+  subnet_mask VARCHAR(45) NOT NULL,
+  FOREIGN KEY (interface_id) REFERENCES interfaces(id) ON DELETE CASCADE
 );

@@ -102,21 +102,29 @@ func getInterfaces() map[string]client.InterfaceInfo {
 	var data []map[string]interface{}
 	json.Unmarshal(out, &data)
 	result := make(map[string]client.InterfaceInfo)
-	for _, iface := range data {
-		name := iface["ifname"].(string)
-		mac := iface["address"].(string)
-		var ip, mask string
-		if addrs, ok := iface["addr_info"].([]interface{}); ok && len(addrs) > 0 {
-			addr := addrs[0].(map[string]interface{})
-			ip = addr["local"].(string)
-			mask = cidrToMask(int(addr["prefixlen"].(float64)))
+	for _, ifaceData := range data {
+		name := ifaceData["ifname"].(string)
+
+		var ipInfos []client.IPInfo
+		if addrs, ok := ifaceData["addr_info"].([]interface{}); ok && len(addrs) > 0 {
+			for _, addrData := range addrs {
+				addrMap := addrData.(map[string]interface{})
+				local := addrMap["local"].(string)
+				prefixlen := int(addrMap["prefixlen"].(float64))
+				subnet := cidrToMask(prefixlen)
+
+				ipInfos = append(ipInfos, client.IPInfo{
+					IP:     local,
+					Subnet: subnet,
+				})
+			}
 		}
+
 		result[name] = client.InterfaceInfo{
-			IP:         ip,
-			Subnet:     mask,
+			IPs:        ipInfos,
 			Gateway:    "",
 			DnsServers: []string{},
-			MacAddress: mac,
+			MacAddress: "",
 		}
 	}
 	return result
