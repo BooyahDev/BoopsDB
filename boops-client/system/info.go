@@ -135,7 +135,7 @@ func getInterfaces() []client.InterfaceInfo {
 			result = append(result, client.InterfaceInfo{
 				IPs:        ipInfos,
 				Gateway:    "",
-				DnsServers: []string{},
+				DnsServers: "",   // Empty string instead of slice
 				MacAddress: name, // Use interface name as ID for now
 			})
 		}
