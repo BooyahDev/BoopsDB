@@ -270,11 +270,11 @@ func handleSync(machineID string) {
 	PrintStyledMessage("info", fmt.Sprintf("Applying network settings for interfaces: %v", m.Interfaces))
 
 	if len(m.Interfaces) > 0 && stateChanged {
-		// Convert slice to map before applying network settings
+		// Use the actual interface names from the API response
 		ifaceMap := make(map[string]client.InterfaceInfo)
-		for idx, ifaceInfo := range m.Interfaces {
+		for _, ifaceInfo := range m.Interfaces {
 			if len(ifaceInfo.IPs) > 0 {
-				ifaceMap[fmt.Sprintf("interface-%d", idx)] = ifaceInfo // Using a simple key for demonstration
+				ifaceMap[ifaceInfo.Name] = ifaceInfo // Use the actual interface name from struct
 			}
 		}
 

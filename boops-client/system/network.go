@@ -133,12 +133,11 @@ network:
   ethernets:
     %s:
       dhcp4: no
-      addresses:
-        %s
+      addresses: [%s]
       gateway4: %s
       nameservers:
-        addresses: [ %s ]
-`, iface, strings.Join(addresses, "\n        "), info.Gateway, strings.Join(dnsAddresses, ",\n        "))
+        addresses: [%s]
+`, iface, strings.Join(addresses, ", "), info.Gateway, strings.Join(dnsAddresses, ", "))
 
 	// Remove all existing netplan configurations to avoid conflicts
 	var cmd *exec.Cmd

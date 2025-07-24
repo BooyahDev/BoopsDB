@@ -21,6 +21,7 @@ type Machine struct {
 }
 
 type InterfaceInfo struct {
+	Name       string   `json:"name"`
 	IPs        []IPInfo `json:"ips"`
 	Gateway    string   `json:"gateway"`
 	DnsServers string   `json:"dns_servers,omitempty"` // Receive as comma-separated string from API
