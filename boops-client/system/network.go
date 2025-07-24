@@ -108,27 +108,27 @@ func isUbuntuSystem() (bool, error) {
 
 func applyNetplan(iface string, info client.InterfaceInfo) error {
 	configPath := "/etc/netplan/01-netcfg.yaml"
+	// IP アドレスとサブネットを CIDR 形式で連結
 	var addresses []string
-
-	for _, ipInfo := range info.IPs {
-		addresses = append(addresses, fmt.Sprintf("%s/%s", ipInfo.IP, MaskToCIDR(ipInfo.Subnet)))
-	}
-
-	var dnsAddresses []string
-	if len(info.DnsServers) > 0 {
-		dnsServers := strings.Split(info.DnsServers, ",")
-		for _, server := range dnsServers {
-			server = strings.TrimSpace(server)
-			if server != "" {
-				dnsAddresses = append(dnsAddresses, server)
-			}
+	for _, ip := range info.IPs {
+		cidr, err := subnetMaskToCIDR(ip.Subnet)
+		if err != nil {
+			return fmt.Errorf("invalid subnet mask %s: %w", ip.Subnet, err)
 		}
-	} else {
-		dnsAddresses = []string{} // Empty slice if no DNS servers
+		addresses = append(addresses, fmt.Sprintf("%s/%d", ip.IP, cidr))
 	}
 
-	content := fmt.Sprintf(`
-network:
+	// DNS サーバをスライスに変換
+	var dnsList []string
+	for _, dns := range strings.Split(info.DnsServers, ",") {
+		trimmed := strings.TrimSpace(dns)
+		if trimmed != "" {
+			dnsList = append(dnsList, trimmed)
+		}
+	}
+
+	// YAML 生成
+	content := fmt.Sprintf(`network:
   version: 2
   ethernets:
     %s:
@@ -137,7 +137,7 @@ network:
       gateway4: %s
       nameservers:
         addresses: [%s]
-`, iface, strings.Join(addresses, ", "), info.Gateway, strings.Join(dnsAddresses, ", "))
+`, iface, strings.Join(addresses, ", "), info.Gateway, strings.Join(dnsList, ", "))
 
 	// Remove all existing netplan configurations to avoid conflicts
 	var cmd *exec.Cmd
@@ -365,4 +365,38 @@ func GetMacAddress(iface string) (string, error) {
 	}
 
 	return macAddr, nil
+}
+
+// サブネットマスク（例: "255.255.255.0"）を CIDR 表記（例: 24）に変換
+func subnetMaskToCIDR(mask string) (int, error) {
+	octets := strings.Split(mask, ".")
+	if len(octets) != 4 {
+		return 0, fmt.Errorf("invalid subnet format")
+	}
+	cidr := 0
+	for _, octet := range octets {
+		switch octet {
+		case "255":
+			cidr += 8
+		case "254":
+			cidr += 7
+		case "252":
+			cidr += 6
+		case "248":
+			cidr += 5
+		case "240":
+			cidr += 4
+		case "224":
+			cidr += 3
+		case "192":
+			cidr += 2
+		case "128":
+			cidr += 1
+		case "0":
+			// nothing
+		default:
+			return 0, fmt.Errorf("unsupported octet: %s", octet)
+		}
+	}
+	return cidr, nil
 }
