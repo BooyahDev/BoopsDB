@@ -229,35 +229,40 @@ func handleSync(machineID string) {
 	}
 
 	// Update MAC addresses for all interfaces
-	for ifaceName := range m.Interfaces {
-		macAddr, err := system.GetMacAddress(ifaceName)
+	for _, ifaceInfo := range m.Interfaces {
+		if len(ifaceInfo.IPs) == 0 {
+			continue // Skip interfaces without IPs
+		}
+
+		ipAddr := ifaceInfo.IPs[0].IP
+		macAddr, err := system.GetMacAddress(ipAddr)
 		if err != nil {
-			PrintStyledMessage("warning", fmt.Sprintf("Failed to get MAC address for interface %s: %v", ifaceName, err))
+			PrintStyledMessage("warning", fmt.Sprintf("Failed to get MAC address for interface with IP %s: %v", ipAddr, err))
 			continue
 		}
 
 		// Only update if the MAC address is different or empty in the server data
-		currentMac := m.Interfaces[ifaceName].MacAddress
+		currentMac := ifaceInfo.MacAddress
 		if currentMac == "" || currentMac != macAddr {
 			updatePayload := fmt.Sprintf(`{"mac_address": "%s"}`, macAddr)
 			req, err = http.NewRequest(
 				http.MethodPut,
-				fmt.Sprintf("%s/%s/interfaces/%s/update-mac_address", apiBase, machineID, ifaceName),
+				fmt.Sprintf("%s/%s/interfaces/ip-%s/update-mac_address", apiBase, machineID, ipAddr),
 				strings.NewReader(updatePayload),
 			)
 			if err != nil {
-				PrintStyledMessage("error", fmt.Sprintf("Failed to create MAC address update request for %s: %v", ifaceName, err))
+				PrintStyledMessage("error", fmt.Sprintf("Failed to create MAC address update request for IP %s: %v", ipAddr, err))
 				continue
 			}
 			req.Header.Set("Content-Type", "application/json")
 
 			respMacUpdate, err := http.DefaultClient.Do(req)
 			if err != nil {
-				PrintStyledMessage("error", fmt.Sprintf("Failed to send MAC address update request for %s: %v", ifaceName, err))
+				PrintStyledMessage("error", fmt.Sprintf("Failed to send MAC address update request for IP %s: %v", ipAddr, err))
 			} else if respMacUpdate.StatusCode >= 300 {
-				PrintStyledMessage("warning", fmt.Sprintf("MAC address update failed for %s with status code: %d", ifaceName, respMacUpdate.StatusCode))
+				PrintStyledMessage("warning", fmt.Sprintf("MAC address update failed for IP %s with status code: %d", ipAddr, respMacUpdate.StatusCode))
 			} else {
-				PrintStyledMessage("success", fmt.Sprintf("Successfully updated MAC address for interface %s to %s", ifaceName, macAddr))
+				PrintStyledMessage("success", fmt.Sprintf("Successfully updated MAC address for interface with IP %s to %s", ipAddr, macAddr))
 			}
 		}
 	}
@@ -265,7 +270,15 @@ func handleSync(machineID string) {
 	PrintStyledMessage("info", fmt.Sprintf("Applying network settings for interfaces: %v", m.Interfaces))
 
 	if len(m.Interfaces) > 0 && stateChanged {
-		if err := system.ApplyNetworkSettings(m.Interfaces); err != nil {
+		// Convert slice to map before applying network settings
+		ifaceMap := make(map[string]client.InterfaceInfo)
+		for idx, ifaceInfo := range m.Interfaces {
+			if len(ifaceInfo.IPs) > 0 {
+				ifaceMap[fmt.Sprintf("interface-%d", idx)] = ifaceInfo // Using a simple key for demonstration
+			}
+		}
+
+		if err := system.ApplyNetworkSettings(ifaceMap); err != nil {
 			PrintStyledMessage("error", fmt.Sprintf("Failed to apply network settings: %v", err))
 		}
 

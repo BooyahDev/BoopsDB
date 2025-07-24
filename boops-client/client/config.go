@@ -30,8 +30,8 @@ func LoadConfig() (*Config, error) {
 
 // MachineState represents the machine state for comparison
 type MachineState struct {
-	Interfaces map[string]InterfaceInfo `json:"interfaces"`
-	Hostname   string                   `json:"hostname,omitempty"`
+	Interfaces []InterfaceInfo `json:"interfaces"`
+	Hostname   string          `json:"hostname,omitempty"`
 }
 
 var machineStatePath = "/etc/boops/machine_state.json"
@@ -52,12 +52,29 @@ func LoadMachineState() (*MachineState, error) {
 }
 
 // InterfacesEqual compares two interface maps for equality
-func InterfacesEqual(a, b map[string]InterfaceInfo) bool {
+func InterfacesEqual(a, b []InterfaceInfo) bool {
 	if len(a) != len(b) {
 		return false
 	}
-	for name, infoA := range a {
-		infoB, exists := b[name]
+
+	// Create maps to preserve the name->info relationship for comparison
+	aMap := make(map[string]InterfaceInfo)
+	bMap := make(map[string]InterfaceInfo)
+
+	for _, info := range a {
+		if info.IPs != nil && len(info.IPs) > 0 {
+			aMap[info.IPs[0].IP] = info // Using first IP as key for simplicity
+		}
+	}
+
+	for _, info := range b {
+		if info.IPs != nil && len(info.IPs) > 0 {
+			bMap[info.IPs[0].IP] = info // Using first IP as key for simplicity
+		}
+	}
+
+	for name, infoA := range aMap {
+		infoB, exists := bMap[name]
 		if !exists || infoA.Gateway != infoB.Gateway || len(infoA.IPs) != len(infoB.IPs) {
 			return false
 		}

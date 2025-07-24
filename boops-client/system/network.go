@@ -45,7 +45,23 @@ func PrintStyledMessage(msgType string, msg string) {
 	fmt.Println()
 }
 
-func ApplyNetworkSettings(ifaces map[string]client.InterfaceInfo) error {
+func ApplyNetworkSettings(ifaceArg interface{}) error {
+	var ifaces map[string]client.InterfaceInfo
+
+	switch v := ifaceArg.(type) {
+	case map[string]client.InterfaceInfo:
+		ifaces = v
+	case []client.InterfaceInfo:
+		ifaces = make(map[string]client.InterfaceInfo)
+		for i, info := range v {
+			if len(info.IPs) > 0 && len(info.IPs[0].IP) > 0 {
+				ifaces[fmt.Sprintf("interface-%d", i)] = info // Using a simple key for demonstration
+			}
+		}
+	default:
+		return fmt.Errorf("unsupported interface argument type: %T", ifaceArg)
+	}
+
 	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
 		return fmt.Errorf("unsupported OS: %s", runtime.GOOS)
 	}
