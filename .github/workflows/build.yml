@@ -37,5 +37,5 @@ jobs:
 
     - name: Upload built binary to server
       run: |
-        curl -F "file=@boops-${{ matrix.arch }}" https://file.booyah.dev/BoopsDB-Client/boops_0.1_${{ matrix.arch }}.binary
+        curl -F "file=@boops-${{ matrix.arch }}" https://file.booyah.dev/BoopsDB-Client/boops_0.2_${{ matrix.arch }}.binary
       working-directory: ./boops-client
