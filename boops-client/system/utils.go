@@ -6,6 +6,9 @@ import (
 
 // cidrToMask converts CIDR notation to subnet mask
 func cidrToMask(bits int) string {
+	if bits < 0 || bits > 32 {
+		bits = 32 // Cap at maximum valid value
+	}
 	m := []int{0, 0, 0, 0}
 	for i := 0; i < bits; i++ {
 		m[i/8] += 1 << uint(7-i%8)
