@@ -128,7 +128,7 @@ curl -X POST http://localhost:3001/api/machines \
     "memo": "This is an example machine for testing",
     "last_alive": "2023-01-01 00:00:00",
     "cpu_info": "",
-    "cpu_arch": "x86_64",  # Added CPU architecture
+    "cpu_arch": "x86_64",
     "memory_size": "",
     "disk_info": "",
     "interfaces": {

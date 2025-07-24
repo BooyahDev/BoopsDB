@@ -102,15 +102,26 @@ func getInterfaces() map[string]client.InterfaceInfo {
 	var data []map[string]interface{}
 	json.Unmarshal(out, &data)
 	result := make(map[string]client.InterfaceInfo)
+
 	for _, ifaceData := range data {
 		name := ifaceData["ifname"].(string)
+		if name == "" { // Skip empty interface names
+			continue
+		}
 
 		var ipInfos []client.IPInfo
+
 		if addrs, ok := ifaceData["addr_info"].([]interface{}); ok && len(addrs) > 0 {
 			for _, addrData := range addrs {
 				addrMap := addrData.(map[string]interface{})
 				local := addrMap["local"].(string)
 				prefixlen := int(addrMap["prefixlen"].(float64))
+
+				// Ensure prefix length is valid
+				if prefixlen < 0 || prefixlen > 32 {
+					continue // Skip invalid addresses
+				}
+
 				subnet := cidrToMask(prefixlen)
 
 				ipInfos = append(ipInfos, client.IPInfo{
@@ -120,13 +131,16 @@ func getInterfaces() map[string]client.InterfaceInfo {
 			}
 		}
 
-		result[name] = client.InterfaceInfo{
-			IPs:        ipInfos,
-			Gateway:    "",
-			DnsServers: []string{},
-			MacAddress: "",
+		if len(ipInfos) > 0 { // Only include interfaces with valid IP addresses
+			result[name] = client.InterfaceInfo{
+				IPs:        ipInfos,
+				Gateway:    "",
+				DnsServers: []string{},
+				MacAddress: "",
+			}
 		}
 	}
+
 	return result
 }
 
