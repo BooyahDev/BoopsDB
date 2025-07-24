@@ -286,10 +286,17 @@ func handleSync(machineID string) {
 
 func postJSON(data any) {
 	b, _ := json.Marshal(data)
-	res, err := http.Post(fmt.Sprintf("%s/%s", apiBase, data.(client.Machine).ID), "application/json", strings.NewReader(string(b)))
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", apiBase, data.(client.Machine).ID), strings.NewReader(string(b)))
+	if err != nil {
+		log.Fatalf("Failed to create request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		log.Fatalf("POST failed: %v", err)
 	}
-	defer res.Body.Close()
+	defer resp.Body.Close()
 	log.Println("Registered successfully.")
 }
