@@ -114,11 +114,17 @@ func applyNetplan(iface string, info client.InterfaceInfo) error {
 		addresses = append(addresses, fmt.Sprintf("%s/%s", ipInfo.IP, MaskToCIDR(ipInfo.Subnet)))
 	}
 
-	var dnsAddresses string
+	var dnsAddresses []string
 	if len(info.DnsServers) > 0 {
-		dnsAddresses = info.DnsServers // It's already a comma-separated string
+		dnsServers := strings.Split(info.DnsServers, ",")
+		for _, server := range dnsServers {
+			server = strings.TrimSpace(server)
+			if server != "" {
+				dnsAddresses = append(dnsAddresses, server)
+			}
+		}
 	} else {
-		dnsAddresses = "" // Empty if no DNS servers
+		dnsAddresses = []string{} // Empty slice if no DNS servers
 	}
 
 	content := fmt.Sprintf(`
@@ -131,13 +137,16 @@ network:
         %s
       gateway4: %s
       nameservers:
-        addresses:
-          - "%s"
-`, iface, strings.Join(addresses, "\n        "), info.Gateway, dnsAddresses)
+        addresses: [ %s ]
+`, iface, strings.Join(addresses, "\n        "), info.Gateway, strings.Join(dnsAddresses, ",\n        "))
 
 	// Remove all existing netplan configurations to avoid conflicts
-	cmd := exec.Command("sh", "-c", "sudo rm -f /etc/netplan/*.yaml")
-	output, err := cmd.CombinedOutput()
+	var cmd *exec.Cmd
+	var output []byte
+	var err error
+
+	cmd = exec.Command("sh", "-c", "sudo rm -f /etc/netplan/*.yaml")
+	output, err = cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to remove existing netplan configs: %v, output: %s", err, string(output))
 	}
@@ -145,6 +154,12 @@ network:
 	err = writeNetplanConfig(configPath, content)
 	if err != nil {
 		return fmt.Errorf("failed to write netplan config: %v", err)
+	}
+
+	cmd = exec.Command("sh", "-c", "sudo chmod 600 "+configPath)
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to set file permissions: %v, output: %s", err, string(output))
 	}
 
 	cmd = exec.Command("sh", "-c", "sudo netplan apply")
