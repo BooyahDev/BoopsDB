@@ -97,11 +97,11 @@ func getDiskInfo() string {
 	return strings.TrimSpace(string(out))
 }
 
-func getInterfaces() map[string]client.InterfaceInfo {
+func getInterfaces() []client.InterfaceInfo {
 	out, _ := exec.Command("ip", "-j", "addr").Output()
 	var data []map[string]interface{}
 	json.Unmarshal(out, &data)
-	result := make(map[string]client.InterfaceInfo)
+	result := make([]client.InterfaceInfo, 0)
 
 	for _, ifaceData := range data {
 		name := ifaceData["ifname"].(string)
@@ -132,12 +132,12 @@ func getInterfaces() map[string]client.InterfaceInfo {
 		}
 
 		if len(ipInfos) > 0 { // Only include interfaces with valid IP addresses
-			result[name] = client.InterfaceInfo{
+			result = append(result, client.InterfaceInfo{
 				IPs:        ipInfos,
 				Gateway:    "",
 				DnsServers: []string{},
-				MacAddress: "",
-			}
+				MacAddress: name, // Use interface name as ID for now
+			})
 		}
 	}
 
