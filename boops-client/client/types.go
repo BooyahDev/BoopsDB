@@ -23,7 +23,7 @@ type Machine struct {
 type InterfaceInfo struct {
 	IPs        []IPInfo `json:"ips"`
 	Gateway    string   `json:"gateway"`
-	DnsServers []string `json:"dns_servers,omitempty"`
+	DnsServers string   `json:"dns_servers,omitempty"` // Receive as comma-separated string from API
 	MacAddress string   `json:"mac_address,omitempty"`
 }
 

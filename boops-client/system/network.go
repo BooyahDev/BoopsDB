@@ -114,6 +114,13 @@ func applyNetplan(iface string, info client.InterfaceInfo) error {
 		addresses = append(addresses, fmt.Sprintf("%s/%s", ipInfo.IP, MaskToCIDR(ipInfo.Subnet)))
 	}
 
+	var dnsAddresses string
+	if len(info.DnsServers) > 0 {
+		dnsAddresses = info.DnsServers // It's already a comma-separated string
+	} else {
+		dnsAddresses = "" // Empty if no DNS servers
+	}
+
 	content := fmt.Sprintf(`
 network:
   version: 2
@@ -126,7 +133,7 @@ network:
       nameservers:
         addresses:
           - "%s"
-`, iface, strings.Join(addresses, "\n        "), info.Gateway, strings.Join(info.DnsServers, ","))
+`, iface, strings.Join(addresses, "\n        "), info.Gateway, dnsAddresses)
 
 	// Remove all existing netplan configurations to avoid conflicts
 	cmd := exec.Command("sh", "-c", "sudo rm -f /etc/netplan/*.yaml")
@@ -178,7 +185,7 @@ func applyNmcli(iface string, info client.InterfaceInfo) error {
 	}
 
 	if len(info.DnsServers) > 0 {
-		cmd := fmt.Sprintf("nmcli dev set %s ipv4.dns \"%s\"", iface, strings.Join(info.DnsServers, ","))
+		cmd := fmt.Sprintf("nmcli dev set %s ipv4.dns \"%s\"", iface, info.DnsServers)
 		exec.Command("sh", "-c", "sudo "+cmd).Run()
 	}
 
@@ -279,7 +286,7 @@ func GatherNetworkInterfaces() (map[string]client.InterfaceInfo, error) {
 		result[name] = client.InterfaceInfo{
 			IPs:        ipInfos,
 			Gateway:    "",
-			DnsServers: []string{},
+			DnsServers: "", // Empty string for DNS servers, will be set to comma-separated values elsewhere if needed
 			MacAddress: macAddr,
 		}
 	}
