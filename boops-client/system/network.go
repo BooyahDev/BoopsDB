@@ -310,8 +310,12 @@ func applyInterfacesFile(iface string, info client.InterfaceInfo) error {
 	// Replace the old interface config with our new one
 	for i, line := range configLines {
 		if ifaceStartIdx >= 0 && ifaceStartIdx+i < len(lines) {
-			newContent[ifaceStartIdx+i] = line
-		} else if ifaceStartIdx < 0 || ifaceStartIdx+i >= len(newContent) {
+			if ifaceStartIdx+i < len(newContent) {
+				newContent[ifaceStartIdx+i] = line
+			} else {
+				newContent = append(newContent, line)
+			}
+		} else {
 			newContent = append(newContent, line)
 		}
 	}
