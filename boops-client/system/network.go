@@ -232,58 +232,56 @@ func applyInterfacesFile(iface string, info client.InterfaceInfo) error {
 		line := lines[i]
 		trimmed := strings.TrimSpace(line)
 
-		// インターフェイスブロックの開始
+		// iface セクション開始を検出
 		if strings.HasPrefix(trimmed, "iface "+iface+" ") {
 			inTargetBlock = true
 			newLines = append(newLines, line)
 			continue
 		}
 
-		// 対象ブロック外
-		if !inTargetBlock {
-			newLines = append(newLines, line)
-			continue
+		// ブロック終了条件（次の iface/auto 行や空行）
+		if inTargetBlock {
+			if trimmed == "" || strings.HasPrefix(trimmed, "iface ") || strings.HasPrefix(trimmed, "auto ") {
+				inTargetBlock = false
+				newLines = append(newLines, line)
+				continue
+			}
+
+			// ブロック内で address / gateway はスキップ（後で再挿入）
+			if strings.HasPrefix(trimmed, "address") || strings.HasPrefix(trimmed, "gateway") {
+				continue
+			}
 		}
 
-		// ブロックの終端を検出
-		if trimmed == "" || strings.HasPrefix(trimmed, "iface ") || strings.HasPrefix(trimmed, "auto ") {
-			inTargetBlock = false
-			newLines = append(newLines, line)
-			continue
-		}
-
-		// address/gateway はスキップ（後で挿入）
-		if strings.HasPrefix(trimmed, "address") || strings.HasPrefix(trimmed, "gateway") {
-			continue
-		}
-
+		// 通常行はそのまま
 		newLines = append(newLines, line)
 	}
 
-	// address 行をすべて生成
+	// address 行生成
 	var insertLines []string
 	for _, ipInfo := range info.IPs {
 		cidr, err := subnetMaskToCIDR(ipInfo.Subnet)
 		if err != nil {
 			return fmt.Errorf("invalid subnet mask %s: %w", ipInfo.Subnet, err)
 		}
-		insertLines = append(insertLines, fmt.Sprintf("        address %s/%d", ipInfo.IP, cidr))
+		insertLines = append(insertLines, fmt.Sprintf("    address %s/%d", ipInfo.IP, cidr))
 	}
 
-	// gateway が 0.0.0.0 以外なら挿入
+	// gateway が有効なら追加（最初の1個のみ）
 	if info.Gateway != "" && info.Gateway != "0.0.0.0" {
-		insertLines = append(insertLines, fmt.Sprintf("        gateway %s", info.Gateway))
+		insertLines = append(insertLines, fmt.Sprintf("    gateway %s", info.Gateway))
 	}
 
-	// address/gateway を iface ブロックに挿入
+	// iface ブロックに address/gateway を挿入
 	newLines = insertIntoIfaceBlock(newLines, iface, insertLines)
 
-	// 書き戻し
+	// ファイルへ書き戻し
 	err = writeInterfacesFile("/etc/network/interfaces", strings.Join(newLines, "\n"))
 	if err != nil {
 		return fmt.Errorf("failed to write interfaces file: %v", err)
 	}
 
+	// ネットワーク再起動
 	cmd := exec.Command("sh", "-c", "sudo systemctl restart networking")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -301,17 +299,22 @@ func insertIntoIfaceBlock(lines []string, iface string, insertLines []string) []
 	for i := 0; i < len(lines); i++ {
 		line := lines[i]
 		trimmed := strings.TrimSpace(line)
-
 		result = append(result, line)
 
+		// 対象の iface 行を検出
 		if strings.HasPrefix(trimmed, "iface "+iface+" ") {
 			inBlock = true
 			continue
 		}
 
+		// ブロック内挿入ポイント検出（次が新しい iface/auto/空行など）
 		if inBlock {
-			// ブロックの終わりで挿入
-			if i+1 == len(lines) || strings.TrimSpace(lines[i+1]) == "" || strings.HasPrefix(strings.TrimSpace(lines[i+1]), "iface ") || strings.HasPrefix(strings.TrimSpace(lines[i+1]), "auto ") {
+			nextIsBoundary := (i+1 == len(lines)) ||
+				strings.TrimSpace(lines[i+1]) == "" ||
+				strings.HasPrefix(strings.TrimSpace(lines[i+1]), "iface ") ||
+				strings.HasPrefix(strings.TrimSpace(lines[i+1]), "auto ")
+
+			if nextIsBoundary {
 				result = append(result, insertLines...)
 				inserted = true
 				inBlock = false
@@ -319,7 +322,6 @@ func insertIntoIfaceBlock(lines []string, iface string, insertLines []string) []
 		}
 	}
 
-	// 最後まで来たときに未挿入なら追記
 	if !inserted {
 		result = append(result, insertLines...)
 	}
@@ -333,11 +335,12 @@ func readInterfacesFile(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to read interfaces file: %v", err)
 	}
-	return strings.TrimSpace(string(output)), nil
+	return strings.TrimRight(string(output), "\n"), nil
 }
 
 func writeInterfacesFile(path, content string) error {
-	cmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | sudo tee %s > /dev/null", content, path))
+	escaped := strings.ReplaceAll(content, `'`, `'\''`)
+	cmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | sudo tee %s > /dev/null", escaped, path))
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to write interfaces file: %v, output: %s", err, string(output))
