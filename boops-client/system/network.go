@@ -82,7 +82,7 @@ func ApplyNetworkSettings(ifaceArg interface{}) error {
 }
 
 func applyLinux(ifaces map[string]client.InterfaceInfo) error {
-	isDebian, err := isDebianSystem()
+	isDebian, usesInterfacesFile, err := isDebianSystem()
 	if err != nil {
 		return fmt.Errorf("unable to determine system type: %v", err)
 	}
@@ -95,7 +95,9 @@ func applyLinux(ifaces map[string]client.InterfaceInfo) error {
 			return fmt.Errorf("interface %s does not exist on this system", name)
 		}
 
-		if isDebian {
+		if usesInterfacesFile {
+			err = applyInterfacesFile(name, info)
+		} else if isDebian {
 			err = applyNetplan(name, info)
 		} else {
 			err = applyNmcli(name, info)
@@ -108,19 +110,40 @@ func applyLinux(ifaces map[string]client.InterfaceInfo) error {
 	return nil
 }
 
-func isDebianSystem() (bool, error) {
-	// Check for Debian-based system first
-	if _, err := exec.Command("test", "-f", "/etc/debian_version").CombinedOutput(); err == nil {
-		return true, nil
+func isDebianSystem() (bool, bool, error) {
+	var isDebian bool
+	var usesInterfacesFile bool
+
+	// Check for /etc/network/interfaces file first as a primary indicator of configuration method
+	if _, err := exec.Command("test", "-f", "/etc/network/interfaces").CombinedOutput(); err == nil {
+		usesInterfacesFile = true
+	} else {
+		// Check for Debian-based system
+		if _, err := exec.Command("test", "-f", "/etc/debian_version").CombinedOutput(); err == nil {
+			isDebian = true
+
+			// For Debian systems, check if netplan is available instead of /etc/network/interfaces
+			if _, err := exec.Command("which", "netplan").CombinedOutput(); err == nil {
+				usesInterfacesFile = false // Use Netplan instead
+			} else {
+				usesInterfacesFile = true // Default to interfaces file for Debian
+			}
+		} else if _, err := exec.Command("test", "-f", "/etc/redhat-release").CombinedOutput(); err == nil {
+			isDebian = false
+
+			// For RedHat systems, check if nmcli is available instead of /etc/network/interfaces
+			if _, err := exec.Command("which", "nmcli").CombinedOutput(); err == nil {
+				usesInterfacesFile = false // Use nmcli instead
+			} else {
+				usesInterfacesFile = true // Default to interfaces file for RedHat
+			}
+		} else {
+			// If neither Debian nor RedHat markers are found, we can't determine the OS type
+			return false, false, fmt.Errorf("unable to determine OS type")
+		}
 	}
 
-	// Then check for RedHat-based system
-	if _, err := exec.Command("test", "-f", "/etc/redhat-release").CombinedOutput(); err == nil {
-		return false, nil
-	}
-
-	// If neither file exists, we can't determine if it's Debian or RedHat
-	return false, fmt.Errorf("unable to determine OS type")
+	return isDebian, usesInterfacesFile, nil
 }
 
 func applyNetplan(iface string, info client.InterfaceInfo) error {
@@ -195,6 +218,115 @@ func writeNetplanConfig(path, content string) error {
 	return nil
 }
 
+func applyInterfacesFile(iface string, info client.InterfaceInfo) error {
+	// Check if interface exists before applying settings
+	cmd := exec.Command("ip", "link", "show", iface)
+	output, err := cmd.CombinedOutput()
+	if err != nil || strings.Contains(string(output), "Device does not exist") {
+		return fmt.Errorf("interface %s does not exist on this system", iface)
+	}
+
+	// Read the existing /etc/network/interfaces file
+	existingContent, err := readInterfacesFile("/etc/network/interfaces")
+	if err != nil {
+		return fmt.Errorf("failed to read interfaces file: %v", err)
+	}
+
+	lines := strings.Split(existingContent, "\n")
+
+	// Flag to check if we've already processed this interface
+	interfaceProcessed := false
+
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// Look for the interface definition
+		if strings.HasPrefix(line, "iface "+iface) && strings.Contains(line, "inet static") {
+			interfaceProcessed = true
+
+			// Create a new slice to hold our updated configuration
+			var newConfig []string
+
+			// Process each line under this interface definition
+			for j := i; j < len(lines); j++ {
+				lineToAdd := lines[j]
+
+				// Skip existing address lines as we'll add the new one
+				if strings.HasPrefix(strings.TrimSpace(lineToAdd), "address") {
+					continue
+				}
+
+				// Handle gateway - only include if not 0.0.0.0
+				if strings.HasPrefix(strings.TrimSpace(lineToAdd), "gateway") && info.Gateway == "0.0.0.0" {
+					continue
+				}
+
+				newConfig = append(newConfig, lineToAdd)
+			}
+
+			// Add the new address line
+			for _, ipInfo := range info.IPs {
+				if cidr, err := subnetMaskToCIDR(ipInfo.Subnet); err == nil {
+					newConfig = append(newConfig, fmt.Sprintf("        address %s/%d", ipInfo.IP, cidr))
+				} else {
+					return fmt.Errorf("invalid subnet mask %s: %w", ipInfo.Subnet, err)
+				}
+			}
+
+			// Add gateway if not 0.0.0.0
+			if info.Gateway != "0.0.0.0" {
+				newConfig = append(newConfig, fmt.Sprintf("        gateway %s", info.Gateway))
+			}
+
+			// Replace the old interface config with the new one
+			var updatedLines []string
+			updatedLines = append(updatedLines, lines[:i+1]...)
+			updatedLines = append(updatedLines, newConfig...)
+
+			if i+len(lines[i:]) < len(lines) {
+				updatedLines = append(updatedLines, lines[i+len(newConfig):]...)
+			}
+
+			existingContent = strings.Join(updatedLines, "\n")
+			break
+		}
+	}
+
+	// Only write if we've processed the interface
+	if interfaceProcessed {
+		err := writeInterfacesFile("/etc/network/interfaces", existingContent)
+		if err != nil {
+			return fmt.Errorf("failed to write interfaces file: %v", err)
+		}
+
+		cmd = exec.Command("sh", "-c", "sudo systemctl restart networking")
+		output, err = cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("networking service restart failed with error: %v, output: %s", err, string(output))
+		}
+	}
+
+	return nil
+}
+
+func readInterfacesFile(path string) (string, error) {
+	cmd := exec.Command("cat", path)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to read interfaces file: %v", err)
+	}
+	return strings.TrimSpace(string(output)), nil
+}
+
+func writeInterfacesFile(path, content string) error {
+	cmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | sudo tee %s > /dev/null", content, path))
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to write interfaces file: %v, output: %s", err, string(output))
+	}
+	return nil
+}
+
 func applyNmcli(iface string, info client.InterfaceInfo) error {
 	// Check if interface exists before applying settings
 	cmd := exec.Command("ip", "link", "show", iface)
@@ -230,8 +362,8 @@ func applyNmcli(iface string, info client.InterfaceInfo) error {
 		cmds = append(cmds, fmt.Sprintf("nmcli con mod %s ipv4.gateway \"%s\"", iface, info.Gateway))
 	}
 
-	for _, cmd := range cmds {
-		output, err := exec.Command("sh", "-c", "sudo "+cmd).CombinedOutput()
+	for _, cmdStr := range cmds { // Use a string variable to avoid shadowing the exec.Command
+		output, err := exec.Command("sh", "-c", "sudo "+cmdStr).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("nmcli command failed with error: %v, output: %s", err, string(output))
 		}
