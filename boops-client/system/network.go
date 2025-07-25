@@ -219,122 +219,112 @@ func writeNetplanConfig(path, content string) error {
 }
 
 func applyInterfacesFile(iface string, info client.InterfaceInfo) error {
-	// Check if interface exists before applying settings
-	cmd := exec.Command("ip", "link", "show", iface)
-	output, err := cmd.CombinedOutput()
-	if err != nil || strings.Contains(string(output), "Device does not exist") {
-		return fmt.Errorf("interface %s does not exist on this system", iface)
-	}
-
-	// Read the existing /etc/network/interfaces file
 	existingContent, err := readInterfacesFile("/etc/network/interfaces")
 	if err != nil {
 		return fmt.Errorf("failed to read interfaces file: %v", err)
 	}
 
 	lines := strings.Split(existingContent, "\n")
+	var newLines []string
 
-	// Look for the 'auto' line and the start of our interface definition
-	autoLineIdx := -1
-	ifaceStartIdx := -1
-	for i, line := range lines {
-		lineTrimmed := strings.TrimSpace(line)
+	inTargetBlock := false
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		trimmed := strings.TrimSpace(line)
 
-		// Find 'auto iface'
-		if strings.HasPrefix(lineTrimmed, "auto "+iface) {
-			autoLineIdx = i
+		// インターフェイスブロックの開始
+		if strings.HasPrefix(trimmed, "iface "+iface+" ") {
+			inTargetBlock = true
+			newLines = append(newLines, line)
+			continue
 		}
 
-		// Find the interface definition line
-		if strings.HasPrefix(lineTrimmed, "iface "+iface+" inet static") {
-			ifaceStartIdx = i
-			break
+		// 対象ブロック外
+		if !inTargetBlock {
+			newLines = append(newLines, line)
+			continue
 		}
+
+		// ブロックの終端を検出
+		if trimmed == "" || strings.HasPrefix(trimmed, "iface ") || strings.HasPrefix(trimmed, "auto ") {
+			inTargetBlock = false
+			newLines = append(newLines, line)
+			continue
+		}
+
+		// address/gateway はスキップ（後で挿入）
+		if strings.HasPrefix(trimmed, "address") || strings.HasPrefix(trimmed, "gateway") {
+			continue
+		}
+
+		newLines = append(newLines, line)
 	}
 
-	// Create a list to hold our new configuration for this interface
-	var configLines []string
-
-	// Add the 'auto' line if it exists and is before or at the same position as the interface definition
-	if autoLineIdx >= 0 && (ifaceStartIdx < 0 || autoLineIdx <= ifaceStartIdx) {
-		configLines = append(configLines, lines[autoLineIdx])
-	}
-
-	// Add our updated interface configuration with the new IP and gateway settings
-	configLines = append(configLines,
-		fmt.Sprintf("iface %s inet static", iface),
-	)
-
+	// address 行をすべて生成
+	var insertLines []string
 	for _, ipInfo := range info.IPs {
-		if cidr, err := subnetMaskToCIDR(ipInfo.Subnet); err == nil {
-			configLines = append(configLines, fmt.Sprintf("        address %s/%d", ipInfo.IP, cidr))
-		} else {
+		cidr, err := subnetMaskToCIDR(ipInfo.Subnet)
+		if err != nil {
 			return fmt.Errorf("invalid subnet mask %s: %w", ipInfo.Subnet, err)
 		}
+		insertLines = append(insertLines, fmt.Sprintf("        address %s/%d", ipInfo.IP, cidr))
 	}
 
-	if info.Gateway != "0.0.0.0" {
-		configLines = append(configLines, fmt.Sprintf("        gateway %s", info.Gateway))
+	// gateway が 0.0.0.0 以外なら挿入
+	if info.Gateway != "" && info.Gateway != "0.0.0.0" {
+		insertLines = append(insertLines, fmt.Sprintf("        gateway %s", info.Gateway))
 	}
 
-	// Find all lines that belong to this interface config
-	var ifaceConfig []string
-	if ifaceStartIdx >= 0 {
-		for i := ifaceStartIdx; i < len(lines); i++ {
-			lineTrimmed := strings.TrimSpace(lines[i])
-			if lineTrimmed == "" || strings.HasPrefix(lineTrimmed, "auto ") ||
-				strings.HasPrefix(lineTrimmed, "iface ") || i == len(lines)-1 {
-				break
-			}
-			if !strings.HasPrefix(lineTrimmed, "address") &&
-				!(strings.HasPrefix(lineTrimmed, "gateway") && info.Gateway == "0.0.0.0") {
-				ifaceConfig = append(ifaceConfig, lines[i])
-			}
-		}
-	}
+	// address/gateway を iface ブロックに挿入
+	newLines = insertIntoIfaceBlock(newLines, iface, insertLines)
 
-	// Add any existing configuration options that weren't address or gateway
-	configLines = append(configLines, ifaceConfig...)
-
-	// Build the final content with our changes
-	var newContent []string
-
-	// If we have an interface definition, replace it and keep everything else
-	if ifaceStartIdx >= 0 {
-		newContent = append(newContent, lines[:ifaceStartIdx]...)
-	} else {
-		// Otherwise just use all existing lines as a base
-		newContent = append(newContent, lines...)
-	}
-
-	// Replace the old interface config with our new one
-	for i, line := range configLines {
-		if ifaceStartIdx >= 0 && ifaceStartIdx+i < len(lines) {
-			if ifaceStartIdx+i < len(newContent) {
-				newContent[ifaceStartIdx+i] = line
-			} else {
-				newContent = append(newContent, line)
-			}
-		} else {
-			newContent = append(newContent, line)
-		}
-	}
-
-	existingContent = strings.Join(newContent, "\n")
-
-	// Write the updated configuration back to the file
-	err = writeInterfacesFile("/etc/network/interfaces", existingContent)
+	// 書き戻し
+	err = writeInterfacesFile("/etc/network/interfaces", strings.Join(newLines, "\n"))
 	if err != nil {
 		return fmt.Errorf("failed to write interfaces file: %v", err)
 	}
 
-	cmd = exec.Command("sh", "-c", "sudo systemctl restart networking")
-	output, err = cmd.CombinedOutput()
+	cmd := exec.Command("sh", "-c", "sudo systemctl restart networking")
+	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("networking service restart failed with error: %v, output: %s", err, string(output))
+		return fmt.Errorf("networking service restart failed: %v, output: %s", err, string(output))
 	}
 
 	return nil
+}
+
+func insertIntoIfaceBlock(lines []string, iface string, insertLines []string) []string {
+	var result []string
+	inBlock := false
+	inserted := false
+
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		trimmed := strings.TrimSpace(line)
+
+		result = append(result, line)
+
+		if strings.HasPrefix(trimmed, "iface "+iface+" ") {
+			inBlock = true
+			continue
+		}
+
+		if inBlock {
+			// ブロックの終わりで挿入
+			if i+1 == len(lines) || strings.TrimSpace(lines[i+1]) == "" || strings.HasPrefix(strings.TrimSpace(lines[i+1]), "iface ") || strings.HasPrefix(strings.TrimSpace(lines[i+1]), "auto ") {
+				result = append(result, insertLines...)
+				inserted = true
+				inBlock = false
+			}
+		}
+	}
+
+	// 最後まで来たときに未挿入なら追記
+	if !inserted {
+		result = append(result, insertLines...)
+	}
+
+	return result
 }
 
 func readInterfacesFile(path string) (string, error) {
