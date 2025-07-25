@@ -234,101 +234,89 @@ func applyInterfacesFile(iface string, info client.InterfaceInfo) error {
 
 	lines := strings.Split(existingContent, "\n")
 
-	// Find all instances of the interface definition and collect them for replacement
-	var ifaceConfigs [][]string
+	// Look for the 'auto' line and the start of our interface definition
+	autoLineIdx := -1
+	ifaceStartIdx := -1
+	for i, line := range lines {
+		lineTrimmed := strings.TrimSpace(line)
 
-	// First pass - find and extract all current configurations for this interface
-	i := 0
-	for i < len(lines) {
-		line := strings.TrimSpace(lines[i])
-
-		if strings.HasPrefix(line, "iface "+iface) && strings.Contains(line, "inet static") {
-			var config []string
-			config = append(config, lines[i]) // Add the iface line
-
-			// Collect all lines under this interface definition until we hit another interface or end of file
-			for j := i + 1; j < len(lines); j++ {
-				lineToCheck := strings.TrimSpace(lines[j])
-
-				// Break if we find another 'iface' definition or empty line (end of current config)
-				if lineToCheck == "" || strings.HasPrefix(lineToCheck, "auto ") ||
-					strings.HasPrefix(lineToCheck, "iface ") {
-					i = j - 1 // Adjust index to continue in the main loop
-					break
-				}
-
-				config = append(config, lines[j])
-			}
-			ifaceConfigs = append(ifaceConfigs, config)
+		// Find 'auto iface'
+		if strings.HasPrefix(lineTrimmed, "auto "+iface) {
+			autoLineIdx = i
 		}
 
-		i++
+		// Find the interface definition line
+		if strings.HasPrefix(lineTrimmed, "iface "+iface+" inet static") {
+			ifaceStartIdx = i
+			break
+		}
 	}
 
-	// Create a single new configuration for this interface
-	var newConfig []string
+	// Create a list to hold our new configuration for this interface
+	var configLines []string
 
-	// Start with the iface line (use the last one found as reference)
-	newConfig = append(newConfig, fmt.Sprintf("iface %s inet static", iface))
+	// Add the 'auto' line if it exists and is before or at the same position as the interface definition
+	if autoLineIdx >= 0 && (ifaceStartIdx < 0 || autoLineIdx <= ifaceStartIdx) {
+		configLines = append(configLines, lines[autoLineIdx])
+	}
+
+	// Add our updated interface configuration with the new IP and gateway settings
+	configLines = append(configLines,
+		fmt.Sprintf("iface %s inet static", iface),
+	)
 
 	for _, ipInfo := range info.IPs {
 		if cidr, err := subnetMaskToCIDR(ipInfo.Subnet); err == nil {
-			newConfig = append(newConfig, fmt.Sprintf("        address %s/%d", ipInfo.IP, cidr))
+			configLines = append(configLines, fmt.Sprintf("        address %s/%d", ipInfo.IP, cidr))
 		} else {
 			return fmt.Errorf("invalid subnet mask %s: %w", ipInfo.Subnet, err)
 		}
 	}
 
-	// Add gateway if not 0.0.0.0
 	if info.Gateway != "0.0.0.0" {
-		newConfig = append(newConfig, fmt.Sprintf("        gateway %s", info.Gateway))
+		configLines = append(configLines, fmt.Sprintf("        gateway %s", info.Gateway))
 	}
 
-	// Copy over any additional settings from the last config found (like bridge-ports)
-	lastConfig := ifaceConfigs[len(ifaceConfigs)-1]
-	for _, line := range lastConfig[2:] { // Skip the first two lines (iface vmbr0 inet static and address/gateway)
-		line = strings.TrimSpace(line)
-
-		if !(strings.HasPrefix(line, "address") || strings.HasPrefix(line, "gateway")) {
-			newConfig = append(newConfig, line)
-		}
-	}
-
-	// Now replace all occurrences of this interface's configuration with our new one
-	var finalLines []string
-
-	for i := 0; i < len(lines); {
-		line := strings.TrimSpace(lines[i])
-
-		// If we hit an 'iface' line for our target interface, skip it and all related lines
-		if strings.HasPrefix(line, "iface "+iface) && strings.Contains(line, "inet static") {
-			var configLinesToSkip int
-
-			for j := i; j < len(lines); j++ {
-				lineCheck := strings.TrimSpace(lines[j])
-
-				// Break if we find another 'iface' definition or empty line
-				if lineCheck == "" || strings.HasPrefix(lineCheck, "auto ") ||
-					strings.HasPrefix(lineCheck, "iface ") {
-					configLinesToSkip = j - i
-					break
-				}
+	// Find all lines that belong to this interface config
+	var ifaceConfig []string
+	if ifaceStartIdx >= 0 {
+		for i := ifaceStartIdx; i < len(lines); i++ {
+			lineTrimmed := strings.TrimSpace(lines[i])
+			if lineTrimmed == "" || strings.HasPrefix(lineTrimmed, "auto ") ||
+				strings.HasPrefix(lineTrimmed, "iface ") || i == len(lines)-1 {
+				break
 			}
-
-			i += configLinesToSkip // Skip all lines in this interface config block
-
-			// Add our new configuration after skipping the old one
-			finalLines = append(finalLines, newConfig...)
-			continue // Don't add anything to finalLines here as we're already handling this section
-		} else {
-			// For non-interface lines, just copy them over
-			finalLines = append(finalLines, lines[i])
-			i++
+			if !strings.HasPrefix(lineTrimmed, "address") &&
+				!(strings.HasPrefix(lineTrimmed, "gateway") && info.Gateway == "0.0.0.0") {
+				ifaceConfig = append(ifaceConfig, lines[i])
+			}
 		}
 	}
 
-	// Join everything into the final content string
-	existingContent = strings.Join(finalLines, "\n")
+	// Add any existing configuration options that weren't address or gateway
+	configLines = append(configLines, ifaceConfig...)
+
+	// Build the final content with our changes
+	var newContent []string
+
+	// If we have an interface definition, replace it and keep everything else
+	if ifaceStartIdx >= 0 {
+		newContent = append(newContent, lines[:ifaceStartIdx]...)
+	} else {
+		// Otherwise just use all existing lines as a base
+		newContent = append(newContent, lines...)
+	}
+
+	// Replace the old interface config with our new one
+	for i, line := range configLines {
+		if ifaceStartIdx >= 0 && ifaceStartIdx+i < len(lines) {
+			newContent[ifaceStartIdx+i] = line
+		} else if ifaceStartIdx < 0 || ifaceStartIdx+i >= len(newContent) {
+			newContent = append(newContent, line)
+		}
+	}
+
+	existingContent = strings.Join(newContent, "\n")
 
 	// Write the updated configuration back to the file
 	err = writeInterfacesFile("/etc/network/interfaces", existingContent)
