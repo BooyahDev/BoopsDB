@@ -222,11 +222,6 @@ func applyNmcli(iface string, info client.InterfaceInfo) error {
 		}
 	}
 
-	// cmds := []string{
-	// 	fmt.Sprintf("nmcli dev disconnect iface '%s'", iface),
-	// 	fmt.Sprintf("nmcli dev set '%s' ipv4.addresses \"%s\" ipv4.method manual connection.autoconnect yes", iface, strings.Join(addresses, " ")),
-	// }
-
 	cmds := []string{
 		fmt.Sprintf("nmcli con mod %s ipv4.method manual ipv4.addresses \"%s\"", iface, strings.Join(addresses, ", ")),
 	}
