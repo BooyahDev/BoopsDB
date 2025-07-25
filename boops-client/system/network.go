@@ -232,7 +232,7 @@ func applyNmcli(iface string, info client.InterfaceInfo) error {
 	}
 
 	if info.Gateway != "" {
-		cmds = append(cmds, fmt.Sprintf("nmcli dev set %s ipv4.gateway %s", iface, info.Gateway))
+		cmds = append(cmds, fmt.Sprintf("nmcli con mod %s ipv4.gateway \"%s\"", iface, info.Gateway))
 	}
 
 	for _, cmd := range cmds {
@@ -243,7 +243,7 @@ func applyNmcli(iface string, info client.InterfaceInfo) error {
 	}
 
 	if len(dnsList) > 0 {
-		cmd := fmt.Sprintf("nmcli dev set %s ipv4.dns \"%s\"", iface, strings.Join(dnsList, ", "))
+		cmd := fmt.Sprintf("nmcli con mod %s ipv4.dns \"%s\"", iface, strings.Join(dnsList, ", "))
 		output, err := exec.Command("sh", "-c", "sudo "+cmd).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("Setting DNS failed with error: %v, output: %s", err, string(output))
