@@ -202,12 +202,12 @@ func applyNmcli(iface string, info client.InterfaceInfo) error {
 	}
 
 	cmds := []string{
-		fmt.Sprintf("nmcli dev disconnect iface %s", iface),
-		fmt.Sprintf("nmcli dev set %s ipv4.addresses \"%s\" ipv4.method manual connection.autoconnect yes", iface, strings.Join(addresses, " ")),
+		fmt.Sprintf("nmcli dev disconnect iface '%s'", iface),
+		fmt.Sprintf("nmcli dev set '%s' ipv4.addresses \"%s\" ipv4.method manual connection.autoconnect yes", iface, strings.Join(addresses, " ")),
 	}
 
 	if info.Gateway != "" {
-		cmds = append(cmds, fmt.Sprintf("nmcli dev set %s ipv4.gateway %s", iface, info.Gateway))
+		cmds = append(cmds, fmt.Sprintf("nmcli dev set '%s' ipv4.gateway %s", iface, info.Gateway))
 	}
 
 	for _, cmd := range cmds {
