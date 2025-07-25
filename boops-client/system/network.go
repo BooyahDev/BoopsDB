@@ -179,17 +179,26 @@ func writeNetplanConfig(path, content string) error {
 }
 
 func applyNmcli(iface string, info client.InterfaceInfo) error {
-	var addressCmds []string
+	// IP アドレスとサブネットを CIDR 形式で連結
+	var addresses []string
+	for _, ip := range info.IPs {
+		cidr := MaskToCIDR(ip.Subnet)
+		addresses = append(addresses, fmt.Sprintf("%s/%s", ip.IP, cidr))
+	}
 
-	for _, ipInfo := range info.IPs {
-		addressCmds = append(addressCmds,
-			fmt.Sprintf("nmcli dev set %s ipv4.addresses \"%s/%s\" ipv4.method manual connection.autoconnect yes", iface, ipInfo.IP, MaskToCIDR(ipInfo.Subnet)))
+	// DNS サーバをスライスに変換
+	var dnsList []string
+	for _, dns := range strings.Split(info.DnsServers, ",") {
+		trimmed := strings.TrimSpace(dns)
+		if trimmed != "" {
+			dnsList = append(dnsList, trimmed)
+		}
 	}
 
 	cmds := []string{
 		fmt.Sprintf("nmcli dev disconnect iface %s", iface),
+		fmt.Sprintf("nmcli dev set %s ipv4.addresses \"%s\" ipv4.method manual connection.autoconnect yes", iface, strings.Join(addresses, " ")),
 	}
-	cmds = append(cmds, addressCmds...)
 
 	if info.Gateway != "" {
 		cmds = append(cmds, fmt.Sprintf("nmcli dev set %s ipv4.gateway %s", iface, info.Gateway))
@@ -198,8 +207,8 @@ func applyNmcli(iface string, info client.InterfaceInfo) error {
 		exec.Command("sh", "-c", "sudo "+cmd).Run()
 	}
 
-	if len(info.DnsServers) > 0 {
-		cmd := fmt.Sprintf("nmcli dev set %s ipv4.dns \"%s\"", iface, info.DnsServers)
+	if len(dnsList) > 0 {
+		cmd := fmt.Sprintf("nmcli dev set %s ipv4.dns \"%s\"", iface, strings.Join(dnsList, " "))
 		exec.Command("sh", "-c", "sudo "+cmd).Run()
 	}
 
