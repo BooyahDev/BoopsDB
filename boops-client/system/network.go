@@ -55,7 +55,11 @@ func ApplyNetworkSettings(ifaceArg interface{}) error {
 		ifaces = make(map[string]client.InterfaceInfo)
 		for i, info := range v {
 			if len(info.IPs) > 0 && len(info.IPs[0].IP) > 0 {
-				ifaces[fmt.Sprintf("interface-%d", i)] = info // Using a simple key for demonstration
+				ifaceName := info.Name // Use actual interface name if available
+				if ifaceName == "" {
+					ifaceName = fmt.Sprintf("interface-%d", i)
+				}
+				ifaces[ifaceName] = info
 			}
 		}
 	default:
@@ -84,6 +88,13 @@ func applyLinux(ifaces map[string]client.InterfaceInfo) error {
 	}
 
 	for name, info := range ifaces {
+		// Check if interface exists
+		cmd := exec.Command("ip", "link", "show", name)
+		output, err := cmd.CombinedOutput()
+		if err != nil || strings.Contains(string(output), "Device does not exist") {
+			return fmt.Errorf("interface %s does not exist on this system", name)
+		}
+
 		if isDebian {
 			err = applyNetplan(name, info)
 		} else {
@@ -185,11 +196,21 @@ func writeNetplanConfig(path, content string) error {
 }
 
 func applyNmcli(iface string, info client.InterfaceInfo) error {
+	// Check if interface exists before applying settings
+	cmd := exec.Command("ip", "link", "show", iface)
+	output, err := cmd.CombinedOutput()
+	if err != nil || strings.Contains(string(output), "Device does not exist") {
+		return fmt.Errorf("interface %s does not exist on this system", iface)
+	}
+
 	// IP アドレスとサブネットを CIDR 形式で連結
 	var addresses []string
 	for _, ip := range info.IPs {
-		cidr := MaskToCIDR(ip.Subnet)
-		addresses = append(addresses, fmt.Sprintf("%s/%s", ip.IP, cidr))
+		cidr, err := subnetMaskToCIDR(ip.Subnet)
+		if err != nil {
+			return fmt.Errorf("invalid subnet mask %s: %w", ip.Subnet, err)
+		}
+		addresses = append(addresses, fmt.Sprintf("%s/%d", ip.IP, cidr))
 	}
 
 	// DNS サーバをスライスに変換
@@ -225,8 +246,8 @@ func applyNmcli(iface string, info client.InterfaceInfo) error {
 		}
 	}
 
-	cmd := exec.Command("sh", "-c", "sudo nmcli con up "+iface)
-	output, err := cmd.CombinedOutput()
+	cmd = exec.Command("sh", "-c", "sudo nmcli con up "+iface)
+	output, err = cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("nmcli connection up failed with error: %v, output: %s", err, string(output))
 	}
@@ -324,6 +345,7 @@ func GatherNetworkInterfaces() (map[string]client.InterfaceInfo, error) {
 			Gateway:    "",
 			DnsServers: "", // Empty string for DNS servers, will be set to comma-separated values elsewhere if needed
 			MacAddress: macAddr,
+			Name:       name, // Add the actual interface name
 		}
 	}
 
