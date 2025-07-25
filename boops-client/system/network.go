@@ -184,7 +184,7 @@ func applyNetplan(iface string, info client.InterfaceInfo) error {
 	var output []byte
 	var err error
 
-	cmd = exec.Command("sh", "-c", "sudo rm -f /etc/netplan/*.yaml")
+	cmd = exec.Command("sh", "-c", "rm -f /etc/netplan/*.yaml")
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to remove existing netplan configs: %v, output: %s", err, string(output))
@@ -195,13 +195,13 @@ func applyNetplan(iface string, info client.InterfaceInfo) error {
 		return fmt.Errorf("failed to write netplan config: %v", err)
 	}
 
-	cmd = exec.Command("sh", "-c", "sudo chmod 600 "+configPath)
+	cmd = exec.Command("sh", "-c", "chmod 600 "+configPath)
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to set file permissions: %v, output: %s", err, string(output))
 	}
 
-	cmd = exec.Command("sh", "-c", "sudo netplan apply")
+	cmd = exec.Command("sh", "-c", "netplan apply")
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("netplan apply failed with error: %v, output: %s", err, string(output))
@@ -210,7 +210,7 @@ func applyNetplan(iface string, info client.InterfaceInfo) error {
 }
 
 func writeNetplanConfig(path, content string) error {
-	cmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | sudo tee %s > /dev/null", content, path))
+	cmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | tee %s > /dev/null", content, path))
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("failed to write config: %v, output: %s", err, string(output))
@@ -282,7 +282,7 @@ func applyInterfacesFile(iface string, info client.InterfaceInfo) error {
 	}
 
 	// ネットワーク再起動
-	cmd := exec.Command("sh", "-c", "sudo systemctl restart networking")
+	cmd := exec.Command("sh", "-c", "systemctl restart networking")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("networking service restart failed: %v, output: %s", err, string(output))
@@ -384,7 +384,7 @@ func applyNmcli(iface string, info client.InterfaceInfo) error {
 	}
 
 	for _, cmdStr := range cmds { // Use a string variable to avoid shadowing the exec.Command
-		output, err := exec.Command("sh", "-c", "sudo "+cmdStr).CombinedOutput()
+		output, err = exec.Command("sh", "-c", cmdStr).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("nmcli command failed with error: %v, output: %s", err, string(output))
 		}
@@ -392,13 +392,13 @@ func applyNmcli(iface string, info client.InterfaceInfo) error {
 
 	if len(dnsList) > 0 {
 		cmd := fmt.Sprintf("nmcli con mod %s ipv4.dns \"%s\"", iface, strings.Join(dnsList, ", "))
-		output, err := exec.Command("sh", "-c", "sudo "+cmd).CombinedOutput()
+		output, err = exec.Command("sh", "-c", cmd).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("Setting DNS failed with error: %v, output: %s", err, string(output))
 		}
 	}
 
-	cmd = exec.Command("sh", "-c", "sudo nmcli con up "+iface)
+	cmd = exec.Command("sh", "-c", "nmcli con up "+iface)
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("nmcli connection up failed with error: %v, output: %s", err, string(output))
