@@ -78,13 +78,13 @@ func ApplyNetworkSettings(ifaceArg interface{}) error {
 }
 
 func applyLinux(ifaces map[string]client.InterfaceInfo) error {
-	isUbuntu, err := isUbuntuSystem()
+	isDebian, err := isDebianSystem()
 	if err != nil {
 		return fmt.Errorf("unable to determine system type: %v", err)
 	}
 
 	for name, info := range ifaces {
-		if isUbuntu {
+		if isDebian {
 			err = applyNetplan(name, info)
 		} else {
 			err = applyNmcli(name, info)
@@ -97,13 +97,19 @@ func applyLinux(ifaces map[string]client.InterfaceInfo) error {
 	return nil
 }
 
-func isUbuntuSystem() (bool, error) {
-	output, err := exec.Command("lsb_release", "-is").CombinedOutput()
-	if err != nil {
-		return false, fmt.Errorf("unable to determine OS type: %v, output: %s", err, string(output))
+func isDebianSystem() (bool, error) {
+	// Check for Debian-based system first
+	if _, err := exec.Command("test", "-f", "/etc/debian_version").CombinedOutput(); err == nil {
+		return true, nil
 	}
-	osType := strings.TrimSpace(string(output))
-	return osType == "Ubuntu", nil
+
+	// Then check for RedHat-based system
+	if _, err := exec.Command("test", "-f", "/etc/redhat-release").CombinedOutput(); err == nil {
+		return false, nil
+	}
+
+	// If neither file exists, we can't determine if it's Debian or RedHat
+	return false, fmt.Errorf("unable to determine OS type")
 }
 
 func applyNetplan(iface string, info client.InterfaceInfo) error {
