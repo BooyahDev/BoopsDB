@@ -1,0 +1,1 @@
+export const apiBaseUrl = 'https://boopsdb-api.booyah.dev/api';
