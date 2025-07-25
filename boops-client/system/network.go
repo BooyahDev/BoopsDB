@@ -234,76 +234,77 @@ func applyInterfacesFile(iface string, info client.InterfaceInfo) error {
 
 	lines := strings.Split(existingContent, "\n")
 
-	// Flag to check if we've already processed this interface
-	interfaceProcessed := false
+	// Prepare our new configuration for this interface
+	var ifaceConfig []string
 
+	// Find the start and end of the current interface config
+	startIdx := -1
+	endIdx := -1
 	for i, line := range lines {
-		line = strings.TrimSpace(line)
-
-		// Look for the interface definition
-		if strings.HasPrefix(line, "iface "+iface) && strings.Contains(line, "inet static") {
-			interfaceProcessed = true
-
-			// Create a new slice to hold our updated configuration
-			var newConfig []string
-
-			// Process each line under this interface definition
-			for j := i; j < len(lines); j++ {
-				lineToAdd := lines[j]
-
-				// Skip existing address lines as we'll add the new one
-				if strings.HasPrefix(strings.TrimSpace(lineToAdd), "address") {
-					continue
-				}
-
-				// Handle gateway - only include if not 0.0.0.0
-				if strings.HasPrefix(strings.TrimSpace(lineToAdd), "gateway") && info.Gateway == "0.0.0.0" {
-					continue
-				}
-
-				newConfig = append(newConfig, lineToAdd)
-			}
-
-			// Add the new address line
-			for _, ipInfo := range info.IPs {
-				if cidr, err := subnetMaskToCIDR(ipInfo.Subnet); err == nil {
-					newConfig = append(newConfig, fmt.Sprintf("        address %s/%d", ipInfo.IP, cidr))
-				} else {
-					return fmt.Errorf("invalid subnet mask %s: %w", ipInfo.Subnet, err)
-				}
-			}
-
-			// Add gateway if not 0.0.0.0
-			if info.Gateway != "0.0.0.0" {
-				newConfig = append(newConfig, fmt.Sprintf("        gateway %s", info.Gateway))
-			}
-
-			// Replace the old interface config with the new one
-			var updatedLines []string
-			updatedLines = append(updatedLines, lines[:i+1]...)
-			updatedLines = append(updatedLines, newConfig...)
-
-			if i+len(lines[i:]) < len(lines) {
-				updatedLines = append(updatedLines, lines[i+len(newConfig):]...)
-			}
-
-			existingContent = strings.Join(updatedLines, "\n")
+		if strings.HasPrefix(strings.TrimSpace(line), "iface "+iface) && strings.Contains(line, "inet static") {
+			startIdx = i
+		}
+		if startIdx != -1 && (strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "auto ") ||
+			strings.HasPrefix(strings.TrimSpace(line), "iface ")) {
+			endIdx = i
 			break
 		}
 	}
 
-	// Only write if we've processed the interface
-	if interfaceProcessed {
-		err := writeInterfacesFile("/etc/network/interfaces", existingContent)
-		if err != nil {
-			return fmt.Errorf("failed to write interfaces file: %v", err)
+	// Create a new configuration for this interface
+	if startIdx != -1 && endIdx != -1 {
+		ifaceConfig = append(ifaceConfig, lines[startIdx]) // Keep the original iface line
+
+		for _, ipInfo := range info.IPs {
+			if cidr, err := subnetMaskToCIDR(ipInfo.Subnet); err == nil {
+				ifaceConfig = append(ifaceConfig, fmt.Sprintf("        address %s/%d", ipInfo.IP, cidr))
+			} else {
+				return fmt.Errorf("invalid subnet mask %s: %w", ipInfo.Subnet, err)
+			}
 		}
 
-		cmd = exec.Command("sh", "-c", "sudo systemctl restart networking")
-		output, err = cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("networking service restart failed with error: %v, output: %s", err, string(output))
+		// Add gateway if not 0.0.0.0
+		if info.Gateway != "0.0.0.0" {
+			ifaceConfig = append(ifaceConfig, fmt.Sprintf("        gateway %s", info.Gateway))
 		}
+
+		// Copy over any other settings from the original config that aren't address or gateway
+		for i := startIdx + 1; i < endIdx; i++ {
+			line := strings.TrimSpace(lines[i])
+			if !(strings.HasPrefix(line, "address") || (strings.HasPrefix(line, "gateway") && info.Gateway == "0.0.0.0")) {
+				ifaceConfig = append(ifaceConfig, lines[i])
+			}
+		}
+	} else {
+		return fmt.Errorf("could not find interface configuration for %s", iface)
+	}
+
+	// Create the new content with our updated interface config
+	var newLines []string
+
+	// Copy everything up to the start of our interface config
+	newLines = append(newLines, lines[:startIdx]...)
+
+	// Add our updated interface config
+	newLines = append(newLines, ifaceConfig...)
+
+	// Copy everything after our interface config
+	if endIdx < len(lines) {
+		newLines = append(newLines, lines[endIdx:]...)
+	}
+
+	existingContent = strings.Join(newLines, "\n")
+
+	// Write the updated configuration back to the file
+	err = writeInterfacesFile("/etc/network/interfaces", existingContent)
+	if err != nil {
+		return fmt.Errorf("failed to write interfaces file: %v", err)
+	}
+
+	cmd = exec.Command("sh", "-c", "sudo systemctl restart networking")
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("networking service restart failed with error: %v, output: %s", err, string(output))
 	}
 
 	return nil
