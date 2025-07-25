@@ -222,13 +222,17 @@ func applyNmcli(iface string, info client.InterfaceInfo) error {
 		}
 	}
 
+	// cmds := []string{
+	// 	fmt.Sprintf("nmcli dev disconnect iface '%s'", iface),
+	// 	fmt.Sprintf("nmcli dev set '%s' ipv4.addresses \"%s\" ipv4.method manual connection.autoconnect yes", iface, strings.Join(addresses, " ")),
+	// }
+
 	cmds := []string{
-		fmt.Sprintf("nmcli dev disconnect iface '%s'", iface),
-		fmt.Sprintf("nmcli dev set '%s' ipv4.addresses \"%s\" ipv4.method manual connection.autoconnect yes", iface, strings.Join(addresses, " ")),
+		fmt.Sprintf("nmcli con mod %s ipv4.method manual ipv4.addresses \"%s\"", iface, strings.Join(addresses, ", ")),
 	}
 
 	if info.Gateway != "" {
-		cmds = append(cmds, fmt.Sprintf("nmcli dev set '%s' ipv4.gateway %s", iface, info.Gateway))
+		cmds = append(cmds, fmt.Sprintf("nmcli dev set %s ipv4.gateway %s", iface, info.Gateway))
 	}
 
 	for _, cmd := range cmds {
@@ -239,7 +243,7 @@ func applyNmcli(iface string, info client.InterfaceInfo) error {
 	}
 
 	if len(dnsList) > 0 {
-		cmd := fmt.Sprintf("nmcli dev set %s ipv4.dns \"%s\"", iface, strings.Join(dnsList, " "))
+		cmd := fmt.Sprintf("nmcli dev set %s ipv4.dns \"%s\"", iface, strings.Join(dnsList, ", "))
 		output, err := exec.Command("sh", "-c", "sudo "+cmd).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("Setting DNS failed with error: %v, output: %s", err, string(output))
