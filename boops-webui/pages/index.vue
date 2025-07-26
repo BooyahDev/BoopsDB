@@ -1,9 +1,9 @@
 <template>
     <v-container style="margin-top: 50px;">
-        <h1>マシン検索</h1>
+        <h1>BoopsDB マシン検索</h1>
 
         <!-- Link to Register a New Machine -->
-        <nuxt-link to="/machines/register" class="register-link">Register New Machine</nuxt-link>
+        <nuxt-link to="/machines/register" class="register-link">マシン登録</nuxt-link>
 
         <!-- Machine Search Form -->
         <section>

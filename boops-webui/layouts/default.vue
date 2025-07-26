@@ -15,9 +15,9 @@
         class="mr-6"
       />
     </v-app-bar>
-    <v-navigation-drawer v-model="drawer" temporary="">
+    <!-- <v-navigation-drawer v-model="drawer" temporary="">
       <SideMenu></SideMenu>
-    </v-navigation-drawer>
+    </v-navigation-drawer> -->
     <slot />
   </v-app>
 </template>

@@ -2,21 +2,17 @@
   <v-container class="mt-6">
     <v-card v-if="machine" class="pa-6">
       <v-card-title class="d-flex justify-space-between align-center mb-6">
-        <h1 class="text-h4">{{ machine.hostname }} Details</h1>
-        <div>
-          <v-btn color="primary" @click="duplicateMachine" class="mr-2">
-            <v-icon start>mdi-content-copy</v-icon>
-            Duplicate
-          </v-btn>
-          <v-btn color="error" @click="confirmMachineDelete">
-            <v-icon start>mdi-delete</v-icon>
-            Delete
-          </v-btn>
-        </div>
+        <h1 class="text-h4 mt-5">{{ machine.hostname }}</h1>
       </v-card-title>
 
       <v-card-text>
         <v-sheet class="mb-8">
+          <div>
+            <v-btn color="primary" @click="duplicateMachine" class="mr-2">
+              <v-icon start>mdi-content-copy</v-icon>
+              Machine Duplicate
+            </v-btn>
+          </div>
           <h2 class="text-h5 mb-4">Main Information</h2>
           <v-table class="elevation-1">
             <tbody>
@@ -481,6 +477,12 @@
             </v-table>
           </v-form>
         </v-sheet>
+        <div>
+          <v-btn color="error" @click="confirmMachineDelete">
+            <v-icon start>mdi-delete</v-icon>
+            Machine Delete
+          </v-btn>
+        </div>
       </v-card-text>
     </v-card>
 
@@ -1461,6 +1463,9 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+
+*{ text-transform: none !important; }
+
 .container {
   max-width: 800px;
   margin: auto;

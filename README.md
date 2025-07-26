@@ -374,6 +374,17 @@ curl -X PUT http://localhost:3001/api/interfaces/70ae9891-fc07-45b9-8364-3ab159e
   }'
 ```
 
+### インターフェースの名前を更新する（PUT）
+
+```bash
+# このコマンドは指定されたUUIDのマシンのインターフェースの名前を更新します。例としてマシンUUID=70ae9891-fc07-45b9-8364-3ab159ee2048、インターフェース名="eth0"を使用しています。
+curl -X PUT http://localhost:3001/api/interfaces/70ae9891-fc07-45b9-8364-3ab159ee2048/eth0/update-name \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "new-interface-name"
+  }'
+```
+
 ## ライセンス
 
 このプロジェクトはMITライセンスの下で公開されています。詳細はLICENSEファイルをご覧ください。

@@ -1,6 +1,6 @@
 <template>
   <v-container style="margin-top: 50px;">
-    <h1>Machine Search Results</h1>
+    <h1>マシン検索結果</h1>
 
     <!-- Loading Indicator -->
     <div v-if="isLoading" class="loading-indicator">
@@ -131,7 +131,7 @@ function setTable(machines) {
     // updated_at の差分を計算
     const updatedAt = new Date(machine.updated_at);
     const diffMinutes = (now - updatedAt) / 1000 / 60;
-    const isOnline = diffMinutes <= 30;
+    const isOnline = diffMinutes <= 5;
 
     const row = {
       id: machine.id,

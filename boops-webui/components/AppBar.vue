@@ -8,6 +8,8 @@
             </div>
             <slot name="title">BoopsDB
             </slot>
+            <a href="/" style="color: white; text-decoration: none;" class="ml-1 mr-1">検索</a> | 
+            <a href="/machines/register" style="color: white; text-decoration: none">マシン登録</a>
         </ul>
     </div>
 </template>
