@@ -1,23 +1,24 @@
 <template>
-  <div class="container">
-    <h1>Search Machines</h1>
+    <v-container style="margin-top: 50px;">
+        <h1>マシン検索</h1>
 
-    <!-- Link to Register a New Machine -->
-    <nuxt-link to="/machines/register" class="register-link">Register New Machine</nuxt-link>
+        <!-- Link to Register a New Machine -->
+        <nuxt-link to="/machines/register" class="register-link">Register New Machine</nuxt-link>
 
-    <!-- Machine Search Form -->
-    <section>
-      <form @submit.prevent="searchMachines">
-        <div>
-          <label for="search">Search by any element:</label>
-          <input v-model="searchQuery" type="text" id="search" />
-        </div>
-        <button type="submit">Search</button>
-      </form>
+        <!-- Machine Search Form -->
+        <section>
+            <form @submit.prevent="searchMachines">
+                <div>
+                <label for="search">hostname, ip, memo, etc...</label>
+                <input v-model="searchQuery" type="text" id="search" />
+                </div>
+                <button type="submit">検索</button>
+            </form>
 
-      <!-- Search Results -->
-          </section>
-  </div>
+        <!-- Search Results -->
+        </section>
+    </v-container>
+
 </template>
 
 <script setup>
@@ -39,14 +40,14 @@ async function searchMachines() {
 </script>
 
 <style scoped>
-.container {
+/* .container {
   max-width: 800px;
   margin: auto;
   padding: 2rem;
-}
-h1, h2, h3, h4 {
+} */
+/* h1, h2, h3, h4 {
   color: #333;
-}
+} */
 form div {
   margin-bottom: 1rem;
 }

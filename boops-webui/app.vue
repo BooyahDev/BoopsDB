@@ -1,11 +1,11 @@
 <template>
   <NuxtLayout>
     <header>
-      <h1>BoopsDB!</h1>
+      <!-- <h1>BoopsDB!</h1>
       <nav>
         <NuxtLink to="/">Search</NuxtLink>
         <NuxtLink to="/machines/register">Register New Machine</NuxtLink>
-      </nav>
+      </nav> -->
     </header>
     <NuxtPage />
   </NuxtLayout>
