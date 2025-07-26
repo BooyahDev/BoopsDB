@@ -380,30 +380,96 @@
                 <tr>
                   <th width="20%">Name:</th>
                   <td width="80%">
-                    <v-text-field v-model="newInterface.name" placeholder="eth0" density="compact" hide-details />
+                    <v-text-field 
+                      v-model="newInterface.name" 
+                      placeholder="eth0" 
+                      density="compact" 
+                      hide-details
+                      :rules="[required]"
+                    />
                   </td>
                 </tr>
                 <tr>
                   <th>MAC Address:</th>
                   <td>
-                    <v-text-field v-model="newInterface.mac_address" placeholder="00:1A:2B:3C:4D:5E" density="compact" hide-details />
+                    <v-text-field 
+                      v-model="newInterface.mac_address" 
+                      placeholder="00:1A:2B:3C:4D:5E" 
+                      density="compact" 
+                      hide-details
+                    />
                   </td>
                 </tr>
                 <tr>
                   <th>Gateway:</th>
                   <td>
-                    <v-text-field v-model="newInterface.gateway" placeholder="192.168.1.1" density="compact" hide-details />
+                    <v-text-field 
+                      v-model="newInterface.gateway" 
+                      placeholder="192.168.1.1" 
+                      density="compact" 
+                      hide-details
+                    />
                   </td>
                 </tr>
                 <tr>
                   <th>DNS Servers:</th>
                   <td>
-                    <v-text-field v-model="newInterface.dns_servers" placeholder="8.8.8.8,8.8.4.4" density="compact" hide-details />
+                    <v-text-field 
+                      v-model="newInterface.dns_servers" 
+                      placeholder="8.8.8.8,8.8.4.4" 
+                      density="compact" 
+                      hide-details
+                    />
+                  </td>
+                </tr>
+                <tr>
+                  <th>IP Addresses:</th>
+                  <td>
+                    <div v-for="(ip, index) in newInterface.ips" :key="index" class="mb-2">
+                      <div class="d-flex align-center">
+                        <v-text-field
+                          v-model="ip.ip_address"
+                          placeholder="192.168.1.100"
+                          density="compact"
+                          hide-details
+                          class="mr-2"
+                          :rules="[required]"
+                        />
+                        <v-text-field
+                          v-model="ip.subnet_mask"
+                          placeholder="255.255.255.0"
+                          density="compact"
+                          hide-details
+                          class="mr-2"
+                        />
+                        <v-btn
+                          icon
+                          color="error"
+                          size="small"
+                          @click="removeNewIp(index)"
+                          v-if="newInterface.ips.length > 1"
+                        >
+                          <v-icon>mdi-delete</v-icon>
+                        </v-btn>
+                      </div>
+                    </div>
+                    <v-btn
+                      color="primary"
+                      @click="addNewIp"
+                      prepend-icon="mdi-plus"
+                      size="small"
+                    >
+                      Add IP Address
+                    </v-btn>
                   </td>
                 </tr>
                 <tr>
                   <td colspan="2" class="text-right pt-4">
-                    <v-btn color="primary" type="submit" :loading="isAddingInterface">
+                    <v-btn 
+                      color="primary" 
+                      type="submit" 
+                      :loading="isAddingInterface"
+                    >
                       Add Interface
                     </v-btn>
                     <v-alert v-if="addInterfaceError" type="error" density="compact" class="mt-2">
@@ -422,7 +488,28 @@
     <v-dialog v-model="showEditIpModal" max-width="800">
       <v-card>
         <v-card-title>
-          {{ selectedInterfaceForEdit ? `Edit IP Addresses - ${selectedInterfaceForEdit.name}` : 'Edit IP Addresses' }}
+          <template v-if="isEditingInterfaceName">
+            <v-text-field
+              v-model="editingInterfaceName"
+              label="Interface Name"
+              density="compact"
+              hide-details
+              class="mb-2"
+            />
+          </template>
+          <template v-else>
+            Edit IP Addresses - {{ selectedInterfaceForEdit?.name || 'Unknown Interface' }}
+            <v-btn
+              icon
+              variant="text"
+              size="small"
+              @click="enableEditInterfaceName"
+              class="ml-2"
+              :disabled="!selectedInterfaceForEdit"
+            >
+              <v-icon>mdi-pencil</v-icon>
+            </v-btn>
+          </template>
         </v-card-title>
         <v-card-text>
           <v-table>
@@ -475,16 +562,39 @@
               </tr>
             </tbody>
           </v-table>
+          <div v-if="isEditingInterfaceName" class="d-flex justify-end mt-4">
+            <v-btn
+              color="primary"
+              @click="saveInterfaceName"
+              :loading="isSavingInterfaceName"
+              class="mr-2"
+            >
+              Save Name
+            </v-btn>
+            <v-btn
+              color="secondary"
+              @click="cancelEditInterfaceName"
+            >
+              Cancel
+            </v-btn>
+          </div>
           <v-alert v-if="ipEditError" type="error" density="compact" class="mt-4">
             {{ ipEditError }}
           </v-alert>
         </v-card-text>
         <v-card-actions>
           <v-spacer></v-spacer>
-          <v-btn color="primary" @click="saveInterfaceIps" :loading="isSavingInterfaceIps">
+          <v-btn
+            color="primary"
+            @click="saveInterfaceIps"
+            :loading="isSavingInterfaceIps"
+          >
             Save Changes
           </v-btn>
-          <v-btn color="secondary" @click="cancelEditIpModal">
+          <v-btn
+            color="secondary"
+            @click="cancelEditIpModal"
+          >
             Cancel
           </v-btn>
         </v-card-actions>
@@ -536,6 +646,7 @@
 </template>
 
 <script setup>
+const required = (value) => !!value || 'Required';
 import { ref, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { apiBaseUrl } from '@/apiConfig';
@@ -575,9 +686,12 @@ const isAddingInterface = ref(false);
 const addInterfaceError = ref('');
 const newInterface = ref({
   name: '',
+  mac_address: '',
   gateway: '',
   dns_servers: '',
-  mac_address: ''
+  ips: [
+    { ip_address: '', subnet_mask: '255.255.255.0' }
+  ]
 });
 
 // IPアドレス編集関連
@@ -598,6 +712,11 @@ const isEditingDns = ref({});
 const dnsEdit = ref({});
 const isUpdatingDns = ref({});
 
+// インターフェース編集関連
+const isEditingInterfaceName = ref(false);
+const editingInterfaceName = ref('');
+const isSavingInterfaceName = ref(false);
+
 // インターフェース削除関連
 const showDeleteInterfaceModal = ref(false);
 const interfaceToDelete = ref('');
@@ -612,17 +731,100 @@ const isDeleting = ref(false);
 // クリップボード関連
 const copiedItems = ref({});
 
+// 新しいIPアドレスを追加
+const addNewIp = () => {
+  newInterface.value.ips.push({
+    ip_address: '',
+    subnet_mask: '255.255.255.0'
+  });
+};
+
+// IPアドレスを削除
+const removeNewIp = (index) => {
+  newInterface.value.ips.splice(index, 1);
+};
+
 // IPアドレス編集モーダルを開く
 const prepareEditIps = (interfaceData) => {
+  if (!interfaceData) {
+    console.error('Interface data is null or undefined');
+    return;
+  }
+
   selectedInterfaceForEdit.value = interfaceData;
   currentEditInterfaceId.value = interfaceData.id;
+  editingInterfaceName.value = interfaceData.name || '';
+  isEditingInterfaceName.value = false;
   
-  editingIps.value[interfaceData.id] = interfaceData.ips.length > 0
+  editingIps.value[interfaceData.id] = interfaceData.ips?.length > 0
     ? interfaceData.ips.map(ip => ({ ...ip }))
     : [{ ip_address: '', subnet_mask: '255.255.255.0' }];
   
   showEditIpModal.value = true;
   ipEditError.value = '';
+};
+
+
+// インターフェース名編集を有効化
+const enableEditInterfaceName = () => {
+  isEditingInterfaceName.value = true;
+};
+
+// インターフェース名編集をキャンセル
+const cancelEditInterfaceName = () => {
+  isEditingInterfaceName.value = false;
+  editingInterfaceName.value = selectedInterfaceForEdit.value.name;
+};
+
+// インターフェース名を保存
+const saveInterfaceName = async () => {
+  if (!selectedInterfaceForEdit.value) {
+    console.error('No interface selected for editing');
+    return;
+  }
+
+  const newName = (editingInterfaceName.value || '').trim();
+  if (!newName) {
+    alert('Interface name cannot be empty');
+    return;
+  }
+
+  isSavingInterfaceName.value = true;
+
+  try {
+    const response = await fetch(
+      `${apiBaseUrl}/interfaces/${machine.value.id}/${selectedInterfaceForEdit.value.name}/update-name`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName })
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to update interface name');
+    }
+
+    isEditingInterfaceName.value = false;
+    const updatedResponse = await fetch(`${apiBaseUrl}/machines/${route.params.id}`);
+    if (updatedResponse.ok) {
+      machine.value = await updatedResponse.json();
+      // 安全なプロパティアクセス
+      const updatedInterface = machine.value.interfaces?.find(
+        intf => intf.id === currentEditInterfaceId.value
+      );
+      if (updatedInterface) {
+        selectedInterfaceForEdit.value = updatedInterface;
+        editingInterfaceName.value = updatedInterface.name || '';
+      }
+    }
+  } catch (err) {
+    console.error('Failed to update interface name:', err);
+    alert(err.message);
+  } finally {
+    isSavingInterfaceName.value = false;
+  }
 };
 
 // IP行を追加
@@ -1106,8 +1308,14 @@ const formatDnsServers = (dns) => {
 
 // インターフェース追加
 const addNewInterface = async () => {
+  // バリデーション
   if (!newInterface.value.name) {
-    addInterfaceError.value = 'Name is required';
+    addInterfaceError.value = 'Interface name is required';
+    return;
+  }
+
+  if (!newInterface.value.ips.some(ip => ip.ip_address)) {
+    addInterfaceError.value = 'At least one IP address is required';
     return;
   }
 
@@ -1115,15 +1323,26 @@ const addNewInterface = async () => {
   addInterfaceError.value = '';
 
   try {
+    // リクエストデータを整形
+    const requestData = {
+      name: newInterface.value.name,
+      mac_address: newInterface.value.mac_address || null,
+      gateway: newInterface.value.gateway || null,
+      dns_servers: newInterface.value.dns_servers 
+        ? newInterface.value.dns_servers.split(',').map(s => s.trim()).filter(s => s)
+        : null,
+      ips: newInterface.value.ips
+        .filter(ip => ip.ip_address)
+        .map(ip => ({
+          ip_address: ip.ip_address,
+          subnet_mask: ip.subnet_mask || '255.255.255.0'
+        }))
+    };
+
     const response = await fetch(`${apiBaseUrl}/machines/${machine.value.id}/interfaces`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: newInterface.value.name,
-        gateway: newInterface.value.gateway,
-        dns_servers: newInterface.value.dns_servers,
-        mac_address: newInterface.value.mac_address
-      })
+      body: JSON.stringify(requestData)
     });
 
     if (!response.ok) {
@@ -1131,18 +1350,24 @@ const addNewInterface = async () => {
       throw new Error(errorData.error || 'Failed to add interface');
     }
 
+    // 成功したらフォームをリセット
     newInterface.value = {
       name: '',
+      mac_address: '',
       gateway: '',
       dns_servers: '',
-      mac_address: ''
+      ips: [
+        { ip_address: '', subnet_mask: '255.255.255.0' }
+      ]
     };
 
+    // マシンデータを再読み込み
     const updatedResponse = await fetch(`${apiBaseUrl}/machines/${route.params.id}`);
     if (updatedResponse.ok) {
       machine.value = await updatedResponse.json();
     }
   } catch (err) {
+    console.error('Failed to add interface:', err);
     addInterfaceError.value = err.message;
   } finally {
     isAddingInterface.value = false;
