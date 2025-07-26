@@ -352,6 +352,28 @@ curl -X PUT http://localhost:3001/api/machines/70ae9891-fc07-45b9-8364-3ab159ee2
   }'
 ```
 
+### インターフェースのゲートウェイを更新する（PUT）
+
+```bash
+# このコマンドは指定されたUUIDのマシンのインターフェースのゲートウェイを更新します。例としてマシンUUID=70ae9891-fc07-45b9-8364-3ab159ee2048、インターフェース名="eth0"を使用しています。
+curl -X PUT http://localhost:3001/api/interfaces/70ae9891-fc07-45b9-8364-3ab159ee2048/eth0/update-gateway \
+  -H "Content-Type: application/json" \
+  -d '{
+    "gateway": "192.168.1.1"
+  }'
+```
+
+### インターフェースのDNSを更新する（PUT）
+
+```bash
+# このコマンドは指定されたUUIDのマシンのインターフェースのDNSを更新します。例としてマシンUUID=70ae9891-fc07-45b9-8364-3ab159ee2048、インターフェース名="eth0"を使用しています。
+curl -X PUT http://localhost:3001/api/interfaces/70ae9891-fc07-45b9-8364-3ab159ee2048/eth0/update-dns \
+  -H "Content-Type: application/json" \
+  -d '{
+    "dns_servers": ["8.8.8.8", "8.8.4.4"]
+  }'
+```
+
 ## ライセンス
 
 このプロジェクトはMITライセンスの下で公開されています。詳細はLICENSEファイルをご覧ください。

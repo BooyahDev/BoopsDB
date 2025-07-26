@@ -1,7 +1,6 @@
 <template>
   <v-container class="mt-6">
     <v-card v-if="machine" class="pa-6">
-      <!-- メインヘッダーと操作ボタン -->
       <v-card-title class="d-flex justify-space-between align-center mb-6">
         <h1 class="text-h4">{{ machine.hostname }} Details</h1>
         <div>
@@ -16,7 +15,6 @@
         </div>
       </v-card-title>
 
-      <!-- メイン情報セクション -->
       <v-card-text>
         <v-sheet class="mb-8">
           <h2 class="text-h5 mb-4">Main Information</h2>
@@ -157,9 +155,6 @@
                   </template>
                   <template v-else>
                     {{ machine.parent_machine_id || 'N/A' }}
-                    <!-- <v-btn icon variant="text" size="small" @click="copyToClipboard(machine.parent_machine_id)" class="ml-1 mr-1">
-                      <v-icon>mdi-content-copy</v-icon>
-                    </v-btn> -->
                     <v-btn 
                       icon 
                       variant="text" 
@@ -171,7 +166,6 @@
                         {{ copiedItems['parent_machine-id'] ? 'mdi-check' : 'mdi-content-copy' }}
                       </v-icon>
                     </v-btn>
-
                   </template>
                 </td>
               </tr>
@@ -216,97 +210,60 @@
         <v-sheet v-for="(interfaceData, index) in machine.interfaces" :key="interfaceData.id" class="mb-8">
           <div class="d-flex justify-space-between align-center mb-4">
             <h2 class="text-h5">
-              <template v-if="isEditingName[interfaceData.id]">
-                <v-text-field v-model="interfaceData.name" density="compact" hide-details class="d-inline-block" style="width: 200px;" />
-              </template>
-              <template v-else>
-                Interface: {{ interfaceData.name }}
-              </template>
+              Interface: {{ interfaceData.name }}
             </h2>
             <div>
-              <template v-if="isEditingName[interfaceData.id]">
-                <v-btn color="success" icon size="small" @click="saveInterfaceName(interfaceData.id)" :loading="isLoadingName[interfaceData.id]" class="mr-1">
-                  <v-icon>mdi-check</v-icon>
-                </v-btn>
-                <v-btn color="error" icon size="small" @click="cancelEditInterfaceName(interfaceData.id)">
-                  <v-icon>mdi-close</v-icon>
-                </v-btn>
-              </template>
-              <template v-else>
-                <v-btn icon variant="text" size="small" @click="editInterfaceName(interfaceData.id)" class="mr-1">
-                  <v-icon>mdi-pencil</v-icon>
-                </v-btn>
-                <v-btn icon variant="text" size="small" color="error" @click="confirmDeleteInterface(interfaceData.id, interfaceData.name)">
-                  <v-icon>mdi-delete</v-icon>
-                </v-btn>
-              </template>
+              <v-btn 
+                icon 
+                variant="text" 
+                size="small" 
+                @click="prepareEditIps(interfaceData)"
+                class="mr-1"
+              >
+                <v-icon>mdi-pencil</v-icon>
+              </v-btn>
+              <v-btn 
+                icon 
+                variant="text" 
+                size="small" 
+                color="error" 
+                @click="confirmDeleteInterface(interfaceData.id, interfaceData.name)"
+              >
+                <v-icon>mdi-delete</v-icon>
+              </v-btn>
             </div>
           </div>
 
           <!-- IPアドレステーブル -->
           <v-sheet class="mb-4">
-            <div class="d-flex justify-space-between align-center mb-2">
-              <h3 class="text-h6">IP Addresses</h3>
-              <v-btn color="primary" size="small" @click="prepareAddIp(interfaceData)">
-                <v-icon start>mdi-plus</v-icon>
-                Add IP
-              </v-btn>
-            </div>
+            <h3 class="text-h6">IP Addresses</h3>
             <v-table class="elevation-1">
               <thead>
                 <tr>
-                  <th width="15%">IP Address</th>
-                  <th width="15%">Subnet Mask</th>
-                  <th width="10%">Actions</th>
+                  <th width="30%">IP Address</th>
+                  <th width="30%">Subnet Mask</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="(ipData, ipIndex) in interfaceData.ips" :key="ipIndex">
                   <td>
-                    <template v-if="isEditingIp[ipData.id]">
-                      <v-text-field v-model="ipData.ip_address" density="compact" hide-details />
-                    </template>
-                    <template v-else>
-                      {{ ipData.ip_address || 'N/A' }}
-                    </template>
+                    {{ ipData.ip_address || 'N/A' }}
+                    <v-btn 
+                      icon 
+                      variant="text" 
+                      size="small" 
+                      @click="copyToClipboard(ipData.ip_address, 'ip-' + interfaceData.id + '-' + ipData.id)"
+                      class="ml-1"
+                    >
+                      <v-icon>
+                        {{ copiedItems['ip-' + interfaceData.id + '-' + ipData.id] ? 'mdi-check' : 'mdi-content-copy' }}
+                      </v-icon>
+                    </v-btn>
                   </td>
-                  <td>
-                    <template v-if="isEditingSubnet[ipData.id]">
-                      <v-text-field v-model="ipData.subnet_mask" density="compact" hide-details />
-                    </template>
-                    <template v-else>
-                      {{ ipData.subnet_mask || 'N/A' }}
-                    </template>
-                  </td>
-                  <td>
-                    <template v-if="isEditingIp[ipData.id] || isEditingSubnet[ipData.id]">
-                      <v-btn color="success" icon size="small" @click="saveIpAddress(interfaceData.id, ipData.id, ipData.ip_address)" :loading="isLoadingIp[ipData.id]" class="mr-1">
-                        <v-icon>mdi-check</v-icon>
-                      </v-btn>
-                      <v-btn color="error" icon size="small" @click="cancelEditIp(ipData.id)">
-                        <v-icon>mdi-close</v-icon>
-                      </v-btn>
-                    </template>
-                    <template v-else>
-        <v-btn
-          icon
-          variant="text"
-          size="small"
-          @click="copyToClipboard(ipData.ip_address, 'ip-' + interfaceData.id + '-' + ipData.id)"
-          class="mr-1"
-        >
-          <v-icon>
-            {{ copiedItems['ip-' + interfaceData.id + '-' + ipData.id] ? 'mdi-check' : 'mdi-content-copy' }}
-          </v-icon>
-        </v-btn>
-                      <v-btn icon variant="text" size="small" @click="editIp(ipData.id)" class="mr-1">
-                        <v-icon>mdi-pencil</v-icon>
-                      </v-btn>
-                      <v-btn icon variant="text" size="small" color="error" @click="confirmDeleteIp(interfaceData.id, ipData.id, ipData.ip_address)">
-                        <v-icon>mdi-delete</v-icon>
-                      </v-btn>
-                    </template>
-                  </td>
+                  <td>{{ ipData.subnet_mask || '255.255.255.0' }}</td>
+                </tr>
+                <tr v-if="interfaceData.ips.length === 0">
+                  <td colspan="2" class="text-center text-grey">No IP addresses configured</td>
                 </tr>
               </tbody>
             </v-table>
@@ -324,18 +281,41 @@
                 <td>
                   <template v-if="isEditingGateway[interfaceData.id]">
                     <div class="d-flex align-center">
-                      <v-text-field v-model="interfaceData.gateway" density="compact" hide-details class="mr-2" />
-                      <v-btn color="success" icon size="small" @click="saveGateway(interfaceData.id, interfaceData.gateway)" :loading="isLoadingGateway[interfaceData.id]" class="mr-1">
+                      <v-text-field 
+                        v-model="gatewayEdit[interfaceData.id]" 
+                        density="compact" 
+                        hide-details 
+                        class="mr-2" 
+                      />
+                      <v-btn 
+                        color="success" 
+                        icon 
+                        size="small" 
+                        @click="saveGateway(interfaceData.id)" 
+                        :loading="isUpdatingGateway[interfaceData.id]" 
+                        class="mr-1"
+                      >
                         <v-icon>mdi-check</v-icon>
                       </v-btn>
-                      <v-btn color="error" icon size="small" @click="cancelEditGateway(interfaceData.id)">
+                      <v-btn 
+                        color="error" 
+                        icon 
+                        size="small" 
+                        @click="cancelEditGateway(interfaceData.id)"
+                      >
                         <v-icon>mdi-close</v-icon>
                       </v-btn>
                     </div>
                   </template>
                   <template v-else>
                     {{ interfaceData.gateway || 'N/A' }}
-                    <v-btn icon variant="text" size="small" @click="editGateway(interfaceData.id)" class="ml-1">
+                    <v-btn 
+                      icon 
+                      variant="text" 
+                      size="small" 
+                      @click="enableEditGateway(interfaceData.id, interfaceData.gateway)" 
+                      class="ml-1"
+                    >
                       <v-icon>mdi-pencil</v-icon>
                     </v-btn>
                   </template>
@@ -346,18 +326,42 @@
                 <td>
                   <template v-if="isEditingDns[interfaceData.id]">
                     <div class="d-flex align-center">
-                      <v-text-field v-model="interfaceData.dns_servers" density="compact" hide-details class="mr-2" />
-                      <v-btn color="success" icon size="small" @click="saveDnsServers(interfaceData.id, interfaceData.dns_servers)" :loading="isLoadingDns[interfaceData.id]" class="mr-1">
+                      <v-text-field 
+                        v-model="dnsEdit[interfaceData.id]" 
+                        density="compact" 
+                        hide-details 
+                        class="mr-2" 
+                        placeholder="8.8.8.8,8.8.4.4"
+                      />
+                      <v-btn 
+                        color="success" 
+                        icon 
+                        size="small" 
+                        @click="saveDnsServers(interfaceData.id)" 
+                        :loading="isUpdatingDns[interfaceData.id]" 
+                        class="mr-1"
+                      >
                         <v-icon>mdi-check</v-icon>
                       </v-btn>
-                      <v-btn color="error" icon size="small" @click="cancelEditDns(interfaceData.id)">
+                      <v-btn 
+                        color="error" 
+                        icon 
+                        size="small" 
+                        @click="cancelEditDns(interfaceData.id)"
+                      >
                         <v-icon>mdi-close</v-icon>
                       </v-btn>
                     </div>
                   </template>
                   <template v-else>
-                    {{ interfaceData.dns_servers || 'N/A' }}
-                    <v-btn icon variant="text" size="small" @click="editDns(interfaceData.id)" class="ml-1">
+                    {{ formatDnsServers(interfaceData.dns_servers) || 'N/A' }}
+                    <v-btn 
+                      icon 
+                      variant="text" 
+                      size="small" 
+                      @click="enableEditDns(interfaceData.id, interfaceData.dns_servers)" 
+                      class="ml-1"
+                    >
                       <v-icon>mdi-pencil</v-icon>
                     </v-btn>
                   </template>
@@ -414,41 +418,76 @@
       </v-card-text>
     </v-card>
 
-    <!-- IP追加モーダル -->
-    <v-dialog v-model="showAddIpModal" max-width="600">
+    <!-- IPアドレス編集モーダル -->
+    <v-dialog v-model="showEditIpModal" max-width="800">
       <v-card>
-        <v-card-title>Add New IP Address to {{ selectedInterfaceForNewIp.name }}</v-card-title>
+        <v-card-title>
+          {{ selectedInterfaceForEdit ? `Edit IP Addresses - ${selectedInterfaceForEdit.name}` : 'Edit IP Addresses' }}
+        </v-card-title>
         <v-card-text>
-          <v-form @submit.prevent="addNewIp">
-            <v-table>
-              <tbody>
-                <tr>
-                  <th width="30%">IP Address:</th>
-                  <td width="70%">
-                    <v-text-field v-model="newIp.ip_address" placeholder="192.168.1.100" density="compact" hide-details />
-                  </td>
-                </tr>
-                <tr>
-                  <th>Subnet Mask:</th>
-                  <td>
-                    <v-text-field v-model="newIp.subnet_mask" placeholder="255.255.255.0" density="compact" hide-details />
-                  </td>
-                </tr>
-              </tbody>
-            </v-table>
-            <v-alert v-if="addIpError" type="error" density="compact" class="mt-2">
-              {{ addIpError }}
-            </v-alert>
-            <div class="d-flex justify-end mt-4">
-              <v-btn color="primary" type="submit" :loading="isAddingIp" class="mr-2">
-                Add IP
-              </v-btn>
-              <v-btn color="error" @click="cancelAddIp">
-                Cancel
-              </v-btn>
-            </div>
-          </v-form>
+          <v-table>
+            <thead>
+              <tr>
+                <th>IP Address</th>
+                <th>Subnet Mask</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(ip, index) in editingIps[currentEditInterfaceId]" :key="index">
+                <td>
+                  <v-text-field
+                    v-model="ip.ip_address"
+                    density="compact"
+                    hide-details
+                    placeholder="192.168.1.100"
+                  />
+                </td>
+                <td>
+                  <v-text-field
+                    v-model="ip.subnet_mask"
+                    density="compact"
+                    hide-details
+                    placeholder="255.255.255.0"
+                  />
+                </td>
+                <td>
+                  <v-btn
+                    icon
+                    color="error"
+                    size="small"
+                    @click="removeIpFromEdit(index)"
+                  >
+                    <v-icon>mdi-delete</v-icon>
+                  </v-btn>
+                </td>
+              </tr>
+              <tr>
+                <td colspan="3" class="text-center pt-4">
+                  <v-btn
+                    color="primary"
+                    @click="addNewIpRow"
+                    prepend-icon="mdi-plus"
+                  >
+                    Add IP Row
+                  </v-btn>
+                </td>
+              </tr>
+            </tbody>
+          </v-table>
+          <v-alert v-if="ipEditError" type="error" density="compact" class="mt-4">
+            {{ ipEditError }}
+          </v-alert>
         </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn color="primary" @click="saveInterfaceIps" :loading="isSavingInterfaceIps">
+            Save Changes
+          </v-btn>
+          <v-btn color="secondary" @click="cancelEditIpModal">
+            Cancel
+          </v-btn>
+        </v-card-actions>
       </v-card>
     </v-dialog>
 
@@ -464,34 +503,12 @@
           <v-btn color="error" @click="deleteInterface" :loading="isDeletingInterface">
             Delete
           </v-btn>
-          <v-btn color="secondary" @click="cancelDelete">
+          <v-btn color="secondary" @click="cancelDeleteInterface">
             Cancel
           </v-btn>
         </v-card-actions>
         <v-alert v-if="deleteError" type="error" density="compact" class="mx-4 mb-4">
           {{ deleteError }}
-        </v-alert>
-      </v-card>
-    </v-dialog>
-
-    <!-- IP削除確認ダイアログ -->
-    <v-dialog v-model="showDeleteIpModal" max-width="500">
-      <v-card>
-        <v-card-title>Confirm Delete</v-card-title>
-        <v-card-text>
-          Are you sure you want to delete IP address "{{ ipToDelete }}"?
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer></v-spacer>
-          <v-btn color="error" @click="deleteIp" :loading="isDeletingIp">
-            Delete
-          </v-btn>
-          <v-btn color="secondary" @click="cancelDeleteIp">
-            Cancel
-          </v-btn>
-        </v-card-actions>
-        <v-alert v-if="deleteIpError" type="error" density="compact" class="mx-4 mb-4">
-          {{ deleteIpError }}
         </v-alert>
       </v-card>
     </v-dialog>
@@ -520,31 +537,40 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import { useRoute } from 'vue-router';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { apiBaseUrl } from '@/apiConfig';
 
 const router = useRouter();
 const route = useRoute();
+
+// メインのマシンデータ
 const machine = ref(null);
-const isEditingMemo = ref(false);
-const isUpdatingMemo = ref(false);
-const isEditingIp = ref({});
-const isLoadingIp = ref({});
-const isEditingSubnet = ref({});
-const isLoadingSubnet = ref({});
-const isEditingGateway = ref({});
-const isLoadingGateway = ref({});
-const isEditingDns = ref({});
-const isLoadingDns = ref({});
-const isEditingName = ref({});
-const isLoadingName = ref({});
-const isEditingParentId = ref(false);
-const isUpdatingParentId = ref(false);
+
+// ホスト名編集関連
 const isEditingHostname = ref(false);
 const isUpdatingHostname = ref(false);
+
+// メモ編集関連
+const isEditingMemo = ref(false);
+const isUpdatingMemo = ref(false);
+
+// 目的編集関連
 const isEditingPurpose = ref(false);
 const isUpdatingPurpose = ref(false);
+
+// VMステータス編集関連
+const isEditingVmStatus = ref(false);
+const isUpdatingVmStatus = ref(false);
+const vmStatusEdit = ref({
+  is_virtual: false,
+  parent_machine_id: null
+});
+
+// 親マシンID編集関連
+const isEditingParentId = ref(false);
+const isUpdatingParentId = ref(false);
+
+// インターフェース追加関連
 const isAddingInterface = ref(false);
 const addInterfaceError = ref('');
 const newInterface = ref({
@@ -553,147 +579,249 @@ const newInterface = ref({
   dns_servers: '',
   mac_address: ''
 });
-const isEditingVmStatus = ref(false);
-const isUpdatingVmStatus = ref(false);
-const vmStatusEdit = ref({
-  is_virtual: false,
-  parent_machine_id: null
-});
+
+// IPアドレス編集関連
+const showEditIpModal = ref(false);
+const selectedInterfaceForEdit = ref(null);
+const currentEditInterfaceId = ref('');
+const editingIps = ref({});
+const isSavingInterfaceIps = ref(false);
+const ipEditError = ref('');
+
+// ゲートウェイ編集関連
+const isEditingGateway = ref({});
+const gatewayEdit = ref({});
+const isUpdatingGateway = ref({});
+
+// DNS編集関連
+const isEditingDns = ref({});
+const dnsEdit = ref({});
+const isUpdatingDns = ref({});
+
+// インターフェース削除関連
 const showDeleteInterfaceModal = ref(false);
 const interfaceToDelete = ref('');
 const interfaceToDeleteName = ref('');
 const isDeletingInterface = ref(false);
 const deleteError = ref('');
-const deleteDialog = ref(null);
+
+// マシン削除関連
+const showDeleteMachineDialog = ref(false);
 const isDeleting = ref(false);
-const showAddIpModal = ref(false);
-const selectedInterfaceForNewIp = ref(null);
-const newIp = ref({
-  ip_address: '',
-  subnet_mask: ''
-});
-const isAddingIp = ref(false);
-const addIpError = ref('');
-const showDeleteIpModal = ref(false);
-const ipToDelete = ref('');
-const ipToDeleteId = ref('');
-const interfaceIdForIpDelete = ref('');
-const isDeletingIp = ref(false);
-const deleteIpError = ref('');
+
+// クリップボード関連
 const copiedItems = ref({});
 
-function confirmMachineDelete() {
-  deleteDialog.value.showModal();
-}
+// IPアドレス編集モーダルを開く
+const prepareEditIps = (interfaceData) => {
+  selectedInterfaceForEdit.value = interfaceData;
+  currentEditInterfaceId.value = interfaceData.id;
+  
+  editingIps.value[interfaceData.id] = interfaceData.ips.length > 0
+    ? interfaceData.ips.map(ip => ({ ...ip }))
+    : [{ ip_address: '', subnet_mask: '255.255.255.0' }];
+  
+  showEditIpModal.value = true;
+  ipEditError.value = '';
+};
 
-function cancelMachineDelete() {
-  deleteDialog.value.close();
-}
+// IP行を追加
+const addNewIpRow = () => {
+  if (!editingIps.value[currentEditInterfaceId.value]) {
+    editingIps.value[currentEditInterfaceId.value] = [];
+  }
+  editingIps.value[currentEditInterfaceId.value].push({
+    ip_address: '',
+    subnet_mask: '255.255.255.0'
+  });
+};
 
-async function deleteMachine() {
-  isDeleting.value = true;
+// IP行を削除
+const removeIpFromEdit = (index) => {
+  editingIps.value[currentEditInterfaceId.value].splice(index, 1);
+};
+
+// IP編集をキャンセル
+const cancelEditIpModal = () => {
+  showEditIpModal.value = false;
+  selectedInterfaceForEdit.value = null;
+  currentEditInterfaceId.value = '';
+  ipEditError.value = '';
+};
+
+// IPアドレスを保存
+const saveInterfaceIps = async () => {
+  const interfaceId = currentEditInterfaceId.value;
+  if (!editingIps.value[interfaceId]) return;
+
+  isSavingInterfaceIps.value = true;
+  ipEditError.value = '';
+
   try {
-    const response = await fetch(`${apiBaseUrl}/machines/${machine.value.id}`, {
-      method: 'DELETE'
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to delete machine');
+    // バリデーション
+    const invalidIps = editingIps.value[interfaceId].filter(
+      ip => ip.ip_address && !isValidIp(ip.ip_address)
+    );
+    
+    if (invalidIps.length > 0) {
+      throw new Error('Invalid IP address format');
     }
 
-    router.push('/');
-  } catch (err) {
-    console.error(err);
-    alert(err.message);
-  } finally {
-    isDeleting.value = false;
-    deleteDialog.value.close();
-  }
-}
+    const interfaceData = machine.value.interfaces.find(intf => intf.id === interfaceId);
+    if (!interfaceData) throw new Error('Interface not found');
 
-function confirmDeleteInterface(interfaceId, interfaceName) {
-  interfaceToDelete.value = interfaceId;
-  interfaceToDeleteName.value = interfaceName;
-  showDeleteInterfaceModal.value = true;
-  deleteError.value = '';
-}
+    // 空のIPアドレスをフィルタリング
+    const ipsToSave = editingIps.value[interfaceId].filter(ip => ip.ip_address.trim() !== '');
 
-function cancelDelete() {
-  showDeleteInterfaceModal.value = false;
-  interfaceToDelete.value = '';
-  interfaceToDeleteName.value = '';
-  deleteError.value = '';
-}
-
-// IPアドレス削除関連の関数
-function confirmDeleteIp(interfaceId, ipId, ipAddress) {
-  interfaceIdForIpDelete.value = interfaceId;
-  ipToDeleteId.value = ipId;
-  ipToDelete.value = ipAddress;
-  showDeleteIpModal.value = true;
-  deleteIpError.value = '';
-}
-
-function cancelDeleteIp() {
-  showDeleteIpModal.value = false;
-  interfaceIdForIpDelete.value = '';
-  ipToDeleteId.value = '';
-  ipToDelete.value = '';
-  deleteIpError.value = '';
-}
-
-async function deleteIp() {
-  isDeletingIp.value = true;
-  deleteIpError.value = '';
-
-  try {
     const response = await fetch(
-      `${apiBaseUrl}/interfaces/${interfaceIdForIpDelete.value}/ips/${ipToDeleteId.value}`,
+      `${apiBaseUrl}/interfaces/${machine.value.id}/${interfaceData.name}/ips`,
       {
-        method: 'DELETE'
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ips: ipsToSave })
       }
     );
 
     if (!response.ok) {
       const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to delete IP address');
+      throw new Error(errorData.error || 'Failed to update IP addresses');
     }
 
-    showDeleteIpModal.value = false;
-    ipToDeleteId.value = '';
-    ipToDelete.value = '';
-
-    // マシンデータを再読み込み
+    showEditIpModal.value = false;
     const updatedResponse = await fetch(`${apiBaseUrl}/machines/${route.params.id}`);
     if (updatedResponse.ok) {
       machine.value = await updatedResponse.json();
     }
   } catch (err) {
-    deleteIpError.value = err.message;
+    console.error('IPアドレスの更新エラー:', err);
+    ipEditError.value = err.message;
   } finally {
-    isDeletingIp.value = false;
+    isSavingInterfaceIps.value = false;
   }
-}
+};
 
-function enableEditVmStatus() {
+// IPアドレスのバリデーション
+const isValidIp = (ip) => {
+  const ipRegex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+  return ipRegex.test(ip);
+};
+
+// ホスト名編集
+const enableEditHostname = () => {
+  isEditingHostname.value = true;
+};
+
+const cancelEditHostname = () => {
+  isEditingHostname.value = false;
+  fetch(`${apiBaseUrl}/machines/${route.params.id}`)
+    .then(response => response.json())
+    .then(data => {
+      machine.value.hostname = data.hostname;
+    })
+    .catch(err => console.error(err));
+};
+
+const saveHostname = async () => {
+  isUpdatingHostname.value = true;
+
+  const response = await fetch(`${apiBaseUrl}/machines/${machine.value.id}/update-hostname`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hostname: machine.value.hostname })
+  });
+
+  isUpdatingHostname.value = false;
+
+  if (response.ok) {
+    isEditingHostname.value = false;
+  } else {
+    const errorData = await response.json();
+    alert(`Failed to update hostname: ${errorData.error || 'Unknown error'}`);
+  }
+};
+
+// メモ編集
+const enableEditMemo = () => {
+  isEditingMemo.value = true;
+};
+
+const cancelEditMemo = () => {
+  isEditingMemo.value = false;
+};
+
+const updateMemo = async () => {
+  isUpdatingMemo.value = true;
+
+  const response = await fetch(`${apiBaseUrl}/machines/${machine.value.id}/update-memo`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ memo: machine.value.memo })
+  });
+
+  isUpdatingMemo.value = false;
+
+  if (response.ok) {
+    isEditingMemo.value = false;
+  } else {
+    const errorData = await response.json();
+    alert(`Failed to update memo: ${errorData.error || 'Unknown error'}`);
+  }
+};
+
+// 目的編集
+const enableEditPurpose = () => {
+  isEditingPurpose.value = true;
+};
+
+const cancelEditPurpose = () => {
+  isEditingPurpose.value = false;
+  fetch(`${apiBaseUrl}/machines/${route.params.id}`)
+    .then(response => response.json())
+    .then(data => {
+      machine.value.purpose = data.purpose;
+    })
+    .catch(err => console.error(err));
+};
+
+const updatePurpose = async () => {
+  isUpdatingPurpose.value = true;
+
+  const response = await fetch(`${apiBaseUrl}/machines/${machine.value.id}/update-purpose`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ purpose: machine.value.purpose })
+  });
+
+  isUpdatingPurpose.value = false;
+
+  if (response.ok) {
+    isEditingPurpose.value = false;
+  } else {
+    const errorData = await response.json();
+    alert(`Failed to update purpose: ${errorData.error || 'Unknown error'}`);
+  }
+};
+
+// VMステータス編集
+const enableEditVmStatus = () => {
   vmStatusEdit.value = {
     is_virtual: machine.value.is_virtual,
     parent_machine_id: machine.value.parent_machine_id
   };
   isEditingVmStatus.value = true;
-}
+};
 
-function cancelEditVmStatus() {
+const cancelEditVmStatus = () => {
   isEditingVmStatus.value = false;
-}
+};
 
-function handleVmStatusChange() {
+const handleVmStatusChange = () => {
   if (!vmStatusEdit.value.is_virtual) {
     vmStatusEdit.value.parent_machine_id = null;
   }
-}
+};
 
-async function saveVmStatus() {
+const saveVmStatus = async () => {
   isUpdatingVmStatus.value = true;
 
   try {
@@ -737,15 +865,80 @@ async function saveVmStatus() {
   } finally {
     isUpdatingVmStatus.value = false;
   }
-}
+};
 
-async function deleteInterface() {
+// 親マシンID編集
+const enableEditParentId = () => {
+  isEditingParentId.value = true;
+};
+
+const cancelEditParentId = () => {
+  isEditingParentId.value = false;
+};
+
+const updateParentId = async () => {
+  isUpdatingParentId.value = true;
+
+  try {
+    const response = await fetch(`${apiBaseUrl}/machines/${machine.value.id}/update-parent-id`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        parent_machine_id: machine.value.parent_machine_id || null
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to update parent machine ID');
+    }
+
+    isEditingParentId.value = false;
+    
+    if (machine.value.parent_machine_id) {
+      const parentResponse = await fetch(`${apiBaseUrl}/machines/${machine.value.parent_machine_id}`);
+      if (parentResponse.ok) {
+        const parentMachine = await parentResponse.json();
+        machine.value.parentHostname = parentMachine.hostname;
+      }
+    } else {
+      machine.value.parentHostname = null;
+    }
+  } catch (err) {
+    console.error(err);
+    alert(err.message);
+  } finally {
+    isUpdatingParentId.value = false;
+  }
+};
+
+// インターフェース削除
+const confirmDeleteInterface = (interfaceId, interfaceName) => {
+  interfaceToDelete.value = interfaceId;
+  interfaceToDeleteName.value = interfaceName;
+  showDeleteInterfaceModal.value = true;
+  deleteError.value = '';
+};
+
+const cancelDeleteInterface = () => {
+  showDeleteInterfaceModal.value = false;
+  interfaceToDelete.value = '';
+  interfaceToDeleteName.value = '';
+  deleteError.value = '';
+};
+
+const deleteInterface = async () => {
   isDeletingInterface.value = true;
   deleteError.value = '';
 
   try {
+    const interfaceData = machine.value.interfaces.find(intf => intf.id === interfaceToDelete.value);
+    if (!interfaceData) {
+      throw new Error('Interface not found');
+    }
+
     const response = await fetch(
-      `${apiBaseUrl}/machines/${machine.value.id}/interfaces/${interfaceToDelete.value}`,
+      `${apiBaseUrl}/machines/${machine.value.id}/interfaces/${interfaceData.name}`,
       {
         method: 'DELETE'
       }
@@ -759,80 +952,160 @@ async function deleteInterface() {
     showDeleteInterfaceModal.value = false;
     interfaceToDelete.value = '';
 
-    const updatedResponse = await fetch(`${apiBaseUrl}/machines/${route.params.id}`);
-    if (updatedResponse.ok) {
-      machine.value = await updatedResponse.json();
-    }
-  } catch (err) {
-    deleteError.value = err.message;
-  } finally {
-    isDeletingInterface.value = false;
-  }
-}
-
-function prepareAddIp(interfaceData) {
-  selectedInterfaceForNewIp.value = interfaceData;
-  newIp.value = {
-    ip_address: '',
-    subnet_mask: ''
-  };
-  showAddIpModal.value = true;
-  addIpError.value = '';
-}
-
-function cancelAddIp() {
-  showAddIpModal.value = false;
-  selectedInterfaceForNewIp.value = null;
-  newIp.value = {
-    ip_address: '',
-    subnet_mask: ''
-  };
-}
-
-async function addNewIp() {
-  if (!newIp.value.ip_address) {
-    addIpError.value = 'IP address is required';
-    return;
-  }
-
-  isAddingIp.value = true;
-  addIpError.value = '';
-
-  try {
-    const response = await fetch(`${apiBaseUrl}/interfaces/${selectedInterfaceForNewIp.value.id}/ips`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ip_address: newIp.value.ip_address,
-        subnet_mask: newIp.value.subnet_mask
-      })
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to add IP address');
-    }
-
-    showAddIpModal.value = false;
-    selectedInterfaceForNewIp.value = null;
-    newIp.value = {
-      ip_address: '',
-      subnet_mask: ''
-    };
-
     // マシンデータを再読み込み
     const updatedResponse = await fetch(`${apiBaseUrl}/machines/${route.params.id}`);
     if (updatedResponse.ok) {
       machine.value = await updatedResponse.json();
     }
   } catch (err) {
-    addIpError.value = err.message;
+    console.error('インターフェース削除エラー:', err);
+    deleteError.value = err.message;
   } finally {
-    isAddingIp.value = false;
+    isDeletingInterface.value = false;
   }
-}
+};
 
-async function addNewInterface() {
+// マシン削除
+const confirmMachineDelete = () => {
+  showDeleteMachineDialog.value = true;
+};
+
+const cancelMachineDelete = () => {
+  showDeleteMachineDialog.value = false;
+};
+
+const deleteMachine = async () => {
+  isDeleting.value = true;
+  try {
+    const response = await fetch(`${apiBaseUrl}/machines/${machine.value.id}`, {
+      method: 'DELETE'
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to delete machine');
+    }
+
+    router.push('/');
+  } catch (err) {
+    console.error(err);
+    alert(err.message);
+  } finally {
+    isDeleting.value = false;
+    showDeleteMachineDialog.value = false;
+  }
+};
+
+// ゲートウェイ編集を有効化
+const enableEditGateway = (interfaceId, currentGateway) => {
+  isEditingGateway.value[interfaceId] = true;
+  gatewayEdit.value[interfaceId] = currentGateway || '';
+};
+
+// ゲートウェイ編集をキャンセル
+const cancelEditGateway = (interfaceId) => {
+  isEditingGateway.value[interfaceId] = false;
+  delete gatewayEdit.value[interfaceId];
+};
+
+// ゲートウェイを保存
+const saveGateway = async (interfaceId) => {
+  const interfaceData = machine.value.interfaces.find(intf => intf.id === interfaceId);
+  if (!interfaceData) return;
+
+  isUpdatingGateway.value[interfaceId] = true;
+
+  try {
+    const response = await fetch(
+      `${apiBaseUrl}/interfaces/${machine.value.id}/${interfaceData.name}/update-gateway`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gateway: gatewayEdit.value[interfaceId] || null })
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to update gateway');
+    }
+
+    // 成功したら編集モードを終了し、データを再読み込み
+    isEditingGateway.value[interfaceId] = false;
+    const updatedResponse = await fetch(`${apiBaseUrl}/machines/${route.params.id}`);
+    if (updatedResponse.ok) {
+      machine.value = await updatedResponse.json();
+    }
+  } catch (err) {
+    console.error('ゲートウェイの更新エラー:', err);
+    alert(err.message);
+  } finally {
+    isUpdatingGateway.value[interfaceId] = false;
+  }
+};
+
+// DNSサーバー編集を有効化
+const enableEditDns = (interfaceId, currentDns) => {
+  isEditingDns.value[interfaceId] = true;
+  dnsEdit.value[interfaceId] = Array.isArray(currentDns) 
+    ? currentDns.join(', ') 
+    : (currentDns || '');
+};
+
+// DNSサーバー編集をキャンセル
+const cancelEditDns = (interfaceId) => {
+  isEditingDns.value[interfaceId] = false;
+  delete dnsEdit.value[interfaceId];
+};
+
+// DNSサーバーを保存
+const saveDnsServers = async (interfaceId) => {
+  const interfaceData = machine.value.interfaces.find(intf => intf.id === interfaceId);
+  if (!interfaceData) return;
+
+  isUpdatingDns.value[interfaceId] = true;
+
+  try {
+    // 入力値を配列に変換（カンマ区切りを想定）
+    const dnsArray = dnsEdit.value[interfaceId]
+      ? dnsEdit.value[interfaceId].split(',').map(item => item.trim()).filter(item => item)
+      : [];
+
+    const response = await fetch(
+      `${apiBaseUrl}/interfaces/${machine.value.id}/${interfaceData.name}/update-dns`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dns_servers: dnsArray })
+      }
+    );
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to update DNS servers');
+    }
+
+    // 成功したら編集モードを終了し、データを再読み込み
+    isEditingDns.value[interfaceId] = false;
+    const updatedResponse = await fetch(`${apiBaseUrl}/machines/${route.params.id}`);
+    if (updatedResponse.ok) {
+      machine.value = await updatedResponse.json();
+    }
+  } catch (err) {
+    console.error('DNSサーバーの更新エラー:', err);
+    alert(err.message);
+  } finally {
+    isUpdatingDns.value[interfaceId] = false;
+  }
+};
+
+// DNSサーバーの表示フォーマット
+const formatDnsServers = (dns) => {
+  if (!dns) return '';
+  return Array.isArray(dns) ? dns.join(', ') : dns;
+};
+
+// インターフェース追加
+const addNewInterface = async () => {
   if (!newInterface.value.name) {
     addInterfaceError.value = 'Name is required';
     return;
@@ -874,337 +1147,10 @@ async function addNewInterface() {
   } finally {
     isAddingInterface.value = false;
   }
-}
+};
 
-// IPアドレス編集関連の関数
-function editIp(ipId) {
-  isEditingIp.value[ipId] = true;
-}
-
-function cancelEditIp(ipId) {
-  isEditingIp.value[ipId] = false;
-  // サーバーから最新データを再取得
-  fetch(`${apiBaseUrl}/machines/${route.params.id}`)
-    .then(response => response.json())
-    .then(data => {
-      machine.value = data;
-    })
-    .catch(err => console.error(err));
-}
-
-
-async function saveIpAddress(interfaceId, ipId, ipAddress) {
-  if (!ipAddress) {
-    alert('IPアドレスを入力してください');
-    return;
-  }
-
-  isLoadingIp.value[ipId] = true;
-
-  try {
-    // インターフェースデータを取得
-    const interfaceData = machine.value.interfaces.find(intf => intf.id === interfaceId);
-    if (!interfaceData) {
-      throw new Error('インターフェースが見つかりません');
-    }
-
-    // 現在のIPデータを取得
-    const ipData = interfaceData.ips.find(ip => ip.id === ipId);
-    if (!ipData) {
-      throw new Error('IPアドレスが見つかりません');
-    }
-
-    // APIエンドポイント: /interfaces/{machineId}/{interfaceName}/ips
-    const response = await fetch(
-      `${apiBaseUrl}/interfaces/${machine.value.id}/${interfaceData.name}/ips`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ips: [{
-            ip_address: ipAddress,
-            subnet_mask: ipData.subnet_mask || '255.255.255.0' // デフォルト値
-          }]
-        })
-      }
-    );
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(data.error || 'IPアドレスの更新に失敗しました');
-    }
-
-    // 編集モードを終了
-    isEditingIp.value[ipId] = false;
-    isLoadingIp.value[ipId] = false;
-
-    // マシンデータを再読み込み
-    const updatedResponse = await fetch(`${apiBaseUrl}/machines/${route.params.id}`);
-    if (updatedResponse.ok) {
-      machine.value = await updatedResponse.json();
-    }
-  } catch (err) {
-    console.error('IPアドレスの更新エラー:', err);
-    alert(err.message);
-    isLoadingIp.value[ipId] = false;
-  }
-}
-
-// サブネットマスク編集関連の関数
-function editSubnet(ipId) {
-  isEditingSubnet.value[ipId] = true;
-}
-
-function cancelEditSubnet(ipId) {
-  isEditingSubnet.value[ipId] = false;
-  // サーバーから最新データを再取得
-  fetch(`${apiBaseUrl}/machines/${route.params.id}`)
-    .then(response => response.json())
-    .then(data => {
-      machine.value = data;
-    })
-    .catch(err => console.error(err));
-}
-
-async function saveSubnetMask(interfaceId, ipId, subnetMask) {
-  isLoadingSubnet.value[ipId] = true;
-
-  try {
-    const interfaceData = machine.value.interfaces.find(intf => intf.id === interfaceId);
-    if (!interfaceData) throw new Error('インターフェースが見つかりません');
-
-    const ipData = interfaceData.ips.find(ip => ip.id === ipId);
-    if (!ipData) throw new Error('IPアドレスが見つかりません');
-
-    const response = await fetch(
-      `${apiBaseUrl}/interfaces/${machine.value.id}/${interfaceData.name}/ips`,
-      {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ips: [{
-            ip_address: ipData.ip_address,
-            subnet_mask: subnetMask
-          }]
-        })
-      }
-    );
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'サブネットマスクの更新に失敗しました');
-    }
-
-    isEditingSubnet.value[ipId] = false;
-    isLoadingSubnet.value[ipId] = false;
-
-    // データ再読み込み
-    const updatedResponse = await fetch(`${apiBaseUrl}/machines/${route.params.id}`);
-    if (updatedResponse.ok) machine.value = await updatedResponse.json();
-  } catch (err) {
-    console.error('サブネットマスク更新エラー:', err);
-    alert(err.message);
-    isLoadingSubnet.value[ipId] = false;
-  }
-}
-
-function editGateway(interfaceId) {
-  isEditingGateway.value[interfaceId] = true;
-}
-
-function cancelEditGateway(interfaceId) {
-  isEditingGateway.value[interfaceId] = false;
-  fetch(`${apiBaseUrl}/machines/${route.params.id}`)
-    .then(response => response.json())
-    .then(data => {
-      machine.value = data;
-    })
-    .catch(err => console.error(err));
-}
-
-async function saveGateway(interfaceId, gateway) {
-  isLoadingGateway.value[interfaceId] = true;
-
-  try {
-    const response = await fetch(`${apiBaseUrl}/interfaces/${interfaceId}/update-gateway`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ gateway: gateway })
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      alert(`Failed to update gateway: ${errorData.error || 'Unknown error'}`);
-      return;
-    }
-
-    isEditingGateway.value[interfaceId] = false;
-    isLoadingGateway.value[interfaceId] = false;
-
-    const updatedResponse = await fetch(`${apiBaseUrl}/machines/${route.params.id}`);
-    if (updatedResponse.ok) {
-      machine.value = await updatedResponse.json();
-    }
-  } catch (err) {
-    console.error(err);
-    alert('An error occurred while updating the gateway');
-    isLoadingGateway.value[interfaceId] = false;
-  }
-}
-
-function editDns(interfaceId) {
-  isEditingDns.value[interfaceId] = true;
-}
-
-function cancelEditDns(interfaceId) {
-  isEditingDns.value[interfaceId] = false;
-  fetch(`${apiBaseUrl}/machines/${route.params.id}`)
-    .then(response => response.json())
-    .then(data => {
-      machine.value = data;
-    })
-    .catch(err => console.error(err));
-}
-
-async function saveDnsServers(interfaceId, dnsServers) {
-  isLoadingDns.value[interfaceId] = true;
-
-  try {
-    const response = await fetch(`${apiBaseUrl}/interfaces/${interfaceId}/update-dns`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dns_servers: dnsServers })
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      alert(`Failed to update DNS servers: ${errorData.error || 'Unknown error'}`);
-      return;
-    }
-
-    isEditingDns.value[interfaceId] = false;
-    isLoadingDns.value[interfaceId] = false;
-
-    const updatedResponse = await fetch(`${apiBaseUrl}/machines/${route.params.id}`);
-    if (updatedResponse.ok) {
-      machine.value = await updatedResponse.json();
-    }
-  } catch (err) {
-    console.error(err);
-    alert('An error occurred while updating the DNS servers');
-    isLoadingDns.value[interfaceId] = false;
-  }
-}
-
-function editInterfaceName(interfaceId) {
-  isEditingName.value[interfaceId] = true;
-}
-
-async function saveInterfaceName(interfaceId) {
-  const interfaceData = machine.value.interfaces.find(intf => intf.id === interfaceId);
-  const newName = interfaceData.name;
-
-  isLoadingName.value[interfaceId] = true;
-
-  try {
-    const response = await fetch(`${apiBaseUrl}/interfaces/${interfaceId}/update-name`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newName })
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      alert(`Failed to update interface name: ${errorData.error || 'Unknown error'}`);
-      return;
-    }
-
-    isEditingName.value[interfaceId] = false;
-    isLoadingName.value[interfaceId] = false;
-
-    const updatedResponse = await fetch(`${apiBaseUrl}/machines/${route.params.id}`);
-    if (updatedResponse.ok) {
-      machine.value = await updatedResponse.json();
-    }
-  } catch (err) {
-    console.error(err);
-    alert('An error occurred while updating the interface name');
-    isLoadingName.value[interfaceId] = false;
-  }
-}
-
-function cancelEditInterfaceName(interfaceId) {
-  isEditingName.value[interfaceId] = false;
-  fetch(`${apiBaseUrl}/machines/${route.params.id}`)
-    .then(response => response.json())
-    .then(data => {
-      machine.value = data;
-    })
-    .catch(err => console.error(err));
-}
-
-function enableEditParentId() {
-  isEditingParentId.value = true;
-}
-
-function cancelEditParentId() {
-  isEditingParentId.value = false;
-}
-
-async function updateParentId() {
-  isUpdatingParentId.value = true;
-
-  try {
-    const response = await fetch(`${apiBaseUrl}/machines/${machine.value.id}/update-parent-id`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        parent_machine_id: machine.value.parent_machine_id || null
-      })
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to update parent machine ID');
-    }
-
-    isEditingParentId.value = false;
-    
-    if (machine.value.parent_machine_id) {
-      const parentResponse = await fetch(`${apiBaseUrl}/machines/${machine.value.parent_machine_id}`);
-      if (parentResponse.ok) {
-        const parentMachine = await parentResponse.json();
-        machine.value.parentHostname = parentMachine.hostname;
-      }
-    } else {
-      machine.value.parentHostname = null;
-    }
-  } catch (err) {
-    console.error(err);
-    alert(err.message);
-  } finally {
-    isUpdatingParentId.value = false;
-  }
-}
-
-onMounted(async () => {
-  const response = await fetch(`${apiBaseUrl}/machines/${route.params.id}`);
-  if (response.ok) {
-    machine.value = await response.json();
-
-    if (machine.value.is_virtual && machine.value.parent_machine_id) {
-      const parentResponse = await fetch(`${apiBaseUrl}/machines/${machine.value.parent_machine_id}`);
-      if (parentResponse.ok) {
-        const parentMachine = await parentResponse.json();
-        machine.value.parentHostname = parentMachine.hostname;
-      }
-    }
-  } else {
-    alert('Failed to load machine details');
-  }
-});
-
-function duplicateMachine() {
+// マシン複製
+const duplicateMachine = () => {
   if (!machine.value) return;
 
   const duplicateData = {
@@ -1221,110 +1167,12 @@ function duplicateMachine() {
 
   localStorage.setItem(storageKey, JSON.stringify(storageItem));
   window.open(`/machines/register?duplicate=${storageKey}`, '_blank');
-}
+};
 
-async function updateMemo() {
-  isUpdatingMemo.value = true;
-
-  const response = await fetch(`${apiBaseUrl}/machines/${machine.value.id}/update-memo`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ memo: machine.value.memo })
-  });
-
-  isUpdatingMemo.value = false;
-
-  if (response.ok) {
-    isEditingMemo.value = false;
-    alert('Memo updated successfully');
-  } else {
-    const errorData = await response.json();
-    alert(`Failed to update memo: ${errorData.error || 'Unknown error'}`);
-  }
-}
-
-function enableEditMemo() {
-  isEditingMemo.value = true;
-}
-
-function cancelEditMemo() {
-  isEditingMemo.value = false;
-}
-
-function enableEditHostname() {
-  isEditingHostname.value = true;
-}
-
-function cancelEditHostname() {
-  isEditingHostname.value = false;
-
-  fetch(`${apiBaseUrl}/machines/${route.params.id}`)
-    .then(response => response.json())
-    .then(data => {
-      machine.value.hostname = data.hostname;
-    })
-    .catch(err => console.error(err));
-}
-
-async function saveHostname() {
-  isUpdatingHostname.value = true;
-
-  const response = await fetch(`${apiBaseUrl}/machines/${machine.value.id}/update-hostname`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ hostname: machine.value.hostname })
-  });
-
-  isUpdatingHostname.value = false;
-
-  if (response.ok) {
-    isEditingHostname.value = false;
-    alert('Hostname updated successfully');
-  } else {
-    const errorData = await response.json();
-    alert(`Failed to update hostname: ${errorData.error || 'Unknown error'}`);
-  }
-}
-
-function enableEditPurpose() {
-  isEditingPurpose.value = true;
-}
-
-function cancelEditPurpose() {
-  isEditingPurpose.value = false;
-
-  fetch(`${apiBaseUrl}/machines/${route.params.id}`)
-    .then(response => response.json())
-    .then(data => {
-      machine.value.purpose = data.purpose;
-    })
-    .catch(err => console.error(err));
-}
-
-async function updatePurpose() {
-  isUpdatingPurpose.value = true;
-
-  const response = await fetch(`${apiBaseUrl}/machines/${machine.value.id}/update-purpose`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ purpose: machine.value.purpose })
-  });
-
-  isUpdatingPurpose.value = false;
-
-  if (response.ok) {
-    isEditingPurpose.value = false;
-    alert('Purpose updated successfully');
-  } else {
-    const errorData = await response.json();
-    alert(`Failed to update purpose: ${errorData.error || 'Unknown error'}`);
-  }
-}
-
-async function copyToClipboard(text, itemId) {
+// クリップボードにコピー
+const copyToClipboard = async (text, itemId) => {
   if (!text || !itemId) return;
 
-  // If already copying this specific item, skip the operation
   if (copiedItems.value[itemId]) return;
 
   try {
@@ -1332,12 +1180,8 @@ async function copyToClipboard(text, itemId) {
 
     if (navigator.clipboard && navigator.clipboard.writeText) {
       await navigator.clipboard.writeText(text);
-      console.log(`Copied to clipboard: ${text}`);
       success = true;
     } else {
-      console.warn('navigator.clipboard.writeText is not supported in this browser');
-
-      // Fallback for older browsers
       const textarea = document.createElement('textarea');
       textarea.value = text;
       document.body.appendChild(textarea);
@@ -1346,35 +1190,49 @@ async function copyToClipboard(text, itemId) {
       try {
         if (document.execCommand) {
           document.execCommand('copy');
-          console.log(`Fallback copy successful: ${text}`);
           success = true;
         } else {
           throw new Error('Browser does not support clipboard operations');
         }
       } catch (fallbackErr) {
-        console.error('Fallback copy also failed:', fallbackErr);
+        console.error('Fallback copy failed:', fallbackErr);
       } finally {
         document.body.removeChild(textarea);
       }
     }
 
-    // Only update state if copy was successful
     if (success) {
       copiedItems.value = { ...copiedItems.value, [itemId]: true };
 
-      // Reset only this specific item's copy state after 3 seconds
       setTimeout(() => {
         copiedItems.value = { ...copiedItems.value, [itemId]: false };
       }, 3000);
     }
-
   } catch (err) {
     console.error('Copy to clipboard failed:', err);
     if (copiedItems.value[itemId]) {
       copiedItems.value = { ...copiedItems.value, [itemId]: false };
     }
   }
-}
+};
+
+// 初期データ読み込み
+onMounted(async () => {
+  const response = await fetch(`${apiBaseUrl}/machines/${route.params.id}`);
+  if (response.ok) {
+    machine.value = await response.json();
+
+    if (machine.value.is_virtual && machine.value.parent_machine_id) {
+      const parentResponse = await fetch(`${apiBaseUrl}/machines/${machine.value.parent_machine_id}`);
+      if (parentResponse.ok) {
+        const parentMachine = await parentResponse.json();
+        machine.value.parentHostname = parentMachine.hostname;
+      }
+    }
+  } else {
+    alert('Failed to load machine details');
+  }
+});
 </script>
 
 <style scoped>
