@@ -895,25 +895,46 @@ function cancelEditIp(ipId) {
 
 async function saveIpAddress(interfaceId, ipId, ipAddress) {
   if (!ipAddress) {
-    alert('IP address cannot be empty');
+    alert('IPアドレスを入力してください');
     return;
   }
 
   isLoadingIp.value[ipId] = true;
 
   try {
-    const response = await fetch(`${apiBaseUrl}/interfaces/${interfaceId}/ips/${ipId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ip_address: ipAddress })
-    });
+    // インターフェースデータを取得
+    const interfaceData = machine.value.interfaces.find(intf => intf.id === interfaceId);
+    if (!interfaceData) {
+      throw new Error('インターフェースが見つかりません');
+    }
+
+    // 現在のIPデータを取得
+    const ipData = interfaceData.ips.find(ip => ip.id === ipId);
+    if (!ipData) {
+      throw new Error('IPアドレスが見つかりません');
+    }
+
+    // APIエンドポイント: /interfaces/{machineId}/{interfaceName}/ips
+    const response = await fetch(
+      `${apiBaseUrl}/interfaces/${machine.value.id}/${interfaceData.name}/ips`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ips: [{
+            ip_address: ipAddress,
+            subnet_mask: ipData.subnet_mask || '255.255.255.0' // デフォルト値
+          }]
+        })
+      }
+    );
 
     if (!response.ok) {
       const errorData = await response.json();
-      alert(`Failed to update IP address: ${errorData.error || 'Unknown error'}`);
-      return;
+      throw new Error(data.error || 'IPアドレスの更新に失敗しました');
     }
 
+    // 編集モードを終了
     isEditingIp.value[ipId] = false;
     isLoadingIp.value[ipId] = false;
 
@@ -923,8 +944,8 @@ async function saveIpAddress(interfaceId, ipId, ipAddress) {
       machine.value = await updatedResponse.json();
     }
   } catch (err) {
-    console.error(err);
-    alert('An error occurred while updating the IP address');
+    console.error('IPアドレスの更新エラー:', err);
+    alert(err.message);
     isLoadingIp.value[ipId] = false;
   }
 }
@@ -949,29 +970,40 @@ async function saveSubnetMask(interfaceId, ipId, subnetMask) {
   isLoadingSubnet.value[ipId] = true;
 
   try {
-    const response = await fetch(`${apiBaseUrl}/interfaces/${interfaceId}/ips/${ipId}/update-subnet-mask`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subnet_mask: subnetMask })
-    });
+    const interfaceData = machine.value.interfaces.find(intf => intf.id === interfaceId);
+    if (!interfaceData) throw new Error('インターフェースが見つかりません');
+
+    const ipData = interfaceData.ips.find(ip => ip.id === ipId);
+    if (!ipData) throw new Error('IPアドレスが見つかりません');
+
+    const response = await fetch(
+      `${apiBaseUrl}/interfaces/${machine.value.id}/${interfaceData.name}/ips`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ips: [{
+            ip_address: ipData.ip_address,
+            subnet_mask: subnetMask
+          }]
+        })
+      }
+    );
 
     if (!response.ok) {
       const errorData = await response.json();
-      alert(`Failed to update subnet mask: ${errorData.error || 'Unknown error'}`);
-      return;
+      throw new Error(errorData.error || 'サブネットマスクの更新に失敗しました');
     }
 
     isEditingSubnet.value[ipId] = false;
     isLoadingSubnet.value[ipId] = false;
 
-    // マシンデータを再読み込み
+    // データ再読み込み
     const updatedResponse = await fetch(`${apiBaseUrl}/machines/${route.params.id}`);
-    if (updatedResponse.ok) {
-      machine.value = await updatedResponse.json();
-    }
+    if (updatedResponse.ok) machine.value = await updatedResponse.json();
   } catch (err) {
-    console.error(err);
-    alert('An error occurred while updating the subnet mask');
+    console.error('サブネットマスク更新エラー:', err);
+    alert(err.message);
     isLoadingSubnet.value[ipId] = false;
   }
 }
