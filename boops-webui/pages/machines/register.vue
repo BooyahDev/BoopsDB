@@ -1,8 +1,8 @@
 <template>
-  <v-container class="mt-6">
+  <v-container class="mt-8">
     <v-card class="pa-6">
       <v-card-title class="mb-6">
-        <h1 class="text-h4">Register New Machine</h1>
+        <h1 class="text-h4">マシン新規登録</h1>
       </v-card-title>
 
       <v-card-text>
