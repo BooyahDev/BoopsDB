@@ -235,10 +235,10 @@ func handleSync(machineID string) {
 			continue // Skip interfaces without IPs
 		}
 
-		ipAddr := ifaceInfo.IPs[0].IP
-		macAddr, err := system.GetMacAddress(ipAddr)
+		ifName := ifaceInfo.Name
+		macAddr, err := system.GetMacAddress(ifName)
 		if err != nil {
-			PrintStyledMessage("warning", fmt.Sprintf("Failed to get MAC address for interface with IP %s: %v", ipAddr, err))
+			PrintStyledMessage("warning", fmt.Sprintf("Failed to get MAC address for interface %s: %v", ifName, err))
 			continue
 		}
 
@@ -248,22 +248,22 @@ func handleSync(machineID string) {
 			updatePayload := fmt.Sprintf(`{"mac_address": "%s"}`, macAddr)
 			req, err = http.NewRequest(
 				http.MethodPut,
-				fmt.Sprintf("%s/%s/interfaces/ip-%s/update-mac_address", apiBase, machineID, ipAddr),
+				fmt.Sprintf("%s/%s/interfaces/%s/update-mac_address", apiBase, machineID, ifName),
 				strings.NewReader(updatePayload),
 			)
 			if err != nil {
-				PrintStyledMessage("error", fmt.Sprintf("Failed to create MAC address update request for IP %s: %v", ipAddr, err))
+				PrintStyledMessage("error", fmt.Sprintf("Failed to create MAC address update request for interface %s: %v", ifName, err))
 				continue
 			}
 			req.Header.Set("Content-Type", "application/json")
 
 			respMacUpdate, err := http.DefaultClient.Do(req)
 			if err != nil {
-				PrintStyledMessage("error", fmt.Sprintf("Failed to send MAC address update request for IP %s: %v", ipAddr, err))
+				PrintStyledMessage("error", fmt.Sprintf("Failed to send MAC address update request for interface %s: %v", ifName, err))
 			} else if respMacUpdate.StatusCode >= 300 {
-				PrintStyledMessage("warning", fmt.Sprintf("MAC address update failed for IP %s with status code: %d", ipAddr, respMacUpdate.StatusCode))
+				PrintStyledMessage("warning", fmt.Sprintf("MAC address update failed for interface %s with status code: %d", ifName, respMacUpdate.StatusCode))
 			} else {
-				PrintStyledMessage("success", fmt.Sprintf("Successfully updated MAC address for interface with IP %s to %s", ipAddr, macAddr))
+				PrintStyledMessage("success", fmt.Sprintf("Successfully updated MAC address for interface %s to %s", ifName, macAddr))
 			}
 		}
 	}

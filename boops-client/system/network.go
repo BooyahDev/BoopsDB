@@ -510,7 +510,7 @@ func GetMacAddress(iface string) (string, error) {
 
 	switch runtime.GOOS {
 	case "linux":
-		cmd = exec.Command("ip", "-o", "link")
+		cmd = exec.Command("sh", "-c", fmt.Sprintf(`cat $(find /sys/devices/ -name %s)/address`, iface))
 	case "windows":
 		cmd = exec.Command("wmic", "nic where \"NetConnectionID like '%"+iface+"%'", "get MACAddress /value")
 	default:
@@ -525,19 +525,7 @@ func GetMacAddress(iface string) (string, error) {
 	var macAddr string
 	switch runtime.GOOS {
 	case "linux":
-		lines := strings.Split(string(output), "\n")
-		for _, line := range lines {
-			if strings.Contains(line, iface) && strings.Contains(line, "link/ether") {
-				fields := strings.Fields(line)
-				for i, field := range fields {
-					if field == "link/ether" && i+1 < len(fields) {
-						macAddr = fields[i+1]
-						break
-					}
-				}
-			}
-		}
-
+		macAddr = strings.TrimSpace(string(output))
 		if macAddr == "" {
 			cmd = exec.Command("cat", "/sys/class/net/"+iface+"/address")
 			output, err = cmd.CombinedOutput()
