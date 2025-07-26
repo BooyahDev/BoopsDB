@@ -98,6 +98,11 @@ func InterfacesEqual(a, b []InterfaceInfo) bool {
 				return false
 			}
 		}
+
+		// Compare DNS servers as well
+		if infoA.DnsServers != infoB.DnsServers {
+			return false
+		}
 	}
 	return true
 }
