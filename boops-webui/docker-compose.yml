@@ -1,0 +1,10 @@
+services:
+  boops-webui:
+    image: docker-registry.booyah.dev/boops-webui
+    build: ./
+    platform: linux/x86_64
+    ports:
+      - 3100:3000
+    restart: always
+    environment:
+      - NODE_ENV=production
