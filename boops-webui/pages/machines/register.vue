@@ -25,20 +25,10 @@
                   </td>
                 </tr>
                 <tr>
-                  <th>Model Info:</th>
+                  <th>OS:</th>
                   <td>
                     <v-text-field
-                      v-model="machine.model_info"
-                      density="compact"
-                      hide-details
-                    />
-                  </td>
-                </tr>
-                <tr>
-                  <th>Usage Description:</th>
-                  <td>
-                    <v-text-field
-                      v-model="machine.usage_desc"
+                      v-model="machine.os_name"
                       density="compact"
                       hide-details
                     />
@@ -101,6 +91,16 @@
                   <td>
                     <v-text-field
                       v-model="machine.parent_machine_id"
+                      density="compact"
+                      hide-details
+                    />
+                  </td>
+                </tr>
+                <tr>
+                  <th>Purpose:</th>
+                  <td>
+                    <v-text-field
+                      v-model="machine.purpose"
                       density="compact"
                       hide-details
                     />
