@@ -14,6 +14,9 @@
             </v-btn>
           </div>
           <h2 class="text-h5 mb-4">Main Information</h2>
+          <div>LastAlive: {{ formatDate(machine.last_alive) }}</div>
+          <div>UpdateAt: {{ formatDate(machine.updated_at) }}</div>
+          <div>CreateAt: {{ formatDate(machine.created_at) }}</div>
           <v-table class="elevation-1">
             <tbody>
               <tr>
@@ -732,6 +735,19 @@ const isDeleting = ref(false);
 
 // クリップボード関連
 const copiedItems = ref({});
+
+const formatDate = (dateStr) => {
+  if (!dateStr) return '-'
+  return new Date(dateStr).toLocaleString('ja-JP', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).replace(/\//g, '/')
+}
 
 // 新しいIPアドレスを追加
 const addNewIp = () => {

@@ -18,7 +18,7 @@
         >
         <!-- Hostname をリンクに -->
         <template #item.hostname="{ item }">
-            <a :href="`/machines/${item.id}`" class="hostname-link">
+            <a :href="`/machines/${item.id}`" class="hostname-link" target="_blank" >
             {{ item.hostname }}
             </a>
         </template>
@@ -128,9 +128,9 @@ function setTable(machines) {
       });
     }
 
-    // updated_at の差分を計算
-    const updatedAt = new Date(machine.updated_at);
-    const diffMinutes = (now - updatedAt) / 1000 / 60;
+    // last_alive の差分を計算
+    const lastAlive = new Date(machine.last_alive);
+    const diffMinutes = (now - lastAlive) / 1000 / 60;
     const isOnline = diffMinutes <= 5;
 
     const row = {
