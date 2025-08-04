@@ -10,6 +10,8 @@
             <form @submit.prevent="searchMachines">
                 <div>
                 <label for="search">hostname, ip, memo, etc...</label>
+                <label for="search">例: AMD製CPUが搭載されたマシンの検索 "AMD -amd64"</label>
+                <label for="search">この場合 "AMD" という文字列を探すが、アーキテクチャに "amd64" があるためこれらを除外します。</label>
                 <input v-model="searchQuery" type="text" id="search" />
                 </div>
                 <button type="submit">検索</button>
