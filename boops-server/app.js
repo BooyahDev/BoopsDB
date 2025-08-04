@@ -581,32 +581,46 @@ app.delete('/api/machines/:id', async (req, res) => {
 app.get('/api/machines/search', async (req, res) => {
   const query = req.query.q || '';
 
-  // キーワードが空の場合は空の配列を返す
   if (!query.trim()) {
     return res.json([]);
   }
 
   try {
-    const keywords = query.trim().split(/\s+/); // スペースでキーワードを分割
+    const keywords = query.trim().split(/\s+/);
+    
+    // 検索に含めるキーワードと除外するキーワードに分類
+    const includeKeywords = keywords.filter(k => !k.startsWith('-'));
+    const excludeKeywords = keywords.filter(k => k.startsWith('-')).map(k => k.substring(1));
 
-    // SQLクエリのWHERE句とパラメーターを動的に生成
     let conditions = [];
     let params = [];
-    const ipAddressRegex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/; // IPアドレスの正規表現
+    const ipAddressRegex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/;
     let hasIpKeyword = false;
 
-    for (const keyword of keywords) {
-      if (ipAddressRegex.test(keyword)) {
-        // IPアドレスの場合、interface_ipsテーブルをJOINして検索
-        conditions.push('ip.ip_address = ?');
-        params.push(keyword);
-        hasIpKeyword = true;
-      } else {
-        // 通常のキーワードの場合、`machines`テーブルの複数のカラムを検索
-        const likeClause = '(m.hostname LIKE ? OR m.model_info LIKE ? OR m.usage_desc LIKE ? OR m.memo LIKE ? OR m.purpose LIKE ? OR m.cpu_info LIKE ? OR m.cpu_arch LIKE ? OR m.memory_size LIKE ? OR m.disk_info LIKE ? OR m.os_name LIKE ? OR m.is_virtual LIKE ? OR m.parent_machine_id LIKE ?)';
-        conditions.push(likeClause);
-        const likeKeyword = `%${keyword}%`;
-        params.push(likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword);
+    // 検索に含めるキーワードの処理
+    if (includeKeywords.length > 0) {
+      for (const keyword of includeKeywords) {
+        if (ipAddressRegex.test(keyword)) {
+          conditions.push('ip.ip_address = ?');
+          params.push(keyword);
+          hasIpKeyword = true;
+        } else {
+          const likeClause = '(m.hostname LIKE ? OR m.model_info LIKE ? OR m.usage_desc LIKE ? OR m.memo LIKE ? OR m.purpose LIKE ? OR m.cpu_info LIKE ? OR m.cpu_arch LIKE ? OR m.memory_size LIKE ? OR m.disk_info LIKE ? OR m.os_name LIKE ? OR m.is_virtual LIKE ? OR m.parent_machine_id LIKE ?)';
+          conditions.push(likeClause);
+          const likeKeyword = `%${keyword}%`;
+          params.push(likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword);
+        }
+      }
+    }
+
+    // 検索から除外するキーワードの処理
+    if (excludeKeywords.length > 0) {
+      for (const keyword of excludeKeywords) {
+        // 全てのフィールドに対して NOT LIKE 条件を追加
+        const notLikeClause = '(m.hostname NOT LIKE ? AND m.model_info NOT LIKE ? AND m.usage_desc NOT LIKE ? AND m.memo NOT LIKE ? AND m.purpose NOT LIKE ? AND m.cpu_info NOT LIKE ? AND m.cpu_arch NOT LIKE ? AND m.memory_size NOT LIKE ? AND m.disk_info NOT LIKE ? AND m.os_name NOT LIKE ? AND m.is_virtual NOT LIKE ? AND m.parent_machine_id NOT LIKE ?)';
+        conditions.push(notLikeClause);
+        const notLikeKeyword = `%${keyword}%`;
+        params.push(notLikeKeyword, notLikeKeyword, notLikeKeyword, notLikeKeyword, notLikeKeyword, notLikeKeyword, notLikeKeyword, notLikeKeyword, notLikeKeyword, notLikeKeyword, notLikeKeyword, notLikeKeyword);
       }
     }
 
@@ -616,7 +630,6 @@ app.get('/api/machines/search', async (req, res) => {
       FROM machines m
     `;
     
-    // IPキーワードがある場合はJOINを追加
     if (hasIpKeyword) {
       baseQuery += `
         JOIN interfaces i ON m.id = i.machine_id
@@ -624,7 +637,6 @@ app.get('/api/machines/search', async (req, res) => {
       `;
     }
 
-    // WHERE句を追加
     if (conditions.length > 0) {
       baseQuery += ' WHERE ' + conditions.join(' AND ');
     }
@@ -633,7 +645,6 @@ app.get('/api/machines/search', async (req, res) => {
     
     let results = [];
     
-    // 検索結果のマシンごとに、関連するインターフェースとIP情報を取得
     for (const machine of machines) {
       const [interfaces] = await db.query(
         'SELECT id, name, gateway, dns_servers, mac_address FROM interfaces WHERE machine_id = ?',
