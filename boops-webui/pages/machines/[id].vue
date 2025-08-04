@@ -241,6 +241,7 @@
                 <tr>
                   <th width="30%">IP Address</th>
                   <th width="30%">Subnet Mask</th>
+                  <th width="20%">iDNS登録</th>
                 </tr>
               </thead>
               <tbody>
@@ -260,6 +261,7 @@
                     </v-btn>
                   </td>
                   <td>{{ ipData.subnet_mask || '255.255.255.0' }}</td>
+                  <td>{{ ipData.dns_register ? '✓ Yes' : '' }}</td>
                 </tr>
                 <tr v-if="interfaceData.ips.length === 0">
                   <td colspan="2" class="text-center text-grey">No IP addresses configured</td>
@@ -1475,6 +1477,17 @@ onMounted(async () => {
   const response = await fetch(`${apiBaseUrl}/machines/${route.params.id}`);
   if (response.ok) {
     machine.value = await response.json();
+
+    // dns_registerをBooleanに変更
+    if (machine.value && Array.isArray(machine.value.interfaces)) {
+      for (const iface of machine.value.interfaces) {
+        if (Array.isArray(iface.ips)) {
+          for (const ip of iface.ips) {
+            ip.dns_register = !!ip.dns_register;
+          }
+        }
+      }
+    }
 
     if (machine.value.is_virtual && machine.value.parent_machine_id) {
       const parentResponse = await fetch(`${apiBaseUrl}/machines/${machine.value.parent_machine_id}`);
