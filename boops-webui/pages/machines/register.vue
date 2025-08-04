@@ -156,39 +156,6 @@
                   </td>
                 </tr>
                 <tr>
-                  <th>MAC Address:</th>
-                  <td>
-                    <v-text-field
-                      v-model="interfaceData.mac_address"
-                      placeholder="00:1A:2B:3C:4D:5E"
-                      density="compact"
-                      hide-details
-                    />
-                  </td>
-                </tr>
-                <tr>
-                  <th>Gateway:</th>
-                  <td>
-                    <v-text-field
-                      v-model="interfaceData.gateway"
-                      placeholder="192.168.1.1"
-                      density="compact"
-                      hide-details
-                    />
-                  </td>
-                </tr>
-                <tr>
-                  <th>DNS Servers:</th>
-                  <td>
-                    <v-text-field
-                      v-model="interfaceData.dns_servers"
-                      placeholder="8.8.8.8,8.8.4.4"
-                      density="compact"
-                      hide-details
-                    />
-                  </td>
-                </tr>
-                <tr>
                   <th>IP Addresses:</th>
                   <td>
                     <div v-for="(ip, ipIndex) in interfaceData.ips" :key="ipIndex" class="mb-2">
@@ -220,7 +187,7 @@
                         </v-btn>
                         <v-checkbox
                           v-model="ip.dns_servers"
-                          label="Register this IP in DNS"
+                          label="iDNS Regist"
                           hide-details
                           density="compact"
                           class="ml-2"
@@ -235,6 +202,39 @@
                     >
                       Add IP Address
                     </v-btn>
+                  </td>
+                </tr>
+                <tr>
+                  <th>MAC Address:</th>
+                  <td>
+                    <v-text-field
+                      v-model="interfaceData.mac_address"
+                      placeholder="00:1A:2B:3C:4D:5E"
+                      density="compact"
+                      hide-details
+                    />
+                  </td>
+                </tr>
+                <tr>
+                  <th>Gateway:</th>
+                  <td>
+                    <v-text-field
+                      v-model="interfaceData.gateway"
+                      placeholder="192.168.1.1"
+                      density="compact"
+                      hide-details
+                    />
+                  </td>
+                </tr>
+                <tr>
+                  <th>DNS Servers:</th>
+                  <td>
+                    <v-text-field
+                      v-model="interfaceData.dns_servers"
+                      placeholder="8.8.8.8,8.8.4.4"
+                      density="compact"
+                      hide-details
+                    />
                   </td>
                 </tr>
               </tbody>

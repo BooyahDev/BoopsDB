@@ -391,6 +391,54 @@
                   </td>
                 </tr>
                 <tr>
+                  <th>IP Addresses:</th>
+                  <td>
+                    <div v-for="(ip, index) in newInterface.ips" :key="index" class="mb-2">
+                      <div class="d-flex align-center">
+                        <v-text-field
+                          v-model="ip.ip_address"
+                          placeholder="192.168.1.100"
+                          density="compact"
+                          hide-details
+                          class="mr-2"
+                          :rules="[required]"
+                        />
+                        <v-text-field
+                          v-model="ip.subnet_mask"
+                          placeholder="255.255.255.0"
+                          density="compact"
+                          hide-details
+                          class="mr-2"
+                        />
+                        <v-checkbox
+                          v-model="ip.dns_register"
+                          label="iDNS Regist"
+                          hide-details
+                          density="compact"
+                          class="mr-2"
+                        />
+                        <v-btn
+                          icon
+                          color="error"
+                          size="small"
+                          @click="removeNewIp(index)"
+                          v-if="newInterface.ips.length > 1"
+                        >
+                          <v-icon>mdi-delete</v-icon>
+                        </v-btn>
+                      </div>
+                    </div>
+                    <v-btn
+                      color="primary"
+                      @click="addNewIp"
+                      prepend-icon="mdi-plus"
+                      size="small"
+                    >
+                      Add IP Address
+                    </v-btn>
+                  </td>
+                </tr>
+                <tr>
                   <th>MAC Address:</th>
                   <td>
                     <v-text-field 
@@ -421,47 +469,6 @@
                       density="compact" 
                       hide-details
                     />
-                  </td>
-                </tr>
-                <tr>
-                  <th>IP Addresses:</th>
-                  <td>
-                    <div v-for="(ip, index) in newInterface.ips" :key="index" class="mb-2">
-                      <div class="d-flex align-center">
-                        <v-text-field
-                          v-model="ip.ip_address"
-                          placeholder="192.168.1.100"
-                          density="compact"
-                          hide-details
-                          class="mr-2"
-                          :rules="[required]"
-                        />
-                        <v-text-field
-                          v-model="ip.subnet_mask"
-                          placeholder="255.255.255.0"
-                          density="compact"
-                          hide-details
-                          class="mr-2"
-                        />
-                        <v-btn
-                          icon
-                          color="error"
-                          size="small"
-                          @click="removeNewIp(index)"
-                          v-if="newInterface.ips.length > 1"
-                        >
-                          <v-icon>mdi-delete</v-icon>
-                        </v-btn>
-                      </div>
-                    </div>
-                    <v-btn
-                      color="primary"
-                      @click="addNewIp"
-                      prepend-icon="mdi-plus"
-                      size="small"
-                    >
-                      Add IP Address
-                    </v-btn>
                   </td>
                 </tr>
                 <tr>
@@ -564,7 +571,7 @@
                 </td>
               </tr>
               <tr>
-                <td colspan="3" class="text-center pt-4">
+                <td colspan="4" class="text-center pt-4">
                   <v-btn
                     color="primary"
                     @click="addNewIpRow"
@@ -704,7 +711,7 @@ const newInterface = ref({
   gateway: '',
   dns_servers: '',
   ips: [
-    { ip_address: '', subnet_mask: '255.255.255.0' }
+    { ip_address: '', subnet_mask: '255.255.255.0', dns_register: false }
   ]
 });
 
@@ -762,7 +769,8 @@ const formatDate = (dateStr) => {
 const addNewIp = () => {
   newInterface.value.ips.push({
     ip_address: '',
-    subnet_mask: '255.255.255.0'
+    subnet_mask: '255.255.255.0',
+    dns_register: false
   });
 };
 
@@ -1389,7 +1397,7 @@ const addNewInterface = async () => {
       gateway: '',
       dns_servers: '',
       ips: [
-        { ip_address: '', subnet_mask: '255.255.255.0' }
+        { ip_address: '', subnet_mask: '255.255.255.0', dns_register: falseWeb }
       ]
     };
 
