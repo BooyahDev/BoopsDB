@@ -423,13 +423,13 @@ app.put('/api/interfaces/:machineId/:interfaceName/ips', async (req, res) => {
     );
 
     // Insert new IP addresses
-    for (const { ip_address: ip, subnet_mask: subnet } of ips) {
+    for (const { ip_address: ip, subnet_mask: subnet, dns_register } of ips) {
       if (!ip) {
         return res.status(400).json({ error: `IP address cannot be null` });
       }
       await conn.query(
-        'INSERT INTO interface_ips (interface_id, ip_address, subnet_mask) VALUES (?, ?, ?)',
-        [interfaceResult[0].id, ip, subnet || '']
+        'INSERT INTO interface_ips (interface_id, ip_address, subnet_mask, dns_register) VALUES (?, ?, ?, ?)',
+        [interfaceResult[0].id, ip, subnet || '', !!dns_register]
       );
     }
 
