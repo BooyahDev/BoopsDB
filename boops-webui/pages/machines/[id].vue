@@ -241,7 +241,7 @@
                 <tr>
                   <th width="30%">IP Address</th>
                   <th width="30%">Subnet Mask</th>
-                  <th width="20%">iDNS登録</th>
+                  <th width="20%">iDNS Regist</th>
                 </tr>
               </thead>
               <tbody>
@@ -524,6 +524,7 @@
               <tr>
                 <th>IP Address</th>
                 <th>Subnet Mask</th>
+                <th>iDNS</th>
                 <th>Actions</th>
               </tr>
             </thead>
