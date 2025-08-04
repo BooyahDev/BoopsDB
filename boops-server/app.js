@@ -601,7 +601,7 @@ app.get('/api/machines/search', async (req, res) => {
     `);
 
     const machineMap = new Map();
-    for (const fow of rows) {
+    for (const row of rows) {
       if (!machineMap.has(rows.id)) {
         machineMap.set(rows.id, {
           id: row.id,
@@ -672,95 +672,95 @@ app.get('/api/machines/search', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 
-  try {
-    let results = [];
+  // try {
+  //   let results = [];
 
-    // First search for exact matches on machine fields
-    const [machines] = await db.query(
-      'SELECT * FROM machines WHERE hostname LIKE ? OR model_info LIKE ? OR usage_desc LIKE ? OR memo LIKE ? OR purpose LIKE ? OR cpu_info LIKE ? OR cpu_arch LIKE ? OR memory_size LIKE ? OR disk_info LIKE ? OR os_name LIKE ? OR is_virtual LIKE ? OR parent_machine_id LIKE ?',
-      [`%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`]
-    );
+  //   // First search for exact matches on machine fields
+  //   const [machines] = await db.query(
+  //     'SELECT * FROM machines WHERE hostname LIKE ? OR model_info LIKE ? OR usage_desc LIKE ? OR memo LIKE ? OR purpose LIKE ? OR cpu_info LIKE ? OR cpu_arch LIKE ? OR memory_size LIKE ? OR disk_info LIKE ? OR os_name LIKE ? OR is_virtual LIKE ? OR parent_machine_id LIKE ?',
+  //     [`%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`]
+  //   );
 
-    if (machines.length > 0) {
-      for (const machine of machines) {
-        const [interfaces] = await db.query(
-          'SELECT id, name, gateway, dns_servers, mac_address FROM interfaces WHERE machine_id = ?',
-          [machine.id]
-        );
+  //   if (machines.length > 0) {
+  //     for (const machine of machines) {
+  //       const [interfaces] = await db.query(
+  //         'SELECT id, name, gateway, dns_servers, mac_address FROM interfaces WHERE machine_id = ?',
+  //         [machine.id]
+  //       );
 
-        for (const iface of interfaces) {
-          const [ips] = await db.query(
-            'SELECT ip_address, subnet_mask, dns_register FROM interface_ips WHERE interface_id = ?',
-            [iface.id]
-          );
-          iface.ips = ips;
-        }
+  //       for (const iface of interfaces) {
+  //         const [ips] = await db.query(
+  //           'SELECT ip_address, subnet_mask, dns_register FROM interface_ips WHERE interface_id = ?',
+  //           [iface.id]
+  //         );
+  //         iface.ips = ips;
+  //       }
 
-        results.push({ ...machine, interfaces });
-      }
-    } else {
-      // If no matches, search for hostname
-      const [hostnameMachines] = await db.query(
-        'SELECT * FROM machines WHERE hostname LIKE ? OR purpose LIKE ?',
-        [`%${query}%`, `%${query}%`]
-      );
+  //       results.push({ ...machine, interfaces });
+  //     }
+  //   } else {
+  //     // If no matches, search for hostname
+  //     const [hostnameMachines] = await db.query(
+  //       'SELECT * FROM machines WHERE hostname LIKE ? OR purpose LIKE ?',
+  //       [`%${query}%`, `%${query}%`]
+  //     );
 
-      if (hostnameMachines.length > 0) {
-        for (const machine of hostnameMachines) {
-          const [interfaces] = await db.query(
-            'SELECT id, name, gateway, dns_servers, mac_address FROM interfaces WHERE machine_id = ?',
-            [machine.id]
-          );
+  //     if (hostnameMachines.length > 0) {
+  //       for (const machine of hostnameMachines) {
+  //         const [interfaces] = await db.query(
+  //           'SELECT id, name, gateway, dns_servers, mac_address FROM interfaces WHERE machine_id = ?',
+  //           [machine.id]
+  //         );
 
-          for (const iface of interfaces) {
-            const [ips] = await db.query(
-              'SELECT ip_address, subnet_mask FROM interface_ips WHERE interface_id = ?',
-              [iface.id]
-            );
-            iface.ips = ips;
-          }
+  //         for (const iface of interfaces) {
+  //           const [ips] = await db.query(
+  //             'SELECT ip_address, subnet_mask FROM interface_ips WHERE interface_id = ?',
+  //             [iface.id]
+  //           );
+  //           iface.ips = ips;
+  //         }
 
-          results.push({ ...machine, interfaces });
-        }
-      } else {
-        // If no hostname matches, search for interfaces by IP
-        const [interfaces] = await db.query(
-          'SELECT i.*, m.id as machine_id FROM interfaces i JOIN interface_ips ip ON i.id = ip.interface_id WHERE ip.ip_address LIKE ?',
-          [`%${query}%`]
-        );
+  //         results.push({ ...machine, interfaces });
+  //       }
+  //     } else {
+  //       // If no hostname matches, search for interfaces by IP
+  //       const [interfaces] = await db.query(
+  //         'SELECT i.*, m.id as machine_id FROM interfaces i JOIN interface_ips ip ON i.id = ip.interface_id WHERE ip.ip_address LIKE ?',
+  //         [`%${query}%`]
+  //       );
 
-        if (interfaces.length > 0) {
-          for (const interfaceData of interfaces) {
-            const machineId = interfaceData.machine_id;
-            const [machine] = await db.query(
-              'SELECT * FROM machines WHERE id = ?',
-              [machineId]
-            );
-            if (machine.length > 0) {
-              const [allInterfaces] = await db.query(
-                'SELECT id, name, gateway, dns_servers, mac_address FROM interfaces WHERE machine_id = ?',
-                [machineId]
-              );
+  //       if (interfaces.length > 0) {
+  //         for (const interfaceData of interfaces) {
+  //           const machineId = interfaceData.machine_id;
+  //           const [machine] = await db.query(
+  //             'SELECT * FROM machines WHERE id = ?',
+  //             [machineId]
+  //           );
+  //           if (machine.length > 0) {
+  //             const [allInterfaces] = await db.query(
+  //               'SELECT id, name, gateway, dns_servers, mac_address FROM interfaces WHERE machine_id = ?',
+  //               [machineId]
+  //             );
 
-              for (const iface of allInterfaces) {
-                const [ips] = await db.query(
-                  'SELECT ip_address, subnet_mask, dns_register FROM interface_ips WHERE interface_id = ?',
-                  [iface.id]
-                );
-                iface.ips = ips;
-              }
+  //             for (const iface of allInterfaces) {
+  //               const [ips] = await db.query(
+  //                 'SELECT ip_address, subnet_mask, dns_register FROM interface_ips WHERE interface_id = ?',
+  //                 [iface.id]
+  //               );
+  //               iface.ips = ips;
+  //             }
 
-              results.push({ ...machine[0], interfaces: allInterfaces });
-            }
-          }
-        }
-      }
-    }
+  //             results.push({ ...machine[0], interfaces: allInterfaces });
+  //           }
+  //         }
+  //       }
+  //     }
+  //   }
 
-    res.json(results);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  //   res.json(results);
+  // } catch (err) {
+  //   res.status(500).json({ error: err.message });
+  // }
 });
 
 // GET machine by UUID
