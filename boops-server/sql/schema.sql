@@ -36,5 +36,6 @@ CREATE TABLE interface_ips (
   interface_id INT NOT NULL,
   ip_address VARCHAR(45) NOT NULL,
   subnet_mask VARCHAR(45) NOT NULL,
+  dns_register BOOLEAN DEFAULT FALSE,
   FOREIGN KEY (interface_id) REFERENCES interfaces(id) ON DELETE CASCADE
 );

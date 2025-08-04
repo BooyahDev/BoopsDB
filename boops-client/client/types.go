@@ -29,6 +29,7 @@ type InterfaceInfo struct {
 }
 
 type IPInfo struct {
-	IP     string `json:"ip_address"`
-	Subnet string `json:"subnet_mask"`
+	IP          string `json:"ip_address"`
+	Subnet      string `json:"subnet_mask"`
+	DNSRegister bool   `json:"dns_register"`
 }

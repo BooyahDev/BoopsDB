@@ -218,6 +218,13 @@
                         >
                           <v-icon>mdi-delete</v-icon>
                         </v-btn>
+                        <v-checkbox
+                          v-model="ip.dns_servers"
+                          label="Register this IP in DNS"
+                          hide-details
+                          density="compact"
+                          class="ml-2"
+                        />
                       </div>
                     </div>
                     <v-btn
@@ -393,7 +400,8 @@ const submitMachine = async () => {
           .filter(ip => ip.ip_address)
           .map(ip => ({
             ip_address: ip.ip_address,
-            subnet_mask: ip.subnet_mask || '255.255.255.0'
+            subnet_mask: ip.subnet_mask || '255.255.255.0',
+            dns_register: !!ip.dns_register
           })),
         gateway: intf.gateway || null,
         dns_servers: intf.dns_servers

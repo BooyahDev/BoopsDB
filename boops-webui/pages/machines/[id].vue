@@ -543,6 +543,12 @@
                     placeholder="255.255.255.0"
                   />
                 </td>
+                <v-checkbox
+                  v-model="ip.dns_register"
+                  label="DNS"
+                  hide-details
+                  density="compact"
+                  class="ml-2" />
                 <td>
                   <v-btn
                     icon
@@ -891,7 +897,12 @@ const saveInterfaceIps = async () => {
     if (!interfaceData) throw new Error('Interface not found');
 
     // 空のIPアドレスをフィルタリング
-    const ipsToSave = editingIps.value[interfaceId].filter(ip => ip.ip_address.trim() !== '');
+    const ipsToSave = editingIps.value[interfaceId].filter(ip => ip.ip_address.trim() !== '')
+    .map( ip => ({
+      ip_address: ip.ip_address,
+      subnet_mask: ip.subnet_mask || '255.255.255.0',
+      dns_register: !!ip.dns_register
+    }));
 
     const response = await fetch(
       `${apiBaseUrl}/interfaces/${machine.value.id}/${interfaceData.name}/ips`,

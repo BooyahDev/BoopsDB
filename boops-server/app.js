@@ -38,7 +38,7 @@ app.get('/api/machines', async (req, res) => {
 
       for (const iface of interfaces) {
         const [ips] = await db.query(
-          'SELECT ip_address, subnet_mask FROM interface_ips WHERE interface_id = ?',
+          'SELECT ip_address, subnet_mask, dns_register FROM interface_ips WHERE interface_id = ?',
           [iface.id]
         );
         iface.ips = ips;
@@ -80,13 +80,13 @@ app.post('/api/machines', async (req, res) => {
       );
       const interfaceId = interfaceResult[0].id;
 
-      for (const { ip_address: ip, subnet_mask: subnet } of ips) {
+      for (const { ip_address: ip, subnet_mask: subnet, dns_register } of ips) {
         if (!ip) {
           return res.status(400).json({ error: `IP address cannot be null for interface ${name}` });
         }
         await conn.query(
-          'INSERT INTO interface_ips (interface_id, ip_address, subnet_mask) VALUES (?, ?, ?)',
-          [interfaceId, ip, subnet || '']
+          'INSERT INTO interface_ips (interface_id, ip_address, subnet_mask, dns_register) VALUES (?, ?, ?, ?)',
+          [interfaceId, ip, subnet || '', !!dns_register]
         );
       }
     }
@@ -151,13 +151,13 @@ app.post('/api/machines/:id/interfaces', async (req, res) => {
     const interfaceId = interfaceResult[0].id;
 
     // Insert IP addresses
-    for (const { ip_address: ip, subnet_mask: subnet } of ips) {
+    for (const { ip_address: ip, subnet_mask: subnet, dns_register } of ips) {
       if (!ip) {
         return res.status(400).json({ error: `IP address cannot be null for interface ${name}` });
       }
       await db.query(
-        'INSERT INTO interface_ips (interface_id, ip_address, subnet_mask) VALUES (?, ?, ?)',
-        [interfaceId, ip, subnet || '']
+        'INSERT INTO interface_ips (interface_id, ip_address, subnet_mask, dns_register) VALUES (?, ?, ?, ?)',
+        [interfaceId, ip, subnet || '', !!dns_register]
       );
     }
 
@@ -333,13 +333,13 @@ app.put('/api/machines/:id', async (req, res) => {
       );
       const interfaceId = interfaceResult[0].id;
 
-      for (const { ip_address: ip, subnet_mask: subnet } of ips) {
+      for (const { ip_address: ip, subnet_mask: subnet, dns_register } of ips) {
         if (!ip) {
           return res.status(400).json({ error: `IP address cannot be null for interface ${name}` });
         }
         await conn.query(
-          'INSERT INTO interface_ips (interface_id, ip_address, subnet_mask) VALUES (?, ?, ?)',
-          [interfaceId, ip, subnet || '']
+          'INSERT INTO interface_ips (interface_id, ip_address, subnet_mask, dns_register) VALUES (?, ?, ?, ?)',
+          [interfaceId, ip, subnet || '', !!dns_register]
         );
       }
     }
@@ -603,7 +603,7 @@ app.get('/api/machines/search', async (req, res) => {
 
         for (const iface of interfaces) {
           const [ips] = await db.query(
-            'SELECT ip_address, subnet_mask FROM interface_ips WHERE interface_id = ?',
+            'SELECT ip_address, subnet_mask, dns_register FROM interface_ips WHERE interface_id = ?',
             [iface.id]
           );
           iface.ips = ips;
@@ -657,7 +657,7 @@ app.get('/api/machines/search', async (req, res) => {
 
               for (const iface of allInterfaces) {
                 const [ips] = await db.query(
-                  'SELECT ip_address, subnet_mask FROM interface_ips WHERE interface_id = ?',
+                  'SELECT ip_address, subnet_mask, dns_register FROM interface_ips WHERE interface_id = ?',
                   [iface.id]
                 );
                 iface.ips = ips;
