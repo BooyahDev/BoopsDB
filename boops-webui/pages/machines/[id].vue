@@ -548,7 +548,7 @@
                 </td>
                 <v-checkbox
                   v-model="ip.dns_register"
-                  label="DNS"
+                  label="iDNS Regist"
                   hide-details
                   density="compact"
                   class="ml-2" />
