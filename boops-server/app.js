@@ -581,186 +581,80 @@ app.delete('/api/machines/:id', async (req, res) => {
 app.get('/api/machines/search', async (req, res) => {
   const query = req.query.q || '';
 
+  // キーワードが空の場合は空の配列を返す
   if (!query.trim()) {
     return res.json([]);
   }
 
-  //スペース区切りでAND条件
-  const keywords = query.trim().split(/\s+/);
-
   try {
-    // machines, interfaces, interface_ips をJOINして全情報を取得
-    const [rows] = await db.query(`
-      SELECT
-        m.*,
-        i.id as interface_id, i.name as interface_name, i.gateway, i.dns_servers, i.mac_address,
-        ip.ip_address, ip.subnet_mask, ip.dns_register
-      FROM machines m
-      LEFT JOIN interfaces i ON m.id = i.machine_id
-      LEFT JOIN interface_ips ip ON i.id = ip.interface_id
-    `);
+    const keywords = query.trim().split(/\s+/); // スペースでキーワードを分割
 
-    const machineMap = new Map();
-    for (const row of rows) {
-      if (!machineMap.has(rows.id)) {
-        machineMap.set(rows.id, {
-          id: row.id,
-          hostname: row.hostname,
-          model_info: row.model_info,
-          usage_desc: row.usage_desc,
-          memo: row.memo,
-          purpose: row.purpose,
-          last_alive: row.last_alive,
-          cpu_info: row.cpu_info,
-          cpu_arch: row.cpu_arch,
-          memory_size: row.memory_size,
-          disk_info: row.disk_info,
-          os_name: row.os_name,
-          is_virtual: row.is_virtual,
-          parent_machine_id: row.parent_machine_id,
-          interfaces: []
-        });
-      }
-      // インターフェイス情報
-      if (row.interface_id) {
-        let iface = machineMap.get(row.id).interfaces.find(f => f.id === row.interface_id);
-        if (!iface) {
-          iface = {
-            id: row.interface_id,
-            name: row.interface_name,
-            gateway: row.gateway,
-            dns_servers: row.dns_servers,
-            mac_address: row.mac_address,
-            ips: []
-          };
-          machineMap.get(row.id).interfaces.push(iface);
-        }
-        // IP情報
-        if (row.ip_address) {
-          iface.ips.push({
-            ip_address: row.ip_address,
-            subnet_mask: row.subnet_mask,
-            dns_register: row.dns_register
-          });
-        }
+    // SQLクエリのWHERE句とパラメーターを動的に生成
+    let conditions = [];
+    let params = [];
+    const ipAddressRegex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/; // IPアドレスの正規表現
+    let hasIpKeyword = false;
+
+    for (const keyword of keywords) {
+      if (ipAddressRegex.test(keyword)) {
+        // IPアドレスの場合、interface_ipsテーブルをJOINして検索
+        conditions.push('ip.ip_address = ?');
+        params.push(keyword);
+        hasIpKeyword = true;
+      } else {
+        // 通常のキーワードの場合、`machines`テーブルの複数のカラムを検索
+        const likeClause = '(m.hostname LIKE ? OR m.model_info LIKE ? OR m.usage_desc LIKE ? OR m.memo LIKE ? OR m.purpose LIKE ? OR m.cpu_info LIKE ? OR m.cpu_arch LIKE ? OR m.memory_size LIKE ? OR m.disk_info LIKE ? OR m.os_name LIKE ? OR m.is_virtual LIKE ? OR m.parent_machine_id LIKE ?)';
+        conditions.push(likeClause);
+        const likeKeyword = `%${keyword}%`;
+        params.push(likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword);
       }
     }
 
-    // AND条件でフィルタ
-    const results = Array.from(machineMap.values()).filter(machine => {
-      return keywords.every(kw => {
-        // マシンの全フィールド
-        const fields = [
-          machine.hostname, machine.model_info, machine.usage_desc, machine.memo,
-          machine.purpose, machine.cpu_info, machine.cpu_arch, machine.memory_size,
-          machine.disk_info, machine.os_name, String(machine.is_virtual), String(machine.parent_machine_id)
-        ];
-        // インターフェイス名, MAC, ゲートウェイ, DNS
-        const ifaceFields = machine.interfaces.flatMap(iface => [
-          iface.name, iface.gateway, iface.dns_servers, iface.mac_address,
-          ...iface.ips.map(ip => ip.ip_address)
-        ]);
-        // いずれかに部分一致すればOK
-        return [...fields, ...ifaceFields].some(val => 
-          typeof val === 'string' && val.toLowerCase().includes(kw.toLowerCase())
+    // 基本となるSQLクエリ
+    let baseQuery = `
+      SELECT DISTINCT m.*
+      FROM machines m
+    `;
+    
+    // IPキーワードがある場合はJOINを追加
+    if (hasIpKeyword) {
+      baseQuery += `
+        JOIN interfaces i ON m.id = i.machine_id
+        JOIN interface_ips ip ON i.id = ip.interface_id
+      `;
+    }
+
+    // WHERE句を追加
+    if (conditions.length > 0) {
+      baseQuery += ' WHERE ' + conditions.join(' AND ');
+    }
+    
+    const [machines] = await db.query(baseQuery, params);
+    
+    let results = [];
+    
+    // 検索結果のマシンごとに、関連するインターフェースとIP情報を取得
+    for (const machine of machines) {
+      const [interfaces] = await db.query(
+        'SELECT id, name, gateway, dns_servers, mac_address FROM interfaces WHERE machine_id = ?',
+        [machine.id]
+      );
+    
+      for (const iface of interfaces) {
+        const [ips] = await db.query(
+          'SELECT ip_address, subnet_mask, dns_register FROM interface_ips WHERE interface_id = ?',
+          [iface.id]
         );
-      });
-    });
+        iface.ips = ips;
+      }
+    
+      results.push({ ...machine, interfaces });
+    }
 
     res.json(results);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-
-  // try {
-  //   let results = [];
-
-  //   // First search for exact matches on machine fields
-  //   const [machines] = await db.query(
-  //     'SELECT * FROM machines WHERE hostname LIKE ? OR model_info LIKE ? OR usage_desc LIKE ? OR memo LIKE ? OR purpose LIKE ? OR cpu_info LIKE ? OR cpu_arch LIKE ? OR memory_size LIKE ? OR disk_info LIKE ? OR os_name LIKE ? OR is_virtual LIKE ? OR parent_machine_id LIKE ?',
-  //     [`%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`, `%${query}%`]
-  //   );
-
-  //   if (machines.length > 0) {
-  //     for (const machine of machines) {
-  //       const [interfaces] = await db.query(
-  //         'SELECT id, name, gateway, dns_servers, mac_address FROM interfaces WHERE machine_id = ?',
-  //         [machine.id]
-  //       );
-
-  //       for (const iface of interfaces) {
-  //         const [ips] = await db.query(
-  //           'SELECT ip_address, subnet_mask, dns_register FROM interface_ips WHERE interface_id = ?',
-  //           [iface.id]
-  //         );
-  //         iface.ips = ips;
-  //       }
-
-  //       results.push({ ...machine, interfaces });
-  //     }
-  //   } else {
-  //     // If no matches, search for hostname
-  //     const [hostnameMachines] = await db.query(
-  //       'SELECT * FROM machines WHERE hostname LIKE ? OR purpose LIKE ?',
-  //       [`%${query}%`, `%${query}%`]
-  //     );
-
-  //     if (hostnameMachines.length > 0) {
-  //       for (const machine of hostnameMachines) {
-  //         const [interfaces] = await db.query(
-  //           'SELECT id, name, gateway, dns_servers, mac_address FROM interfaces WHERE machine_id = ?',
-  //           [machine.id]
-  //         );
-
-  //         for (const iface of interfaces) {
-  //           const [ips] = await db.query(
-  //             'SELECT ip_address, subnet_mask FROM interface_ips WHERE interface_id = ?',
-  //             [iface.id]
-  //           );
-  //           iface.ips = ips;
-  //         }
-
-  //         results.push({ ...machine, interfaces });
-  //       }
-  //     } else {
-  //       // If no hostname matches, search for interfaces by IP
-  //       const [interfaces] = await db.query(
-  //         'SELECT i.*, m.id as machine_id FROM interfaces i JOIN interface_ips ip ON i.id = ip.interface_id WHERE ip.ip_address LIKE ?',
-  //         [`%${query}%`]
-  //       );
-
-  //       if (interfaces.length > 0) {
-  //         for (const interfaceData of interfaces) {
-  //           const machineId = interfaceData.machine_id;
-  //           const [machine] = await db.query(
-  //             'SELECT * FROM machines WHERE id = ?',
-  //             [machineId]
-  //           );
-  //           if (machine.length > 0) {
-  //             const [allInterfaces] = await db.query(
-  //               'SELECT id, name, gateway, dns_servers, mac_address FROM interfaces WHERE machine_id = ?',
-  //               [machineId]
-  //             );
-
-  //             for (const iface of allInterfaces) {
-  //               const [ips] = await db.query(
-  //                 'SELECT ip_address, subnet_mask, dns_register FROM interface_ips WHERE interface_id = ?',
-  //                 [iface.id]
-  //               );
-  //               iface.ips = ips;
-  //             }
-
-  //             results.push({ ...machine[0], interfaces: allInterfaces });
-  //           }
-  //         }
-  //       }
-  //     }
-  //   }
-
-  //   res.json(results);
-  // } catch (err) {
-  //   res.status(500).json({ error: err.message });
-  // }
 });
 
 // GET machine by UUID
