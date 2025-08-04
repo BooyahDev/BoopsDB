@@ -703,7 +703,7 @@ app.get('/api/machines/:uuid', async (req, res) => {
 
     for (const iface of interfaces) {
       const [ips] = await db.query(
-        'SELECT ip_address, subnet_mask FROM interface_ips WHERE interface_id = ?',
+        'SELECT ip_address, subnet_mask, dns_register FROM interface_ips WHERE interface_id = ?',
         [iface.id]
       );
       iface.ips = ips;
