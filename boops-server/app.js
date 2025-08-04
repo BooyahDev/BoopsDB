@@ -585,6 +585,93 @@ app.get('/api/machines/search', async (req, res) => {
     return res.json([]);
   }
 
+  //スペース区切りでAND条件
+  const keywords = query.trim().split(/\s+/);
+
+  try {
+    // machines, interfaces, interface_ips をJOINして全情報を取得
+    const [rows] = await db.query(`
+      SELECT
+        m.*,
+        i.id as interface_id, i.name as interface_name, i.gateway, i.dns_servers, i.mac_address,
+        ip.ip_address, ip.subnet_mask, ip.dns_register
+      FROM machines m
+      LEFT JOIN interfaces i ON m.id = i.machine_id
+      LEFT JOIN interface_ips ip ON i.id = ip.interface_id
+    `);
+
+    const machineMap = new Map();
+    for (const fow of rows) {
+      if (!machineMap.has(rows.id)) {
+        machineMap.set(rows.id, {
+          id: row.id,
+          hostname: row.hostname,
+          model_info: row.model_info,
+          usage_desc: row.usage_desc,
+          memo: row.memo,
+          purpose: row.purpose,
+          last_alive: row.last_alive,
+          cpu_info: row.cpu_info,
+          cpu_arch: row.cpu_arch,
+          memory_size: row.memory_size,
+          disk_info: row.disk_info,
+          os_name: row.os_name,
+          is_virtual: row.is_virtual,
+          parent_machine_id: row.parent_machine_id,
+          interfaces: []
+        });
+      }
+      // インターフェイス情報
+      if (row.interface_id) {
+        let iface = machineMap.get(row.id).interfaces.find(f => f.id === row.interface_id);
+        if (!iface) {
+          iface = {
+            id: row.interface_id,
+            name: row.interface_name,
+            gateway: row.gateway,
+            dns_servers: row.dns_servers,
+            mac_address: row.mac_address,
+            ips: []
+          };
+          machineMap.get(row.id).interfaces.push(iface);
+        }
+        // IP情報
+        if (row.ip_address) {
+          iface.ips.push({
+            ip_address: row.ip_address,
+            subnet_mask: row.subnet_mask,
+            dns_register: row.dns_register
+          });
+        }
+      }
+    }
+
+    // AND条件でフィルタ
+    const results = Array.from(machineMap.values()).filter(machine => {
+      return keywords.every(kw => {
+        // マシンの全フィールド
+        const fields = [
+          machine.hostname, machine.model_info, machine.usage_desc, machine.memo,
+          machine.purpose, machine.cpu_info, machine.cpu_arch, machine.memory_size,
+          machine.disk_info, machine.os_name, String(machine.is_virtual), String(machine.parent_machine_id)
+        ];
+        // インターフェイス名, MAC, ゲートウェイ, DNS
+        const ifaceFields = machine.interfaces.flatMap(iface => [
+          iface.name, iface.gateway, iface.dns_servers, iface.mac_address,
+          ...iface.ips.map(ip => ip.ip_address)
+        ]);
+        // いずれかに部分一致すればOK
+        return [...fields, ...ifaceFields].some(val => 
+          typeof val === 'string' && val.toLowerCase().includes(kw.toLowerCase())
+        );
+      });
+    });
+
+    res.json(results);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+
   try {
     let results = [];
 
