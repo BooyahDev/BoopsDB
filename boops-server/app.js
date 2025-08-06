@@ -951,7 +951,7 @@ app.put('/api/machines/:machineId/interfaces/:interfaceName/update-mac_address',
 app.get('/api/dns-register', async (req, res) => {
   try {
     const query = `
-      SELECT m.hostname, GROUP_CONCAT(i.ip_address ORDER BY i.ip_address SEPARATOR ', ') AS ips
+      SELECT m.hostname, GROUP_CONCAT(ip.ip_address ORDER BY ip.ip_address SEPARATOR ', ') AS ips
       FROM machines m
       JOIN interfaces i ON m.id = i.machine_id
       JOIN interface_ips ip ON i.id = ip.interface_id AND ip.dns_register = TRUE
