@@ -947,6 +947,32 @@ app.put('/api/machines/:machineId/interfaces/:interfaceName/update-mac_address',
   }
 });
 
+// GET IP addresses with dns_register flag set to ON, grouped by hostname
+app.get('/api/dns-register', async (req, res) => {
+  try {
+    const query = `
+      SELECT m.hostname, GROUP_CONCAT(i.ip_address ORDER BY i.ip_address SEPARATOR ', ') AS ips
+      FROM machines m
+      JOIN interfaces i ON m.id = i.machine_id
+      JOIN interface_ips ip ON i.id = ip.interface_id AND ip.dns_register = TRUE
+      GROUP BY m.hostname
+    `;
+
+    const [results] = await db.query(query);
+
+    // Format the response as an array of objects with hostname and ips arrays
+    const formattedResults = results.map(row => ({
+      hostname: row.hostname,
+      ips: row.ips.split(', ').filter(ip => ip !== '')
+    }));
+
+    res.json(formattedResults);
+  } catch (err) {
+    console.error('Error fetching DNS registered IPs:', err.message);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Wrap app.listen in a try/catch to handle any startup errors
 try {
   app.listen(port, '0.0.0.0', () => {
