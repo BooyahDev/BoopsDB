@@ -31,5 +31,5 @@ type InterfaceInfo struct {
 type IPInfo struct {
 	IP          string `json:"ip_address"`
 	Subnet      string `json:"subnet_mask"`
-	DNSRegister bool   `json:"dns_register"`
+	DNSRegister int    `json:"dns_register"` // Changed from bool to int to match API response
 }
