@@ -46,13 +46,11 @@
                         <v-col cols="12" md="6">
                             <h4>検索方法</h4>
                             <ul>
-                                <li><strong>フィールド指定:</strong> hostname:server01, os:ubuntu</li>
-                                <li><strong>IP検索:</strong> 192.168.1.100 または 192.168.1</li>
-                                <li><strong>CIDR検索:</strong> 192.168.1.0/24</li>
+                                <li><strong>部分一致検索:</strong> proxmox</li>
+                                <li><strong>IP検索:</strong> 10.0.0.1</li>
                                 <li><strong>MAC検索:</strong> 00:1A:2B:3C:4D:5E</li>
                                 <li><strong>マシンタイプ:</strong> virtual または physical</li>
-                                <li><strong>生存時間:</strong> alive:1h, alive:1d, alive:30m</li>
-                                <li><strong>除外検索:</strong> -test, -old</li>
+                                <li><strong>除外検索:</strong> -intel, -qemu</li>
                             </ul>
                         </v-col>
                         <v-col cols="12" md="6">
