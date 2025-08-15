@@ -88,12 +88,18 @@
           </tbody>
         </v-table>
         
-        <div v-if="isEditingInterfaceName" class="d-flex justify-end mt-4">
+        <v-alert v-if="error" type="error" density="compact" class="mt-4">
+          {{ error }}
+        </v-alert>
+      </v-card-text>
+      
+      <v-card-actions>
+        <v-spacer></v-spacer>
+        <template v-if="isEditingInterfaceName">
           <v-btn
             color="primary"
             @click="saveInterfaceName"
             :loading="isSavingInterfaceName"
-            class="mr-2"
           >
             Save Name
           </v-btn>
@@ -103,28 +109,22 @@
           >
             Cancel
           </v-btn>
-        </div>
-        
-        <v-alert v-if="error" type="error" density="compact" class="mt-4">
-          {{ error }}
-        </v-alert>
-      </v-card-text>
-      
-      <v-card-actions>
-        <v-spacer></v-spacer>
-        <v-btn
-          color="primary"
-          @click="saveInterfaceIps"
-          :loading="isSavingInterfaceIps"
-        >
-          Save Changes
-        </v-btn>
-        <v-btn
-          color="secondary"
-          @click="cancel"
-        >
-          Cancel
-        </v-btn>
+        </template>
+        <template v-else>
+          <v-btn
+            color="primary"
+            @click="saveInterfaceIps"
+            :loading="isSavingInterfaceIps"
+          >
+            Save Changes
+          </v-btn>
+          <v-btn
+            color="secondary"
+            @click="cancel"
+          >
+            Cancel
+          </v-btn>
+        </template>
       </v-card-actions>
     </v-card>
   </v-dialog>
