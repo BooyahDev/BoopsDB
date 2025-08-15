@@ -74,14 +74,6 @@
             </div>
           </template>
 
-          <!-- OS Name display -->
-          <template #item.os_name="{ item }">
-            <v-chip v-if="item.os_name" size="small" color="blue-grey" variant="tonal">
-              {{ item.os_name }}
-            </v-chip>
-            <span v-else class="text-grey">-</span>
-          </template>
-
           <!-- VM Type display -->
           <template #item.vm_type="{ item }">
             <v-chip :color="item.vm_type === 'Virtual' ? 'green' : 'blue'" size="small">
@@ -147,7 +139,6 @@ const headers = ref([
   { title: 'ホスト名', key: 'hostname', sortable: true },
   { title: 'IPアドレス', key: 'ipaddr', sortable: false },
   { title: '用途', key: 'purpose', sortable: true },
-  { title: 'OS', key: 'os_name', sortable: true },
   { title: 'タイプ', key: 'vm_type', sortable: false },
   { title: 'ステータス', key: 'status', sortable: false },
   { title: '最終接続', key: 'last_alive', sortable: true }
@@ -257,7 +248,6 @@ function setTable(machines) {
       hostname: machine.hostname,
       ipaddr: ipList,
       purpose: machine.purpose || '-',
-      os_name: machine.os_name || '',
       vm_type: machine.is_virtual ? 'Virtual' : 'Physical',
       status: isOnline ? 'online' : 'offline',
       last_alive: machine.last_alive
@@ -268,7 +258,16 @@ function setTable(machines) {
 }
 
 function clearSearch() {
-  router.push({ path: '/machines' });
+  searchQuery.value = '';
+  offset.value = 0;
+  // URLのクエリパラメータをクリアしてからマシン一覧を取得
+  const newQuery = { ...route.query };
+  delete newQuery.q;
+  delete newQuery.offset;
+  
+  router.replace({ path: '/machines', query: newQuery }).then(() => {
+    fetchAllMachines();
+  });
 }
 
 function nextPage() {
