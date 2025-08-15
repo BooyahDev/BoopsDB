@@ -586,7 +586,15 @@ app.get('/api/machines/search', async (req, res) => {
   const offset = parseInt(req.query.offset) || 0;
 
   if (!query.trim()) {
-    return res.json([]);
+    return res.json({
+      results: [],
+      pagination: {
+        total: 0,
+        limit,
+        offset,
+        hasMore: false
+      }
+    });
   }
 
   try {
@@ -651,10 +659,10 @@ app.get('/api/machines/search', async (req, res) => {
           hasInterfaceKeyword = true;
         } else if (keyword.toLowerCase() === 'virtual' || keyword.toLowerCase() === 'vm') {
           // 仮想マシン検索
-          conditions.push('m.is_virtual = TRUE');
+          conditions.push('m.is_virtual = 1');
         } else if (keyword.toLowerCase() === 'physical') {
           // 物理マシン検索
-          conditions.push('m.is_virtual = FALSE');
+          conditions.push('(m.is_virtual = 0 OR m.is_virtual IS FALSE)');
         } else if (keyword.toLowerCase().startsWith('alive:')) {
           // 最終生存時間での検索 (例: alive:1d, alive:1h, alive:30m)
           const timeValue = keyword.substring(6);
@@ -837,8 +845,8 @@ app.get('/api/search/suggestions', async (req, res) => {
     const [stats] = await db.query(`
       SELECT 
         COUNT(*) as total_machines,
-        COUNT(CASE WHEN is_virtual = TRUE THEN 1 END) as virtual_machines,
-        COUNT(CASE WHEN is_virtual = FALSE THEN 1 END) as physical_machines,
+        COUNT(CASE WHEN is_virtual = 1 THEN 1 END) as virtual_machines,
+        COUNT(CASE WHEN is_virtual = 0 OR is_virtual IS FALSE THEN 1 END) as physical_machines,
         COUNT(CASE WHEN last_alive >= DATE_SUB(NOW(), INTERVAL 1 DAY) THEN 1 END) as alive_last_day,
         COUNT(CASE WHEN last_alive >= DATE_SUB(NOW(), INTERVAL 1 HOUR) THEN 1 END) as alive_last_hour
       FROM machines
