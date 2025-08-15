@@ -49,7 +49,6 @@
                                 <li><strong>部分一致検索:</strong> proxmox</li>
                                 <li><strong>IP検索:</strong> 10.0.0.1</li>
                                 <li><strong>MAC検索:</strong> 00:1A:2B:3C:4D:5E</li>
-                                <li><strong>マシンタイプ:</strong> virtual または physical</li>
                                 <li><strong>除外検索:</strong> -intel, -qemu</li>
                             </ul>
                         </v-col>
@@ -196,14 +195,9 @@ const pageSizeOptions = [
 ];
 
 const searchExamples = [
-    'virtual',
-    'physical',
     'ubuntu -test',
-    'hostname:web',
-    'alive:1d',
-    'os:windows',
-    '192.168.1',
-    'alive:1h virtual'
+    '10.0.0.1',
+    'amd -intel -qemu',
 ];
 
 onMounted(async () => {
