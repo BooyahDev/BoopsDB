@@ -577,9 +577,13 @@ app.delete('/api/machines/:id', async (req, res) => {
   }
 });
 
-// SEARCH machines by any field
+// SEARCH machines by any field with advanced features
 app.get('/api/machines/search', async (req, res) => {
   const query = req.query.q || '';
+  const sortBy = req.query.sort || 'hostname'; // hostname, last_alive, created_at, updated_at
+  const sortOrder = req.query.order || 'asc'; // asc, desc
+  const limit = parseInt(req.query.limit) || 100;
+  const offset = parseInt(req.query.offset) || 0;
 
   if (!query.trim()) {
     return res.json([]);
@@ -594,21 +598,101 @@ app.get('/api/machines/search', async (req, res) => {
 
     let conditions = [];
     let params = [];
-    const ipAddressRegex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/;
     let hasIpKeyword = false;
+    let hasInterfaceKeyword = false;
+
+    // 高度な検索パターンの定義
+    const ipAddressRegex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/;
+    const partialIpRegex = /^(?:[0-9]{1,3}\.){1,3}[0-9]*\.?$/;
+    const cidrRegex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$/;
+    const macAddressRegex = /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/;
+    const fieldSearchRegex = /^([a-zA-Z_]+):(.+)$/;
 
     // 検索に含めるキーワードの処理
     if (includeKeywords.length > 0) {
       for (const keyword of includeKeywords) {
-        if (ipAddressRegex.test(keyword)) {
+        const fieldMatch = keyword.match(fieldSearchRegex);
+        
+        if (fieldMatch) {
+          // フィールド指定検索 (例: hostname:server01, os:ubuntu)
+          const [, field, value] = fieldMatch;
+          const validFields = ['hostname', 'model_info', 'usage_desc', 'memo', 'purpose', 
+                             'cpu_info', 'cpu_arch', 'memory_size', 'disk_info', 'os_name'];
+          
+          if (validFields.includes(field)) {
+            conditions.push(`m.${field} LIKE ?`);
+            params.push(`%${value}%`);
+          }
+        } else if (cidrRegex.test(keyword)) {
+          // CIDR記法での検索 (例: 192.168.1.0/24)
+          const [network, prefixLength] = keyword.split('/');
+          const networkParts = network.split('.').map(Number);
+          const mask = (0xFFFFFFFF << (32 - parseInt(prefixLength))) >>> 0;
+          
+          conditions.push(`
+            (INET_ATON(ip.ip_address) & ?) = (INET_ATON(?) & ?)
+          `);
+          params.push(mask, network, mask);
+          hasIpKeyword = true;
+        } else if (ipAddressRegex.test(keyword)) {
+          // 完全なIPアドレス検索
           conditions.push('ip.ip_address = ?');
           params.push(keyword);
           hasIpKeyword = true;
+        } else if (partialIpRegex.test(keyword)) {
+          // 部分的IPアドレス検索 (例: 192.168.1)
+          conditions.push('ip.ip_address LIKE ?');
+          params.push(`${keyword.replace(/\.$/, '')}%`);
+          hasIpKeyword = true;
+        } else if (macAddressRegex.test(keyword)) {
+          // MACアドレス検索
+          conditions.push('i.mac_address LIKE ?');
+          params.push(`%${keyword}%`);
+          hasInterfaceKeyword = true;
+        } else if (keyword.toLowerCase() === 'virtual' || keyword.toLowerCase() === 'vm') {
+          // 仮想マシン検索
+          conditions.push('m.is_virtual = TRUE');
+        } else if (keyword.toLowerCase() === 'physical') {
+          // 物理マシン検索
+          conditions.push('m.is_virtual = FALSE');
+        } else if (keyword.toLowerCase().startsWith('alive:')) {
+          // 最終生存時間での検索 (例: alive:1d, alive:1h, alive:30m)
+          const timeValue = keyword.substring(6);
+          const timeMatch = timeValue.match(/^(\d+)([hdm])$/);
+          if (timeMatch) {
+            const [, amount, unit] = timeMatch;
+            let sqlUnit;
+            switch (unit) {
+              case 'h': sqlUnit = 'HOUR'; break;
+              case 'd': sqlUnit = 'DAY'; break;
+              case 'm': sqlUnit = 'MINUTE'; break;
+            }
+            conditions.push(`m.last_alive >= DATE_SUB(NOW(), INTERVAL ${amount} ${sqlUnit})`);
+          }
         } else {
-          const likeClause = '(m.hostname LIKE ? OR m.model_info LIKE ? OR m.usage_desc LIKE ? OR m.memo LIKE ? OR m.purpose LIKE ? OR m.cpu_info LIKE ? OR m.cpu_arch LIKE ? OR m.memory_size LIKE ? OR m.disk_info LIKE ? OR m.os_name LIKE ? OR m.is_virtual LIKE ? OR m.parent_machine_id LIKE ?)';
+          // 一般的なキーワード検索（ファジー検索機能付き）
+          const fuzzyKeyword = keyword.replace(/[aeiou]/gi, '_'); // 母音をワイルドカードに
+          const likeClause = `(
+            m.hostname LIKE ? OR m.hostname LIKE ? OR
+            m.model_info LIKE ? OR m.model_info LIKE ? OR
+            m.usage_desc LIKE ? OR m.usage_desc LIKE ? OR
+            m.memo LIKE ? OR m.memo LIKE ? OR
+            m.purpose LIKE ? OR m.purpose LIKE ? OR
+            m.cpu_info LIKE ? OR m.cpu_info LIKE ? OR
+            m.cpu_arch LIKE ? OR m.cpu_arch LIKE ? OR
+            m.memory_size LIKE ? OR m.memory_size LIKE ? OR
+            m.disk_info LIKE ? OR m.disk_info LIKE ? OR
+            m.os_name LIKE ? OR m.os_name LIKE ? OR
+            i.name LIKE ? OR i.name LIKE ?
+          )`;
           conditions.push(likeClause);
-          const likeKeyword = `%${keyword}%`;
-          params.push(likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword, likeKeyword);
+          const exactPattern = `%${keyword}%`;
+          const fuzzyPattern = `%${fuzzyKeyword}%`;
+          // 各フィールドに対して通常検索とファジー検索の両方を追加
+          for (let i = 0; i < 11; i++) {
+            params.push(exactPattern, fuzzyPattern);
+          }
+          hasInterfaceKeyword = true;
         }
       }
     }
@@ -616,11 +700,18 @@ app.get('/api/machines/search', async (req, res) => {
     // 検索から除外するキーワードの処理
     if (excludeKeywords.length > 0) {
       for (const keyword of excludeKeywords) {
-        // 全てのフィールドに対して NOT LIKE 条件を追加
-        const notLikeClause = '(m.hostname NOT LIKE ? AND m.model_info NOT LIKE ? AND m.usage_desc NOT LIKE ? AND m.memo NOT LIKE ? AND m.purpose NOT LIKE ? AND m.cpu_info NOT LIKE ? AND m.cpu_arch NOT LIKE ? AND m.memory_size NOT LIKE ? AND m.disk_info NOT LIKE ? AND m.os_name NOT LIKE ? AND m.is_virtual NOT LIKE ? AND m.parent_machine_id NOT LIKE ?)';
+        const notLikeClause = `(
+          m.hostname NOT LIKE ? AND m.model_info NOT LIKE ? AND 
+          m.usage_desc NOT LIKE ? AND m.memo NOT LIKE ? AND 
+          m.purpose NOT LIKE ? AND m.cpu_info NOT LIKE ? AND 
+          m.cpu_arch NOT LIKE ? AND m.memory_size NOT LIKE ? AND 
+          m.disk_info NOT LIKE ? AND m.os_name NOT LIKE ?
+        )`;
         conditions.push(notLikeClause);
         const notLikeKeyword = `%${keyword}%`;
-        params.push(notLikeKeyword, notLikeKeyword, notLikeKeyword, notLikeKeyword, notLikeKeyword, notLikeKeyword, notLikeKeyword, notLikeKeyword, notLikeKeyword, notLikeKeyword, notLikeKeyword, notLikeKeyword);
+        for (let i = 0; i < 10; i++) {
+          params.push(notLikeKeyword);
+        }
       }
     }
 
@@ -635,11 +726,29 @@ app.get('/api/machines/search', async (req, res) => {
         JOIN interfaces i ON m.id = i.machine_id
         JOIN interface_ips ip ON i.id = ip.interface_id
       `;
+    } else if (hasInterfaceKeyword) {
+      baseQuery += `
+        JOIN interfaces i ON m.id = i.machine_id
+      `;
     }
 
     if (conditions.length > 0) {
       baseQuery += ' WHERE ' + conditions.join(' AND ');
     }
+
+    // ソート機能の追加
+    const validSortFields = ['hostname', 'last_alive', 'created_at', 'updated_at', 'os_name', 'purpose'];
+    const validSortOrders = ['asc', 'desc'];
+    
+    if (validSortFields.includes(sortBy) && validSortOrders.includes(sortOrder.toLowerCase())) {
+      baseQuery += ` ORDER BY m.${sortBy} ${sortOrder.toUpperCase()}`;
+    } else {
+      baseQuery += ' ORDER BY m.hostname ASC';
+    }
+
+    // ページネーション
+    baseQuery += ' LIMIT ? OFFSET ?';
+    params.push(limit, offset);
     
     const [machines] = await db.query(baseQuery, params);
     
@@ -662,7 +771,179 @@ app.get('/api/machines/search', async (req, res) => {
       results.push({ ...machine, interfaces });
     }
 
-    res.json(results);
+    // 検索結果の総数を取得（ページネーション用）
+    let countQuery = `
+      SELECT COUNT(DISTINCT m.id) as total
+      FROM machines m
+    `;
+    
+    if (hasIpKeyword) {
+      countQuery += `
+        JOIN interfaces i ON m.id = i.machine_id
+        JOIN interface_ips ip ON i.id = ip.interface_id
+      `;
+    } else if (hasInterfaceKeyword) {
+      countQuery += `
+        JOIN interfaces i ON m.id = i.machine_id
+      `;
+    }
+
+    if (conditions.length > 0) {
+      countQuery += ' WHERE ' + conditions.slice(0, -2).join(' AND '); // LIMIT, OFFSETパラメータを除く
+    }
+
+    const countParams = params.slice(0, -2); // LIMIT, OFFSETパラメータを除く
+    const [countResult] = await db.query(countQuery, countParams);
+    const total = countResult[0].total;
+
+    res.json({
+      results,
+      pagination: {
+        total,
+        limit,
+        offset,
+        hasMore: offset + limit < total
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET search suggestions and statistics
+app.get('/api/search/suggestions', async (req, res) => {
+  try {
+    // ホスト名の候補を取得
+    const [hostnames] = await db.query(
+      'SELECT DISTINCT hostname FROM machines WHERE hostname IS NOT NULL AND hostname != "" ORDER BY hostname LIMIT 20'
+    );
+
+    // OS名の候補を取得
+    const [osNames] = await db.query(
+      'SELECT DISTINCT os_name FROM machines WHERE os_name IS NOT NULL AND os_name != "" ORDER BY os_name LIMIT 10'
+    );
+
+    // CPUアーキテクチャの候補を取得
+    const [cpuArchs] = await db.query(
+      'SELECT DISTINCT cpu_arch FROM machines WHERE cpu_arch IS NOT NULL AND cpu_arch != "" ORDER BY cpu_arch LIMIT 10'
+    );
+
+    // 用途の候補を取得
+    const [purposes] = await db.query(
+      'SELECT DISTINCT purpose FROM machines WHERE purpose IS NOT NULL AND purpose != "" ORDER BY purpose LIMIT 10'
+    );
+
+    // 統計情報を取得
+    const [stats] = await db.query(`
+      SELECT 
+        COUNT(*) as total_machines,
+        COUNT(CASE WHEN is_virtual = TRUE THEN 1 END) as virtual_machines,
+        COUNT(CASE WHEN is_virtual = FALSE THEN 1 END) as physical_machines,
+        COUNT(CASE WHEN last_alive >= DATE_SUB(NOW(), INTERVAL 1 DAY) THEN 1 END) as alive_last_day,
+        COUNT(CASE WHEN last_alive >= DATE_SUB(NOW(), INTERVAL 1 HOUR) THEN 1 END) as alive_last_hour
+      FROM machines
+    `);
+
+    res.json({
+      suggestions: {
+        hostnames: hostnames.map(h => h.hostname),
+        osNames: osNames.map(o => o.os_name),
+        cpuArchs: cpuArchs.map(c => c.cpu_arch),
+        purposes: purposes.map(p => p.purpose)
+      },
+      statistics: stats[0],
+      searchHelp: {
+        fieldSearch: 'hostname:server01, os:ubuntu, purpose:web',
+        ipSearch: '192.168.1.100, 192.168.1, 192.168.1.0/24',
+        macSearch: '00:1A:2B:3C:4D:5E',
+        typeSearch: 'virtual, physical',
+        timeSearch: 'alive:1h, alive:1d, alive:30m',
+        exclusion: '-test, -old'
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET recent search queries (for search history)
+app.get('/api/search/history', async (req, res) => {
+  try {
+    // In a production environment, you might want to store this in a separate table
+    // For now, we'll return some common useful searches
+    const commonSearches = [
+      'virtual',
+      'physical', 
+      'ubuntu',
+      'windows',
+      'alive:1d',
+      'alive:1h',
+      'purpose:web',
+      'purpose:database'
+    ];
+
+    res.json({
+      commonSearches,
+      recentSearches: [] // Would be populated from a search history table
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET advanced search filters
+app.get('/api/search/filters', async (req, res) => {
+  try {
+    // Get unique values for various fields to help with filtering
+    const [osNames] = await db.query(
+      'SELECT DISTINCT os_name, COUNT(*) as count FROM machines WHERE os_name IS NOT NULL AND os_name != "" GROUP BY os_name ORDER BY count DESC, os_name'
+    );
+
+    const [purposes] = await db.query(
+      'SELECT DISTINCT purpose, COUNT(*) as count FROM machines WHERE purpose IS NOT NULL AND purpose != "" GROUP BY purpose ORDER BY count DESC, purpose'
+    );
+
+    const [cpuArchs] = await db.query(
+      'SELECT DISTINCT cpu_arch, COUNT(*) as count FROM machines WHERE cpu_arch IS NOT NULL AND cpu_arch != "" GROUP BY cpu_arch ORDER BY count DESC, cpu_arch'
+    );
+
+    const [memSizes] = await db.query(
+      'SELECT DISTINCT memory_size, COUNT(*) as count FROM machines WHERE memory_size IS NOT NULL AND memory_size != "" GROUP BY memory_size ORDER BY count DESC, memory_size LIMIT 20'
+    );
+
+    // Get IP network ranges
+    const [ipRanges] = await db.query(`
+      SELECT 
+        SUBSTRING_INDEX(ip_address, '.', 3) as network_prefix,
+        COUNT(*) as count
+      FROM interface_ips 
+      WHERE ip_address LIKE '%.%.%.%'
+      GROUP BY network_prefix 
+      HAVING count >= 2
+      ORDER BY count DESC, network_prefix
+      LIMIT 20
+    `);
+
+    res.json({
+      filters: {
+        osNames: osNames.map(row => ({ value: row.os_name, count: row.count })),
+        purposes: purposes.map(row => ({ value: row.purpose, count: row.count })),
+        cpuArchs: cpuArchs.map(row => ({ value: row.cpu_arch, count: row.count })),
+        memSizes: memSizes.map(row => ({ value: row.memory_size, count: row.count })),
+        networks: ipRanges.map(row => ({ value: row.network_prefix + '.0/24', count: row.count }))
+      },
+      machineTypes: [
+        { value: 'virtual', label: '仮想マシン' },
+        { value: 'physical', label: '物理マシン' }
+      ],
+      timeRanges: [
+        { value: 'alive:1h', label: '1時間以内' },
+        { value: 'alive:6h', label: '6時間以内' },
+        { value: 'alive:1d', label: '1日以内' },
+        { value: 'alive:7d', label: '1週間以内' },
+        { value: 'alive:30d', label: '1ヶ月以内' }
+      ]
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
