@@ -186,7 +186,7 @@
                           <v-icon>mdi-delete</v-icon>
                         </v-btn>
                         <v-checkbox
-                          v-model="ip.dns_servers"
+                          v-model="ip.dns_register"
                           label="iDNS Regist"
                           hide-details
                           density="compact"
@@ -389,6 +389,7 @@ const submitMachine = async () => {
       disk_info: machine.value.disk_info,
       is_virtual: machine.value.is_virtual,
       parent_machine_id: machine.value.parent_machine_id || null,
+      purpose: machine.value.purpose,
       memo: machine.value.memo,
       interfaces: {}
     };
