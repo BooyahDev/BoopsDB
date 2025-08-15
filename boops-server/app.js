@@ -600,6 +600,10 @@ app.get('/api/machines/search', async (req, res) => {
   try {
     const keywords = query.trim().split(/\s+/);
     
+    // デバッグ用ログ
+    console.log('Search query:', query);
+    console.log('Keywords:', keywords);
+    
     // 検索に含めるキーワードと除外するキーワードに分類
     const includeKeywords = keywords.filter(k => !k.startsWith('-'));
     const excludeKeywords = keywords.filter(k => k.startsWith('-')).map(k => k.substring(1));
@@ -610,15 +614,17 @@ app.get('/api/machines/search', async (req, res) => {
     let hasInterfaceKeyword = false;
 
     // 高度な検索パターンの定義
-    const ipAddressRegex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/;
-    const partialIpRegex = /^(?:[0-9]{1,3}\.){1,3}[0-9]*\.?$/;
-    const cidrRegex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}\/[0-9]{1,2}$/;
+    const ipAddressRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+    const partialIpRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){0,3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)?\.?$/;
+    const cidrRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\/(?:[1-2]?[0-9]|3[0-2])$/;
     const macAddressRegex = /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/;
     const fieldSearchRegex = /^([a-zA-Z_]+):(.+)$/;
 
     // 検索に含めるキーワードの処理
     if (includeKeywords.length > 0) {
       for (const keyword of includeKeywords) {
+        console.log('Processing keyword:', keyword);
+        
         const fieldMatch = keyword.match(fieldSearchRegex);
         
         if (fieldMatch) {
@@ -628,31 +634,82 @@ app.get('/api/machines/search', async (req, res) => {
                              'cpu_info', 'cpu_arch', 'memory_size', 'disk_info', 'os_name'];
           
           if (validFields.includes(field)) {
+            console.log('Field search:', field, value);
             conditions.push(`m.${field} LIKE ?`);
             params.push(`%${value}%`);
           }
         } else if (cidrRegex.test(keyword)) {
+          console.log('CIDR search:', keyword);
           // CIDR記法での検索 (例: 192.168.1.0/24)
           const [network, prefixLength] = keyword.split('/');
           const networkParts = network.split('.').map(Number);
-          const mask = (0xFFFFFFFF << (32 - parseInt(prefixLength))) >>> 0;
+          const prefixLengthNum = parseInt(prefixLength);
           
-          conditions.push(`
-            (INET_ATON(ip.ip_address) & ?) = (INET_ATON(?) & ?)
-          `);
-          params.push(mask, network, mask);
+          // CIDR検索のロジックを改善
+          if (prefixLengthNum >= 8 && prefixLengthNum <= 32) {
+            if (prefixLengthNum === 24) {
+              // /24の場合は最初の3オクテットをマッチ
+              const networkPrefix = networkParts.slice(0, 3).join('.');
+              conditions.push('ip.ip_address LIKE ?');
+              params.push(`${networkPrefix}.%`);
+            } else if (prefixLengthNum === 16) {
+              // /16の場合は最初の2オクテットをマッチ
+              const networkPrefix = networkParts.slice(0, 2).join('.');
+              conditions.push('ip.ip_address LIKE ?');
+              params.push(`${networkPrefix}.%`);
+            } else if (prefixLengthNum === 8) {
+              // /8の場合は最初の1オクテットをマッチ
+              conditions.push('ip.ip_address LIKE ?');
+              params.push(`${networkParts[0]}.%`);
+            } else {
+              // その他のCIDRの場合はINET_ATONを使用（MySQLの場合）
+              try {
+                // ビット演算によるCIDRマッチング
+                const mask = (0xFFFFFFFF << (32 - prefixLengthNum)) >>> 0;
+                conditions.push(`
+                  (INET_ATON(ip.ip_address) & ?) = (INET_ATON(?) & ?)
+                `);
+                params.push(mask, network, mask);
+              } catch (e) {
+                // INET_ATONが使えない場合は前方一致で代替
+                const octets = Math.ceil(prefixLengthNum / 8);
+                const networkPrefix = networkParts.slice(0, octets).join('.');
+                conditions.push('ip.ip_address LIKE ?');
+                params.push(`${networkPrefix}%`);
+              }
+            }
+          }
           hasIpKeyword = true;
         } else if (ipAddressRegex.test(keyword)) {
+          console.log('Full IP search:', keyword);
           // 完全なIPアドレス検索
           conditions.push('ip.ip_address = ?');
           params.push(keyword);
           hasIpKeyword = true;
         } else if (partialIpRegex.test(keyword)) {
+          console.log('Partial IP search:', keyword);
           // 部分的IPアドレス検索 (例: 192.168.1)
-          conditions.push('ip.ip_address LIKE ?');
-          params.push(`${keyword.replace(/\.$/, '')}%`);
+          let searchPattern = keyword.replace(/\.$/, '');
+          
+          // IPアドレスの部分検索をより正確に
+          if (searchPattern.endsWith('.')) {
+            searchPattern = searchPattern.slice(0, -1);
+          }
+          
+          // ドットで終わる場合とそうでない場合の両方に対応
+          const octets = searchPattern.split('.');
+          if (octets.length < 4) {
+            // 不完全なIPアドレスの場合
+            conditions.push('(ip.ip_address LIKE ? OR ip.ip_address LIKE ?)');
+            params.push(`${searchPattern}.%`, `${searchPattern}%`);
+          } else {
+            // 完全だが正規表現にマッチしなかった場合は前方一致
+            conditions.push('ip.ip_address LIKE ?');
+            params.push(`${searchPattern}%`);
+          }
           hasIpKeyword = true;
         } else if (macAddressRegex.test(keyword)) {
+          console.log('MAC address search:', keyword);
           // MACアドレス検索
           conditions.push('i.mac_address LIKE ?');
           params.push(`%${keyword}%`);
@@ -757,6 +814,10 @@ app.get('/api/machines/search', async (req, res) => {
     // ページネーション
     baseQuery += ' LIMIT ? OFFSET ?';
     params.push(limit, offset);
+    
+    // デバッグ用ログ
+    console.log('Generated SQL:', baseQuery);
+    console.log('Parameters:', params);
     
     const [machines] = await db.query(baseQuery, params);
     
@@ -955,6 +1016,52 @@ app.get('/api/search/filters', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// DEBUG endpoint for testing IP/CIDR search patterns
+app.get('/api/debug/search-patterns', async (req, res) => {
+  const testPatterns = [
+    '192.168.1.100',    // 完全なIPアドレス
+    '192.168.1',        // 部分IPアドレス
+    '192.168.1.',       // ドット付き部分IPアドレス
+    '192.168.1.0/24',   // CIDR /24
+    '192.168.0.0/16',   // CIDR /16
+    '10.0.0.0/8',       // CIDR /8
+    '172.16.0.0/12'     // CIDR /12
+  ];
+
+  const ipAddressRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+  const partialIpRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){0,3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)?\.?$/;
+  const cidrRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\/(?:[1-2]?[0-9]|3[0-2])$/;
+
+  const results = testPatterns.map(pattern => {
+    let type = 'unknown';
+    if (cidrRegex.test(pattern)) {
+      type = 'CIDR';
+    } else if (ipAddressRegex.test(pattern)) {
+      type = 'Full IP';
+    } else if (partialIpRegex.test(pattern)) {
+      type = 'Partial IP';
+    }
+
+    return {
+      pattern,
+      type,
+      fullIpMatch: ipAddressRegex.test(pattern),
+      partialIpMatch: partialIpRegex.test(pattern),
+      cidrMatch: cidrRegex.test(pattern)
+    };
+  });
+
+  res.json({
+    message: 'IP/CIDR検索パターンテスト',
+    results,
+    regexPatterns: {
+      ipAddress: ipAddressRegex.toString(),
+      partialIp: partialIpRegex.toString(),
+      cidr: cidrRegex.toString()
+    }
+  });
 });
 
 // GET machine by UUID
@@ -1266,6 +1373,15 @@ app.get('/api/dns-register', async (req, res) => {
 try {
   app.listen(port, '0.0.0.0', () => {
     console.log(`API server running on http://0.0.0.0:${port}`);
+    console.log('Available endpoints:');
+    console.log('  GET  /api/machines - 全マシン一覧');
+    console.log('  GET  /api/machines/search?q=<query> - マシン検索');
+    console.log('  GET  /api/debug/search-patterns - 検索パターンテスト');
+    console.log('');
+    console.log('検索例:');
+    console.log('  /api/machines/search?q=192.168.1 - 部分IPアドレス検索');
+    console.log('  /api/machines/search?q=192.168.1.0/24 - CIDR検索');
+    console.log('  /api/machines/search?q=192.168.1.100 - 完全IPアドレス検索');
   });
 } catch (err) {
   console.error('Failed to start server:', err);
