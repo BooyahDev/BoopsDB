@@ -1,4 +1,29 @@
 services:
+  oauth2-proxy1:
+    image: quay.io/oauth2-proxy/oauth2-proxy:latest
+    ports:
+      - 8180:4180
+    environment:
+      OAUTH2_PROXY_PROVIDER: "oidc"
+      OAUTH2_PROXY_OIDC_EMAIL_CLAIM: "sub"
+      OAUTH2_PROXY_SCOPE: "openid"
+      OAUTH2_PROXY_CLIENT_ID: "oauth2-proxy"
+      OAUTH2_PROXY_CLIENT_SECRET: "cA4eUmM37i9V1M2X6UXGuTSdKMb7tLhN"
+      OAUTH2_PROXY_OIDC_ISSUER_URL: "https://auth.booyah.dev/realms/Booyah"
+      OAUTH2_PROXY_COOKIE_SECRET: "5JEx-EnDmjnlN-1wd2EQDMrLLEly5NOUUSYsZCiy3Tc="
+      OAUTH2_PROXY_COOKIE_NAME: "auth_demo"
+      OAUTH2_PROXY_EMAIL_DOMAINS: "*"
+      OAUTH2_PROXY_HTTP_ADDRESS: "0.0.0.0:4180"
+      OAUTH2_PROXY_PASS_AUTHORIZATION_HEADER: "true"
+      OAUTH2_PROXY_PASS_ACCESS_TOKEN: "true"
+      OAUTH2_PROXY_PASS_USER_HEADERS: "true"
+      OAUTH2_PROXY_SSL_INSECURE_SKIP_VERIFY: "true"
+      OAUTH2_PROXY_INSECURE_OIDC_ALLOW_UNVERIFIED_EMAIL: "true"
+      OAUTH2_PROXY_REDIRECT_URL: ""
+      OAUTH2_PROXY_COOKIE_SECURE: "false"
+      OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
+      OAUTH2_PROXY_UPSTREAMS: http://10.0.0.4:3100/
+
   boops-webui:
     image: docker-registry.booyah.dev/boops-webui
     build: ./
