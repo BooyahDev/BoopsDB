@@ -2,11 +2,28 @@
   <v-container style="margin-top: 50px;">
     <h1>マシン検索結果</h1>
 
-    <!-- Search Query Display -->
-    <v-alert v-if="searchQuery" type="info" class="mb-4">
-      検索クエリ: <strong>{{ searchQuery }}</strong>
-      <v-btn size="small" variant="text" @click="clearSearch">クリア</v-btn>
-    </v-alert>
+    <!-- Search Form -->
+    <v-card class="mb-4" elevation="2">
+      <v-card-text>
+        <form @submit.prevent="reSearch">
+          <v-text-field
+            v-model="searchQuery"
+            label="検索クエリを入力..."
+            hint="ホスト名、IP、メモなど..."
+            persistent-hint
+            variant="outlined"
+            clearable
+            append-inner-icon="mdi-magnify"
+            @click:append-inner="reSearch"
+            @click:clear="clearSearch"
+          />
+          <v-btn type="submit" color="primary" block class="mt-2">
+            <v-icon start>mdi-magnify</v-icon>
+            検索
+          </v-btn>
+        </form>
+      </v-card-text>
+    </v-card>
 
     <!-- Pagination Info -->
     <v-card v-if="pagination" class="mb-4" elevation="1">
@@ -254,6 +271,18 @@ function setTable(machines) {
     };
 
     currentResults.value.push(row);
+  });
+}
+
+function reSearch() {
+  if (!searchQuery.value || !searchQuery.value.trim()) {
+    clearSearch();
+    return;
+  }
+  offset.value = 0;
+  const query = { ...route.query, q: searchQuery.value.trim(), offset: '0' };
+  router.replace({ path: route.path, query }).then(() => {
+    performSearch(searchQuery.value.trim());
   });
 }
 
