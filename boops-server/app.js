@@ -858,7 +858,7 @@ app.get('/api/machines/search', async (req, res) => {
     }
 
     if (conditions.length > 0) {
-      countQuery += ' WHERE ' + conditions.slice(0, -2).join(' AND '); // LIMIT, OFFSETパラメータを除く
+      countQuery += ' WHERE ' + conditions.join(' AND ');
     }
 
     const countParams = params.slice(0, -2); // LIMIT, OFFSETパラメータを除く
