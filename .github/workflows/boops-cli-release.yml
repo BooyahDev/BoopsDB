@@ -71,33 +71,49 @@ jobs:
             suffix="${suffix}v${GOARM}"
           fi
           mkdir -p dist
-          go build -trimpath -ldflags="-s -w" -o "dist/boops-cli-${suffix}${{ matrix.ext }}" .
+          go build -trimpath -ldflags="-s -w" -o "dist/boops${{ matrix.ext }}" .
 
       - name: Package
         working-directory: boops-cli
         run: |
           set -eu
-          asset="boops-cli-${{ matrix.goos }}-${{ matrix.goarch }}"
+          asset="boops-${{ matrix.goos }}-${{ matrix.goarch }}"
           if [ -n "${{ matrix.goarm }}" ]; then
             asset="${asset}v${{ matrix.goarm }}"
           fi
           mkdir -p release
           if [ "${{ matrix.goos }}" = "windows" ]; then
-            zip -j "release/${asset}.zip" "dist/${asset}.exe"
+            zip -j "release/${asset}.zip" "dist/boops.exe"
           else
-            tar -C dist -czf "release/${asset}.tar.gz" "${asset}"
+            tar -C dist -czf "release/${asset}.tar.gz" boops
           fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: boops-cli-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm }}
+          name: boops-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm }}
           path: boops-cli/release/*
+          if-no-files-found: error
+
+  installers:
+    name: Upload installers
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: boops-installers
+          path: boops-cli/installers/*
           if-no-files-found: error
 
   release:
     name: Publish release
-    needs: build
+    needs:
+      - build
+      - installers
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
 

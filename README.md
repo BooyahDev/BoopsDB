@@ -71,7 +71,21 @@ npm run dev
 
 ## CLI（boops-cli）
 
-BoopsDB APIを操作するGo製CLIです。詳細な使い方とリリース手順は `boops-cli/README.md` を参照してください。
+BoopsDB APIを操作するGo製CLIです。インストール後の実行コマンドは `boops` です。詳細な使い方とリリース手順は `boops-cli/README.md` を参照してください。
+
+### インストール例
+
+Linux / macOS:
+
+```bash
+curl -fsSL https://github.com/BooyahDev/BoopsDB/releases/latest/download/install.sh | sh
+```
+
+Windows PowerShell:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr https://github.com/BooyahDev/BoopsDB/releases/latest/download/install-windows.ps1 -OutFile install-windows.ps1; .\install-windows.ps1"
+```
 
 ### リリース例
 

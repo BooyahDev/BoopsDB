@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -149,11 +150,6 @@ func run(args []string) error {
 		return nil
 	}
 
-	if uuidPattern.MatchString(args[0]) {
-		c := newClient(defaultAPIBase)
-		return printMachineDetail(c, args[0])
-	}
-
 	switch args[0] {
 	case "register":
 		return runRegister(args[1:])
@@ -165,8 +161,139 @@ func run(args []string) error {
 		printUsage(os.Stdout)
 		return nil
 	default:
-		return fmt.Errorf("unknown command %q", args[0])
+		return runDefault(args)
 	}
+}
+
+func runDefault(args []string) error {
+	opts, err := parseDefaultOptions(args)
+	if err != nil {
+		return err
+	}
+	if opts.showHelp {
+		return nil
+	}
+
+	c := newClient(opts.apiBase)
+	if strings.TrimSpace(opts.machineID) != "" {
+		return printMachineDetail(c, strings.TrimSpace(opts.machineID))
+	}
+
+	query := strings.TrimSpace(strings.Join(opts.queryParts, " "))
+	if query == "" {
+		reader := newPrompt(os.Stdin)
+		query = reader.ask("検索クエリ", "", true)
+	}
+
+	return printSearchResults(c, query, opts.limit, opts.offset, opts.sortBy, opts.sortOrder, !opts.noColor)
+}
+
+type defaultOptions struct {
+	apiBase    string
+	machineID  string
+	limit      int
+	offset     int
+	sortBy     string
+	sortOrder  string
+	noColor    bool
+	showHelp   bool
+	queryParts []string
+}
+
+func parseDefaultOptions(args []string) (defaultOptions, error) {
+	opts := defaultOptions{
+		apiBase:   defaultAPIBase,
+		limit:     50,
+		sortBy:    "updated_at",
+		sortOrder: "desc",
+	}
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			opts.queryParts = append(opts.queryParts, args[i+1:]...)
+			break
+		}
+		if arg == "-h" || arg == "--help" {
+			opts.showHelp = true
+			return opts, nil
+		}
+		if arg == "-no-color" || arg == "--no-color" {
+			opts.noColor = true
+			continue
+		}
+
+		name, value, hasInlineValue := strings.Cut(arg, "=")
+		switch name {
+		case "-api", "--api":
+			v, next, err := optionValue("api", value, hasInlineValue, args, i)
+			if err != nil {
+				return opts, err
+			}
+			opts.apiBase = v
+			i = next
+		case "-id", "--id":
+			v, next, err := optionValue("id", value, hasInlineValue, args, i)
+			if err != nil {
+				return opts, err
+			}
+			opts.machineID = v
+			i = next
+		case "-limit", "--limit":
+			v, next, err := optionValue("limit", value, hasInlineValue, args, i)
+			if err != nil {
+				return opts, err
+			}
+			limit, err := strconv.Atoi(v)
+			if err != nil {
+				return opts, fmt.Errorf("limit must be a number: %q", v)
+			}
+			opts.limit = limit
+			i = next
+		case "-offset", "--offset":
+			v, next, err := optionValue("offset", value, hasInlineValue, args, i)
+			if err != nil {
+				return opts, err
+			}
+			offset, err := strconv.Atoi(v)
+			if err != nil {
+				return opts, fmt.Errorf("offset must be a number: %q", v)
+			}
+			opts.offset = offset
+			i = next
+		case "-sort", "--sort":
+			v, next, err := optionValue("sort", value, hasInlineValue, args, i)
+			if err != nil {
+				return opts, err
+			}
+			opts.sortBy = v
+			i = next
+		case "-order", "--order":
+			v, next, err := optionValue("order", value, hasInlineValue, args, i)
+			if err != nil {
+				return opts, err
+			}
+			opts.sortOrder = v
+			i = next
+		default:
+			opts.queryParts = append(opts.queryParts, arg)
+		}
+	}
+
+	return opts, nil
+}
+
+func optionValue(name string, inlineValue string, hasInlineValue bool, args []string, index int) (string, int, error) {
+	if hasInlineValue {
+		if inlineValue == "" {
+			return "", index, fmt.Errorf("-%s requires a value", name)
+		}
+		return inlineValue, index, nil
+	}
+	if index+1 >= len(args) {
+		return "", index, fmt.Errorf("-%s requires a value", name)
+	}
+	return args[index+1], index + 1, nil
 }
 
 func runRegister(args []string) error {
@@ -199,6 +326,8 @@ func runSearch(args []string) error {
 	query := fs.String("q", "", "search query")
 	limit := fs.Int("limit", 50, "maximum result count")
 	offset := fs.Int("offset", 0, "result offset")
+	sortBy := fs.String("sort", "updated_at", "search sort field")
+	sortOrder := fs.String("order", "desc", "search sort order")
 	noColor := fs.Bool("no-color", false, "disable colored relative update time")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -213,11 +342,15 @@ func runSearch(args []string) error {
 	}
 
 	c := newClient(*apiBase)
-	machines, pagination, err := c.searchMachines(*query, *limit, *offset)
+	return printSearchResults(c, *query, *limit, *offset, *sortBy, *sortOrder, !*noColor)
+}
+
+func printSearchResults(c *Client, query string, limit int, offset int, sortBy string, sortOrder string, color bool) error {
+	machines, pagination, err := c.searchMachines(query, limit, offset, sortBy, sortOrder)
 	if err != nil {
 		return err
 	}
-	printMachineRows(os.Stdout, machines, !*noColor)
+	printMachineRows(os.Stdout, machines, color)
 	if pagination.Total > 0 {
 		fmt.Fprintf(os.Stdout, "\n%d/%d件を表示しています\n", len(machines), pagination.Total)
 	}
@@ -268,11 +401,13 @@ func (c *Client) createMachine(payload registerPayload) (string, error) {
 	return response.ID, nil
 }
 
-func (c *Client) searchMachines(query string, limit int, offset int) ([]Machine, Pagination, error) {
+func (c *Client) searchMachines(query string, limit int, offset int, sortBy string, sortOrder string) ([]Machine, Pagination, error) {
 	values := url.Values{}
 	values.Set("q", query)
 	values.Set("limit", strconv.Itoa(limit))
 	values.Set("offset", strconv.Itoa(offset))
+	values.Set("sort", normalizeSortField(sortBy))
+	values.Set("order", normalizeSortOrder(sortOrder))
 
 	req, err := http.NewRequest(http.MethodGet, c.baseURL+"/machines/search?"+values.Encode(), nil)
 	if err != nil {
@@ -281,6 +416,7 @@ func (c *Client) searchMachines(query string, limit int, offset int) ([]Machine,
 
 	var response SearchResponse
 	if err := c.doJSON(req, &response); err == nil && response.Results != nil {
+		sortMachines(response.Results, sortBy, sortOrder)
 		return response.Results, response.Pagination, nil
 	}
 
@@ -288,7 +424,105 @@ func (c *Client) searchMachines(query string, limit int, offset int) ([]Machine,
 	if err := c.doJSON(req, &fallback); err != nil {
 		return nil, Pagination{}, err
 	}
-	return fallback, Pagination{Total: len(fallback), Limit: limit, Offset: offset}, nil
+	sortMachines(fallback, sortBy, sortOrder)
+	total := len(fallback)
+	fallback = sliceMachines(fallback, limit, offset)
+	return fallback, Pagination{Total: total, Limit: limit, Offset: offset, HasMore: offset+limit < total}, nil
+}
+
+func sortMachines(machines []Machine, sortBy string, sortOrder string) {
+	field := normalizeSortField(sortBy)
+	desc := normalizeSortOrder(sortOrder) == "desc"
+	sort.SliceStable(machines, func(i int, j int) bool {
+		cmp := compareMachineField(machines[i], machines[j], field)
+		if desc {
+			return cmp > 0
+		}
+		return cmp < 0
+	})
+}
+
+func compareMachineField(a Machine, b Machine, field string) int {
+	switch field {
+	case "updated_at":
+		return compareTimeString(a.UpdatedAt, b.UpdatedAt)
+	case "created_at":
+		return compareTimeString(a.CreatedAt, b.CreatedAt)
+	case "last_alive":
+		return compareTimeString(a.LastAlive, b.LastAlive)
+	case "hostname":
+		return strings.Compare(strings.ToLower(a.Hostname), strings.ToLower(b.Hostname))
+	case "os_name":
+		return strings.Compare(strings.ToLower(a.OSName), strings.ToLower(b.OSName))
+	case "purpose":
+		return strings.Compare(strings.ToLower(a.Purpose), strings.ToLower(b.Purpose))
+	default:
+		return compareTimeString(a.UpdatedAt, b.UpdatedAt)
+	}
+}
+
+func compareTimeString(a string, b string) int {
+	aTime, aOK := parseAPITime(a)
+	bTime, bOK := parseAPITime(b)
+	switch {
+	case aOK && bOK:
+		if aTime.Before(bTime) {
+			return -1
+		}
+		if aTime.After(bTime) {
+			return 1
+		}
+		return 0
+	case aOK:
+		return 1
+	case bOK:
+		return -1
+	default:
+		return 0
+	}
+}
+
+func sliceMachines(machines []Machine, limit int, offset int) []Machine {
+	if offset < 0 {
+		offset = 0
+	}
+	if limit <= 0 {
+		limit = len(machines)
+	}
+	if offset >= len(machines) {
+		return []Machine{}
+	}
+	end := offset + limit
+	if end > len(machines) {
+		end = len(machines)
+	}
+	return machines[offset:end]
+}
+
+func normalizeSortField(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "hostname", "last_alive", "created_at", "updated_at", "os_name", "purpose":
+		return strings.ToLower(strings.TrimSpace(value))
+	case "updated", "update", "updated-at":
+		return "updated_at"
+	case "created", "created-at":
+		return "created_at"
+	case "last", "alive", "last-alive":
+		return "last_alive"
+	case "os":
+		return "os_name"
+	default:
+		return "updated_at"
+	}
+}
+
+func normalizeSortOrder(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "asc", "ascending":
+		return "asc"
+	default:
+		return "desc"
+	}
 }
 
 func (c *Client) getMachine(id string) (Machine, error) {
@@ -470,15 +704,15 @@ func printMachineRows(w io.Writer, machines []Machine, color bool) {
 	}
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tHOSTNAME\tIP\tPURPOSE\tTYPE\tUPDATED")
+	fmt.Fprintln(tw, "ID\tHOSTNAME\tIP\tTYPE\tUPDATED\tPURPOSE")
 	for _, machine := range machines {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			machine.ID,
 			valueOrDash(machine.Hostname),
 			strings.Join(machine.IPAddresses(), ", "),
-			valueOrDash(machine.Purpose),
 			machineTypeIcon(machine),
 			formatRelativeUpdate(machine.UpdatedAt, color),
+			valueOrDash(machine.Purpose),
 		)
 	}
 	tw.Flush()
@@ -619,19 +853,23 @@ func parseAPITime(value string) (time.Time, bool) {
 }
 
 func printUsage(w io.Writer) {
-	fmt.Fprintln(w, `boops-cli - BoopsDB API client
+	fmt.Fprintln(w, `boops - BoopsDB API client
 
 Usage:
-  boops-cli register                 対話式でマシンを登録
-  boops-cli search                   対話式でマシンを検索
-  boops-cli search -q "query"        クエリ指定でマシンを検索
-  boops-cli search "query"           引数指定でマシンを検索
-  boops-cli get <machine-id>         マシン詳細を表示
-  boops-cli <machine-id>             マシン詳細を表示
+  boops register                     対話式でマシンを登録
+  boops "query"                      クエリ指定でマシンを検索
+  boops -id <machine-id>             マシン詳細を表示
+  boops search                       対話式でマシンを検索
+  boops search -q "query"            クエリ指定でマシンを検索
+  boops search "query"               引数指定でマシンを検索
+  boops get <machine-id>             マシン詳細を表示
 
 Options:
   -api <url>     API base URL (default: https://boopsdb-api.booyah.dev/api)
+  -id <uuid>     machine ID to show
   -limit <n>     search result limit (default: 50)
   -offset <n>    search result offset (default: 0)
+  -sort <field>  search sort field (default: updated_at)
+  -order <order> search sort order: asc or desc (default: desc)
   -no-color      disable colored relative update time`)
 }
