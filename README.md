@@ -13,6 +13,7 @@ BoopsDB/
 │   ├── models/        # データベースモデル
 │   └── sql/           # SQLスキーマとマイグレーション
 ├── boops-ui/          # フロントエンドのコード（Nuxt.js）
+├── boops-cli/         # BoopsDB APIを操作するCLIツール（Go）
 └── README.md          # このREADMEファイル
 ```
 
@@ -67,6 +68,21 @@ npm run dev
 ```
 
 これでアプリケーションがhttp://localhost:3000で起動します。
+
+## CLI（boops-cli）
+
+BoopsDB APIを操作するGo製CLIです。詳細な使い方とリリース手順は `boops-cli/README.md` を参照してください。
+
+### リリース例
+
+`boops-cli/v0.1.0` のようなタグをpushすると、GitHub ActionsがWindows、macOS、Linux向けにビルドし、GitHub Releaseへ成果物を添付します。
+
+```bash
+git switch main
+git pull
+git tag -a boops-cli/v0.1.0 -m "boops-cli v0.1.0"
+git push origin boops-cli/v0.1.0
+```
 
 ## データベーススキーマ
 

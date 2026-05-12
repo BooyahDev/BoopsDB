@@ -1,0 +1,114 @@
+name: boops-cli release
+
+on:
+  push:
+    tags:
+      - "boops-cli/v*"
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.goos }} ${{ matrix.goarch }}${{ matrix.goarm }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            ext: ""
+          - goos: linux
+            goarch: 386
+            ext: ""
+          - goos: linux
+            goarch: arm64
+            ext: ""
+          - goos: linux
+            goarch: arm
+            goarm: "7"
+            ext: ""
+          - goos: darwin
+            goarch: amd64
+            ext: ""
+          - goos: darwin
+            goarch: arm64
+            ext: ""
+          - goos: windows
+            goarch: amd64
+            ext: ".exe"
+          - goos: windows
+            goarch: 386
+            ext: ".exe"
+          - goos: windows
+            goarch: arm64
+            ext: ".exe"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: boops-cli/go.mod
+          cache-dependency-path: boops-cli/go.mod
+
+      - name: Build
+        working-directory: boops-cli
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+        run: |
+          set -eu
+          suffix="${GOOS}-${GOARCH}"
+          if [ -n "${GOARM:-}" ]; then
+            suffix="${suffix}v${GOARM}"
+          fi
+          mkdir -p dist
+          go build -trimpath -ldflags="-s -w" -o "dist/boops-cli-${suffix}${{ matrix.ext }}" .
+
+      - name: Package
+        working-directory: boops-cli
+        run: |
+          set -eu
+          asset="boops-cli-${{ matrix.goos }}-${{ matrix.goarch }}"
+          if [ -n "${{ matrix.goarm }}" ]; then
+            asset="${asset}v${{ matrix.goarm }}"
+          fi
+          mkdir -p release
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip -j "release/${asset}.zip" "dist/${asset}.exe"
+          else
+            tar -C dist -czf "release/${asset}.tar.gz" "${asset}"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: boops-cli-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm }}
+          path: boops-cli/release/*
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*

@@ -187,7 +187,8 @@
               </div>
             </template>
             <template v-else>
-              {{ machine.memo || 'N/A' }}
+              <div v-if="machine.memo" class="memo-markdown" v-html="renderedMemo"></div>
+              <span v-else>N/A</span>
               <v-btn icon variant="text" size="small" @click="enableEditMemo" class="ml-1">
                 <v-icon>mdi-pencil</v-icon>
               </v-btn>
@@ -217,6 +218,8 @@ const emit = defineEmits(['update:machine', 'duplicate']);
 const { copyToClipboard, copiedItems } = useClipboard();
 const { formatDate } = useDateFormatter();
 const { updateMachineField } = useMachineApi();
+
+const renderedMemo = computed(() => renderMarkdown(props.machine.memo || ''));
 
 // Editable fields
 const editableHostname = ref('');
@@ -376,8 +379,95 @@ const saveVmStatus = async () => {
     isUpdatingVmStatus.value = false;
   }
 };
+
+const renderMarkdown = (source) => {
+  const blocks = [];
+  let listItems = [];
+
+  const flushList = () => {
+    if (listItems.length > 0) {
+      blocks.push(`<ul>${listItems.map(item => `<li>${renderInlineMarkdown(item)}</li>`).join('')}</ul>`);
+      listItems = [];
+    }
+  };
+
+  for (const rawLine of source.replace(/\r\n/g, '\n').split('\n')) {
+    const line = rawLine.trimEnd();
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    const listItem = line.match(/^[-*]\s+(.+)$/);
+
+    if (heading) {
+      flushList();
+      const level = heading[1].length + 2;
+      blocks.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+    } else if (listItem) {
+      listItems.push(listItem[1]);
+    } else if (line.trim() === '') {
+      flushList();
+      blocks.push('<br>');
+    } else {
+      flushList();
+      blocks.push(`<p>${renderInlineMarkdown(line)}</p>`);
+    }
+  }
+
+  flushList();
+  return blocks.join('');
+};
+
+const renderInlineMarkdown = (source) => {
+  let html = escapeHtml(source);
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  html = html.replace(/(^|[\s>])(https?:\/\/[^\s<]+)/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>');
+  return html;
+};
+
+const escapeHtml = (source) => source
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
 </script>
 
 <style scoped>
 * { text-transform: none !important; }
+
+.memo-markdown {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.memo-markdown :deep(p) {
+  margin: 0 0 0.5rem;
+}
+
+.memo-markdown :deep(p:last-child),
+.memo-markdown :deep(ul:last-child) {
+  margin-bottom: 0;
+}
+
+.memo-markdown :deep(ul) {
+  margin: 0 0 0.5rem 1.25rem;
+  padding: 0;
+}
+
+.memo-markdown :deep(h3),
+.memo-markdown :deep(h4),
+.memo-markdown :deep(h5) {
+  margin: 0.4rem 0 0.25rem;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.memo-markdown :deep(code) {
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 4px;
+  padding: 0.1rem 0.25rem;
+}
 </style>
