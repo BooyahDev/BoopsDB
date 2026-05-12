@@ -23,6 +23,17 @@ const defaultAPIBase = "https://boopsdb-api.booyah.dev/api"
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
+const (
+	colorReset   = "\033[0m"
+	colorRed     = "\033[31m"
+	colorGreen   = "\033[32m"
+	colorYellow  = "\033[33m"
+	colorBlue    = "\033[34m"
+	colorMagenta = "\033[35m"
+	colorCyan    = "\033[36m"
+	colorBold    = "\033[1m"
+)
+
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
@@ -708,9 +719,9 @@ func printMachineRows(w io.Writer, machines []Machine, color bool) {
 	for _, machine := range machines {
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			machine.ID,
-			valueOrDash(machine.Hostname),
-			strings.Join(machine.IPAddresses(), ", "),
-			machineTypeIcon(machine),
+			colorize(valueOrDash(machine.Hostname), colorCyan+colorBold, color),
+			machine.ColoredIPAddresses(color),
+			machineTypeIcon(machine, color),
 			formatRelativeUpdate(machine.UpdatedAt, color),
 			valueOrDash(machine.Purpose),
 		)
@@ -772,17 +783,37 @@ func (m Machine) IPAddresses() []string {
 			if ip.IPAddress == "" {
 				continue
 			}
-			if ip.SubnetMask != "" {
-				ips = append(ips, ip.IPAddress+"/"+ip.SubnetMask)
-			} else {
-				ips = append(ips, ip.IPAddress)
-			}
+			ips = append(ips, formatIPWithSubnet(ip.IPAddress, ip.SubnetMask, false))
 		}
 	}
 	if len(ips) == 0 {
 		return []string{"-"}
 	}
 	return ips
+}
+
+func (m Machine) ColoredIPAddresses(color bool) string {
+	var ips []string
+	for _, iface := range m.Interfaces {
+		for _, ip := range iface.IPs {
+			if ip.IPAddress == "" {
+				continue
+			}
+			ips = append(ips, formatIPWithSubnet(ip.IPAddress, ip.SubnetMask, color))
+		}
+	}
+	if len(ips) == 0 {
+		return "-"
+	}
+	return strings.Join(ips, ", ")
+}
+
+func formatIPWithSubnet(ip string, subnet string, color bool) string {
+	ip = valueOrDash(ip)
+	if subnet == "" {
+		return colorize(ip, colorBlue, color)
+	}
+	return colorize(ip, colorBlue, color) + "/" + colorize(subnet, colorMagenta, color)
 }
 
 func valueOrDash(value string) string {
@@ -792,11 +823,11 @@ func valueOrDash(value string) string {
 	return value
 }
 
-func machineTypeIcon(machine Machine) string {
+func machineTypeIcon(machine Machine, color bool) string {
 	if machine.IsVirtual.Bool() {
-		return "◆ VM"
+		return colorize("◆ VM", colorMagenta+colorBold, color)
 	}
-	return "■ HW"
+	return colorize("■ HW", colorYellow+colorBold, color)
 }
 
 func formatRelativeUpdate(value string, color bool) string {
@@ -826,9 +857,16 @@ func formatRelativeUpdate(value string, color bool) string {
 		return text
 	}
 	if diff <= 5*time.Minute {
-		return "\033[32m" + text + "\033[0m"
+		return colorize(text, colorGreen, color)
 	}
-	return "\033[31m" + text + "\033[0m"
+	return colorize(text, colorRed, color)
+}
+
+func colorize(value string, code string, enabled bool) string {
+	if !enabled || value == "-" {
+		return value
+	}
+	return code + value + colorReset
 }
 
 func parseAPITime(value string) (time.Time, bool) {
