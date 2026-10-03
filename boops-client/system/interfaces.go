@@ -330,6 +330,11 @@ func readIfupdownState(ops Ops, ifaces []client.InterfaceInfo) (map[string]strin
 		if _, duplicate := state[physical]; duplicate {
 			return nil, fmt.Errorf("duplicate ifupdown state for NIC %s", physical)
 		}
+		// A physical name alone cannot reactivate a different logical definition
+		// after ifdown clears its state, so leave that configuration untouched.
+		if logical != physical {
+			return nil, fmt.Errorf("NIC %s uses unsupported ifupdown logical name %s", physical, logical)
+		}
 		state[physical] = logical
 	}
 	return state, nil

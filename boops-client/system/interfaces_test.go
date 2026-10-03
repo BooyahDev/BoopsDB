@@ -336,10 +336,70 @@ func TestInterfacesMixedNewNICAndFailureRestoreOnlyOriginalNIC(t *testing.T) {
 	}
 }
 
-func TestInterfacesActiveLogicalStateUsesOriginalDefinition(t *testing.T) {
+func TestInterfacesLogicalStateRestoredAfterFailedActivation(t *testing.T) {
+	o := newFixtureOps(t, "interfaces")
+	original := "iface home inet dhcp\n"
+	o.put(interfacesPath, original, 0644)
+	o.put("/run/network/ifstate", "eth0=home\n", 0644)
+	activeLogical := "home"
+	failedNew := false
+	restoredOriginal := false
+	o.response = func(name string, args []string) ([]byte, error) {
+		if name != "ifdown" && name != "ifup" {
+			return nil, nil
+		}
+		data, _ := o.ReadFile(interfacesPath)
+		for _, requested := range args[2:] {
+			nic, logical, explicit := strings.Cut(requested, "=")
+			if !explicit {
+				logical = nic
+			}
+			if name == "ifdown" && activeLogical != "" {
+				logical = activeLogical
+			}
+			if !strings.Contains(string(data), "iface "+logical+" ") {
+				return nil, fmt.Errorf("unknown interface %s", logical)
+			}
+			if name == "ifdown" {
+				activeLogical = ""
+				continue
+			}
+			if string(data) != original && !failedNew {
+				failedNew = true
+				return nil, errors.New("new activation failed")
+			}
+			activeLogical = logical
+			if string(data) == original && logical == "home" {
+				restoredOriginal = true
+			}
+		}
+		return nil, nil
+	}
+	err := ApplyNetworkSettingsWithOps(twoNICs()[:1], o)
+	if err == nil {
+		t.Fatal("activation failure unexpectedly succeeded")
+	}
+	if o.count("ifdown", "") == 0 && o.writes == 0 {
+		return
+	}
+	if !restoredOriginal {
+		t.Fatalf("original eth0=home did not reactivate after state was cleared: %v", err)
+	}
+}
+
+func TestInterfacesActiveLogicalStateValidation(t *testing.T) {
 	o := newFixtureOps(t, "interfaces")
 	o.put(interfacesPath, "iface home inet dhcp\n", 0644)
 	o.put("/run/network/ifstate", "eth0=home\n", 0644)
+	if err := ApplyNetworkSettingsWithOps(twoNICs()[:1], o); err == nil {
+		t.Fatal("unsupported logical state accepted")
+	}
+	if o.writes != 0 || o.count("ifdown", "") != 0 || o.count("ifup", "") != 0 {
+		t.Fatal("unsupported logical state changed host")
+	}
+	o = newFixtureOps(t, "interfaces")
+	o.put(interfacesPath, "iface eth0 inet dhcp\n", 0644)
+	o.put("/run/network/ifstate", "eth0=eth0\n", 0644)
 	if err := ApplyNetworkSettingsWithOps(twoNICs()[:1], o); err != nil {
 		t.Fatal(err)
 	}
