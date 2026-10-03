@@ -175,6 +175,46 @@ def _restricted_url(url, allow_base=False):
 class HTTPTransport:
     """HTTPS with an overall deadline and bounded, incremental response reads."""
     def request(self, method, url, limit, timeout, body=None, headers=None, missing_ok=False):
+        # Socket timeouts measure inactivity. A separate process is required to
+        # bound DNS, TLS, trickled status/headers and HTTP chunk framing as well.
+        # Killing it also prevents a timed-out upload from continuing later.
+        deadline = time.monotonic() + timeout
+        _restricted_url(url, allow_base=method == "POST")
+        arguments = {"method": method, "url": url, "limit": limit, "timeout": timeout,
+                     "headers": headers, "missing_ok": missing_ok, "body_size": len(body) if body else 0}
+        request = json.dumps(arguments).encode("utf-8") + b"\n" + (body or b"")
+        try:
+            with subprocess.Popen(self._worker_command(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                  stderr=subprocess.DEVNULL) as worker:
+                try:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise subprocess.TimeoutExpired(worker.args, timeout)
+                    output, _ = worker.communicate(request, timeout=remaining)
+                except subprocess.TimeoutExpired as error:
+                    worker.kill()
+                    worker.communicate()
+                    raise PublishError("HTTP deadline exceeded") from error
+                if time.monotonic() > deadline:
+                    raise PublishError("HTTP deadline exceeded")
+                status, separator, result = output.partition(b"\n")
+                if not separator or status == b"error" or worker.returncode != 0:
+                    message = result.decode("utf-8", errors="replace") if status == b"error" else "HTTP worker failed"
+                    raise PublishError(message)
+                if status == b"missing":
+                    return None
+                if status != b"ok" or len(result) > limit:
+                    raise PublishError("invalid or oversized HTTP worker response")
+                return result
+        except OSError as error:
+            raise PublishError("cannot start HTTP deadline worker") from error
+
+    @staticmethod
+    def _worker_command():
+        return [sys.executable, "-c", 'import runpy,sys;runpy.run_path(sys.argv[1])["_http_worker"]()',
+                str(Path(__file__).resolve())]
+
+    def _request(self, method, url, limit, timeout, body=None, headers=None, missing_ok=False):
         deadline = time.monotonic() + timeout
         for redirects in range(6):
             parts = _restricted_url(url, allow_base=method == "POST")
@@ -186,6 +226,7 @@ class HTTPTransport:
                 connection.request(method, parts.path, body=body, headers=headers or {})
                 self._remaining(connection, deadline)
                 response = connection.getresponse()
+                self._remaining(connection, deadline, response)
                 if response.status in (301, 302, 303, 307, 308):
                     if method != "GET" or redirects == 5:
                         raise PublishError("upload redirect or too many GET redirects")
@@ -248,6 +289,19 @@ class HTTPTransport:
         body += data + ("\r\n--" + boundary + "--\r\n").encode("ascii")
         self.request("POST", BASE_URL, MANIFEST_LIMIT, timeout, body=body,
                      headers={"Content-Type": "multipart/form-data; boundary=" + boundary})
+
+
+def _http_worker():
+    """Private pipe protocol used only by the supervising request process."""
+    arguments = json.loads(sys.stdin.buffer.readline(16384))
+    body_size = arguments.pop("body_size")
+    body = sys.stdin.buffer.read(body_size) if body_size else None
+    try:
+        result = HTTPTransport()._request(body=body, **arguments)
+        sys.stdout.buffer.write(b"missing\n" if result is None else b"ok\n" + result)
+    except PublishError as error:
+        sys.stdout.buffer.write(b"error\n" + str(error).encode("utf-8"))
+        sys.exit(1)
 
 
 def publish_release(release):

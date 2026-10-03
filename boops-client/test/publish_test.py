@@ -1,11 +1,11 @@
 """Real local HTTP fixture; no distribution endpoint is contacted."""
 import base64
 import hashlib
-import http.client
 import importlib.util
 import json
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -66,6 +66,8 @@ class PublishTests(unittest.TestCase):
         self.omit_length = False
         self.slow = False
         self.post_redirect = False
+        self.slow_headers = False
+        self.slow_chunk_framing = False
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -75,6 +77,23 @@ class PublishTests(unittest.TestCase):
             def do_GET(self):
                 name = self.path.rsplit("/", 1)[-1]
                 owner.events.append(("GET", name))
+                if owner.slow_headers or owner.slow_chunk_framing:
+                    try:
+                        if owner.slow_headers:
+                            self.wfile.write(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nX: ")
+                            trickle, final = b"abcd\r\n\r\n", b""
+                        else:
+                            self.wfile.write(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n")
+                            trickle, final = b"0001\r\n", b"x\r\n0\r\n\r\n"
+                        self.wfile.flush()
+                        for byte in trickle:
+                            time.sleep(0.04)
+                            self.wfile.write(bytes([byte]))
+                            self.wfile.flush()
+                        self.wfile.write(final)
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+                    return
                 location = owner.redirect.get(name) if isinstance(owner.redirect, dict) else owner.redirect
                 if location:
                     self.send_response(302)
@@ -136,8 +155,16 @@ class PublishTests(unittest.TestCase):
         self.thread.start()
         self.addCleanup(self.stop_server)
         port = self.server.server_port
-        self.connection_patch = patch.object(self.publisher.http.client, "HTTPSConnection",
-                                            lambda host, timeout: http.client.HTTPConnection("127.0.0.1", port, timeout=timeout))
+        # Spawn the actual production worker, substituting only the connection
+        # to a loopback HTTP socket. URL restrictions and parsing stay real.
+        worker_code = ('import http.client,runpy,sys;ns=runpy.run_path(sys.argv[1]);'
+                       'http.client.HTTPSConnection=lambda host,timeout:'
+                       'http.client.HTTPConnection("127.0.0.1",int(sys.argv[2]),timeout=timeout);'
+                       'ns["_http_worker"]()')
+        self.worker_code = worker_code
+        self.fixture_port = port
+        self.connection_patch = patch.object(self.publisher.HTTPTransport, "_worker_command",
+                                            return_value=[sys.executable, "-c", worker_code, str(SCRIPT), str(port)])
         self.connection_patch.start()
         self.addCleanup(self.connection_patch.stop)
 
@@ -391,6 +418,47 @@ class PublishTests(unittest.TestCase):
         with self.assertRaises(self.publisher.PublishError):
             self.publisher.HTTPTransport().get(name, 19, 0.1)
         self.assertLess(time.monotonic() - started, 0.145)
+        self.assertEqual(self.events, [("GET", name)])
+
+    def test_trickled_headers_cannot_return_missing_after_deadline(self):
+        self.slow_headers = True
+        started = time.monotonic()
+        with self.assertRaises(self.publisher.PublishError):
+            self.publisher.HTTPTransport().get("missing.binary", 19, 0.1, missing_ok=True)
+        self.assertLess(time.monotonic() - started, 0.2)
+        self.assertEqual(self.events, [("GET", "missing.binary")])
+
+    def test_trickled_chunk_framing_cannot_extend_deadline(self):
+        self.slow_chunk_framing = True
+        started = time.monotonic()
+        with self.assertRaises(self.publisher.PublishError):
+            self.publisher.HTTPTransport().get("chunked.binary", 19, 0.1)
+        self.assertLess(time.monotonic() - started, 0.2)
+        self.assertEqual(self.events, [("GET", "chunked.binary")])
+
+    def test_stalled_dns_is_killed_and_reaped_before_return(self):
+        code = self.worker_code.replace('ns["_http_worker"]()',
+                'import socket,time;resolve=socket.getaddrinfo;'
+                'socket.getaddrinfo=lambda *a,**kw:(time.sleep(5),resolve(*a,**kw))[1];'
+                'ns["_http_worker"]()')
+        command = [sys.executable, "-c", code, str(SCRIPT), str(self.fixture_port)]
+        spawned = []
+        start_process = subprocess.Popen
+
+        def track_process(*args, **kwargs):
+            worker = start_process(*args, **kwargs)
+            spawned.append(worker)
+            return worker
+
+        started = time.monotonic()
+        with patch.object(self.publisher.HTTPTransport, "_worker_command", return_value=command), \
+                patch.object(self.publisher.subprocess, "Popen", side_effect=track_process):
+            with self.assertRaises(self.publisher.PublishError):
+                self.publisher.HTTPTransport().get("missing.binary", 19, 0.1, missing_ok=True)
+        self.assertLess(time.monotonic() - started, 0.2)
+        self.assertEqual(len(spawned), 1)
+        self.assertIsNotNone(spawned[0].poll())
+        self.assertEqual(self.events, [])
 
     def test_default_cli_only_validates_without_http(self):
         self.assertEqual(self.publisher.main(["--dir", str(self.directory)]), 0)
