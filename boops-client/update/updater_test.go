@@ -379,6 +379,63 @@ func TestDefaultVersionProbe(t *testing.T) {
 	}
 }
 
+func TestDefaultVersionProbeRejectsInheritedPipes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture needs Unix")
+	}
+	path := filepath.Join(t.TempDir(), "probe")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nsleep 2 &\necho 0.3.0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	err := probeVersion(ctx, path, "0.3.0")
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatalf("pipe-holding descendant accepted: elapsed=%v context=%v", elapsed, ctx.Err())
+	}
+	if elapsed > time.Second {
+		t.Fatalf("probe exceeded deadline allowance: elapsed=%v error=%v", elapsed, err)
+	}
+}
+
+func TestCheckDefaultProbeRejectsInheritedPipesAndKeepsCurrent(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture needs Unix")
+	}
+	marker := filepath.Join(t.TempDir(), "probe-started")
+	script := []byte("#!/bin/sh\nsleep 2 &\nprintf started > '" + strings.ReplaceAll(marker, "'", "'\\''") + "'\necho 0.3.0\n")
+	pub, key := fixtureKey(t)
+	env := releaseEnvelope(t, key, "0.3.0", script)
+	opts := fixtureOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "latest.json") {
+			w.Write(env)
+		} else {
+			w.Write(script)
+		}
+	}, pub)
+	opts.Probe = nil
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	start := time.Now()
+	result, err := Check(ctx, opts)
+	elapsed := time.Since(start)
+	if _, e := os.Stat(marker); e != nil {
+		t.Fatalf("fixture never reached version probe: %v (check error %v)", e, err)
+	}
+	if err == nil || result.Updated {
+		t.Fatalf("pipe-holding candidate installed: %+v %v (elapsed=%v)", result, err, elapsed)
+	}
+	if elapsed > time.Second {
+		t.Fatalf("update exceeded probe deadline allowance: %v", elapsed)
+	}
+	got, e := os.ReadFile(opts.ExecutablePath)
+	if e != nil || string(got) != "old executable" {
+		t.Fatalf("current executable changed: %q %v", got, e)
+	}
+}
+
 func TestCheckArm64SelectsOnlyItsSignedArtifact(t *testing.T) {
 	pub, key := fixtureKey(t)
 	binary := []byte("new executable")

@@ -339,11 +339,30 @@ func copyPrevious(path string, mode os.FileMode) error {
 }
 
 func probeVersion(ctx context.Context, path, version string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	var out limitedOutput
 	command := exec.CommandContext(ctx, path, "version")
 	command.Stdout = &out
 	command.Stderr = &out
-	if err := command.Run(); err != nil {
+	// A process may exit while descendants still hold its output pipes. Bound
+	// the pipe drain too, including callers that provide a shorter deadline.
+	command.WaitDelay = 100 * time.Millisecond
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return context.DeadlineExceeded
+		}
+		if remaining < command.WaitDelay {
+			command.WaitDelay = remaining
+		}
+	}
+	err := command.Run()
+	if contextErr := ctx.Err(); contextErr != nil {
+		return contextErr
+	}
+	if err != nil {
 		return err
 	}
 	if strings.TrimSpace(out.String()) != version {
