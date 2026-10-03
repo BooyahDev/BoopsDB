@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"strings"
 	"testing"
 )
@@ -195,5 +196,71 @@ func TestInventoryJSONEscapesValuesAndReportsHTTPFailure(t *testing.T) {
 	}
 	if decoded["cpu_info"] != "model \"quoted\"\nline" {
 		t.Fatal("inventory value changed")
+	}
+}
+
+func TestHostnameFailureContinuesNetworkWithoutSavingDesiredHostname(t *testing.T) {
+	for _, prior := range []string{"", "prior-host"} {
+		t.Run(prior, func(t *testing.T) {
+			machine := testMachine()
+			var previous *client.MachineState
+			if prior != "" {
+				previous = &client.MachineState{Hostname: prior}
+			}
+			applies := 0
+			var saved *client.MachineState
+			err := syncMachineSettings(machine, previous, "linux", func(string, ...string) ([]byte, error) { return nil, exec.ErrNotFound }, func([]client.InterfaceInfo) error { applies++; return nil }, func(s *client.MachineState) error { saved = s; return nil })
+			if applies != 1 {
+				t.Fatalf("network apply calls=%d, want 1 after missing hostnamectl; error=%v", applies, err)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if saved == nil || saved.Hostname != prior {
+				t.Fatalf("failed hostname recorded as applied: %+v", saved)
+			}
+			retries := 0
+			if err := syncMachineSettings(machine, saved, "linux", func(string, ...string) ([]byte, error) { retries++; return nil, nil }, func([]client.InterfaceInfo) error { t.Fatal("unchanged network reapplied"); return nil }, func(s *client.MachineState) error { saved = s; return nil }); err != nil {
+				t.Fatal(err)
+			}
+			if retries != 1 || saved.Hostname != "host" {
+				t.Fatalf("hostname was not retried: retries=%d state=%+v", retries, saved)
+			}
+		})
+	}
+}
+
+func TestWindowsHostnameDoesNotRunLinuxCommandOrBlockNetwork(t *testing.T) {
+	applies := 0
+	var saved *client.MachineState
+	err := syncMachineSettings(testMachine(), nil, "windows", func(string, ...string) ([]byte, error) {
+		t.Fatal("Linux hostnamectl executed on Windows")
+		return nil, nil
+	}, func([]client.InterfaceInfo) error { applies++; return nil }, func(s *client.MachineState) error { saved = s; return nil })
+	if err != nil || applies != 1 || saved == nil || saved.Hostname != "" {
+		t.Fatalf("err=%v applies=%d state=%+v", err, applies, saved)
+	}
+}
+
+func TestHostnameCommandUsesSeparateArgumentsAfterFullValidation(t *testing.T) {
+	machine := testMachine()
+	machine.Hostname = "host; touch /tmp/should-not-exist"
+	calls := 0
+	run := func(name string, args ...string) ([]byte, error) {
+		calls++
+		if name != "hostnamectl" || strings.Join(args, "|") != "set-hostname|--|host; touch /tmp/should-not-exist" {
+			t.Fatalf("hostname command incorrectly formed: %s %v", name, args)
+		}
+		return nil, nil
+	}
+	if err := syncMachineSettings(machine, nil, "linux", run, func([]client.InterfaceInfo) error { return nil }, func(*client.MachineState) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	machine.Interfaces = append(machine.Interfaces, machine.Interfaces[0])
+	if err := syncMachineSettings(machine, nil, "linux", run, func([]client.InterfaceInfo) error { t.Fatal("invalid network applied"); return nil }, func(*client.MachineState) error { t.Fatal("invalid network saved"); return nil }); err == nil {
+		t.Fatal("duplicate NIC accepted")
+	}
+	if calls != 1 {
+		t.Fatal("hostname modified before validation")
 	}
 }

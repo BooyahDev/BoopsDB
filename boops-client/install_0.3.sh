@@ -42,13 +42,29 @@ paths=("$binary" "$binary.previous" "$unit_dir/boops.service" "$unit_dir/boops.t
 for index in "${!paths[@]}";do
     if [[ -e "${paths[$index]}" ]];then cp -p "${paths[$index]}" "$staging/backup-$index";fi
 done
+unit_present() {
+    local load_state
+    if ! load_state=$(systemctl show --property=LoadState --value "$1");then
+        if [[ "$load_state" != not-found ]];then echo "Could not inspect unit $1." >&2;return 1;fi
+    fi
+    if [[ -z "$load_state" ]];then echo "Unit $1 returned no load state." >&2;return 1;fi
+    if [[ "$load_state" = not-found ]];then printf 'false\n';else printf 'true\n';fi
+}
+timer_present=$(unit_present boops.timer)
+service_present=$(unit_present boops.service)
 timer_enabled=false;timer_active=false;service_active=false
-if systemctl is-enabled --quiet boops.timer;then timer_enabled=true;fi
-if systemctl is-active --quiet boops.timer;then timer_active=true;fi
-if systemctl is-active --quiet boops.service;then service_active=true;fi
+if "$timer_present";then
+    if systemctl is-enabled --quiet boops.timer;then timer_enabled=true;fi
+    if systemctl is-active --quiet boops.timer;then timer_active=true;fi
+fi
+if "$service_present";then
+    service_state=$(systemctl show --property=ActiveState --value boops.service)
+    case "$service_state" in active|activating|reloading) service_active=true;;esac
+fi
 committed=false
 stopped=false
 restore_timer() {
+    if ! "${1:-true}";then return 0;fi
     local failed=0
     if "$timer_enabled";then systemctl enable boops.timer || failed=1;else systemctl disable boops.timer || failed=1;fi
     if "$timer_active";then systemctl start boops.timer || failed=1;else systemctl stop boops.timer || failed=1;fi
@@ -61,8 +77,15 @@ finish() {
     if ! "$committed" && "$stopped";then
         set +e
         local rollback_failed=false
-        systemctl stop boops.timer || rollback_failed=true
-        systemctl stop boops.service || rollback_failed=true
+        if current_timer=$(unit_present boops.timer);then
+            if "$current_timer";then
+                systemctl stop boops.timer || rollback_failed=true
+                if ! "$timer_present";then systemctl disable boops.timer || rollback_failed=true;fi
+            fi
+        else rollback_failed=true;fi
+        if current_service=$(unit_present boops.service);then
+            if "$current_service";then systemctl stop boops.service || rollback_failed=true;fi
+        else rollback_failed=true;fi
         for index in "${!paths[@]}";do
             if [[ -f "$staging/backup-$index" ]];then
                 target="${paths[$index]}"
@@ -74,7 +97,7 @@ finish() {
         done
         systemctl daemon-reload || rollback_failed=true
         if "$service_active";then systemctl start boops.service || rollback_failed=true;fi
-        restore_timer || rollback_failed=true
+        restore_timer "$timer_present" || rollback_failed=true
         if "$rollback_failed";then
             keep_backup=true
             echo "Installation failed; restoration also reported an error. Recovery copies remain at $staging. Inspect the service and timer before retrying." >&2
@@ -85,8 +108,8 @@ finish() {
 }
 trap finish EXIT
 stopped=true
-systemctl stop boops.timer
-systemctl stop boops.service
+if "$timer_present";then systemctl stop boops.timer;fi
+if "$service_present";then systemctl stop boops.service;fi
 cat > "$staging/public-key.pem" <<'PEM'
 -----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAEnduz++M/m77CizmdKHP/Jzbh8CFMRJQFN+jGrTqBjM=

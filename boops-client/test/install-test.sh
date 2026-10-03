@@ -42,12 +42,27 @@ path=pathlib.Path(os.environ['FIXTURE_STATE'])
 s=json.loads(path.read_text())
 with open(os.environ['FIXTURE_LOG'],'a') as f:f.write('systemctl '+' '.join(args)+'\n')
 command=args[0];unit=args[-1]
+exists=(pathlib.Path(os.environ['BOOPS_ROOT'])/'etc/systemd/system'/unit).is_file()
+if command=='show':
+ if '--property=LoadState' in args:print('loaded' if exists else 'not-found')
+ elif '--property=ActiveState' in args:print(('active' if s['active'] else 'inactive') if unit=='boops.timer' else s.get('service_status','active' if s.get('service_active') else 'inactive'))
+ else:sys.exit(1)
+ sys.exit(0)
+if command in ('start','stop','enable','disable') and not exists:sys.exit(5)
 if command=='is-enabled':sys.exit(0 if s['enabled'] else 1)
-if command=='is-active':sys.exit(0 if s.get('active' if unit=='boops.timer' else 'service_active',False) else 3)
+if command=='is-active':sys.exit(0 if (s['active'] if unit=='boops.timer' else s.get('service_status','active' if s.get('service_active') else 'inactive')=='active') else 3)
 if command=='daemon-reload' and os.environ.get('FAIL_RELOAD')=='1' and not s.get('failed_reload'):
  s['failed_reload']=True;path.write_text(json.dumps(s));sys.exit(1)
 if command in ('enable','disable'):s['enabled']=command=='enable'
-if command in ('start','stop'):s['active' if unit=='boops.timer' else 'service_active']=command=='start'
+if command=='stop' and unit==os.environ.get('FAIL_STOP_UNIT'):sys.exit(1)
+if command=='start' and unit=='boops.service' and s.get('failed_reload'):
+ root=pathlib.Path(os.environ['BOOPS_ROOT'])
+ assert (root/'usr/local/bin/boops').read_bytes()==pathlib.Path(os.environ['FIXTURE_BINARY_BEFORE']).read_bytes(), 'service resumed before old binary restoration'
+ assert (root/'etc/systemd/system/boops.service').read_text()=='old service\n', 'service resumed before old service unit restoration'
+ assert (root/'etc/systemd/system/boops.timer').read_text()=='old timer\n', 'service resumed before old timer unit restoration'
+if command in ('start','stop'):
+ s['active' if unit=='boops.timer' else 'service_active']=command=='start'
+ if unit=='boops.service':s['service_status']='active' if command=='start' else 'inactive'
 path.write_text(json.dumps(s))
 PY
 cat > "$work/bin/curl" <<'PY'
@@ -96,6 +111,7 @@ PY
 reset_fixture() {
     rm -rf "$work/root";mkdir -p "$work/root/usr/local/bin" "$work/root/etc/boops" "$work/root/etc/systemd/system"
     export BOOPS_ROOT="$work/root" FIXTURE_STATE="$work/state.json" FIXTURE_LOG="$work/log"
+    export FIXTURE_BINARY_BEFORE="$work/binary.before"
     printf '{"enabled":%s,"active":%s,"service_active":false}' "$1" "$2" > "$FIXTURE_STATE"
     : > "$FIXTURE_LOG"
     printf '#!/bin/sh\nprintf "0.2.0\\n"\n' > "$BOOPS_ROOT/usr/local/bin/boops";chmod +x "$BOOPS_ROOT/usr/local/bin/boops"
@@ -106,7 +122,7 @@ reset_fixture() {
     cp "$BOOPS_ROOT/etc/boops/config.json" "$work/config.before"
     cp "$BOOPS_ROOT/etc/boops/machine_state.json" "$work/state.before"
     cp "$BOOPS_ROOT/usr/local/bin/boops" "$work/binary.before"
-    unset FAIL_RELOAD FAIL_HTTP OLD_OPENSSL FAIL_REGISTRATION
+    unset FAIL_RELOAD FAIL_HTTP OLD_OPENSSL FAIL_REGISTRATION FAIL_STOP_UNIT
     make_release
 }
 assert_preserved() {
@@ -180,4 +196,52 @@ if bash "$work/installer.sh" new-machine > "$work/output" 2>&1;then exit 1;fi
 test ! -e "$BOOPS_ROOT/etc/boops/config.json"
 cmp "$work/binary.before" "$BOOPS_ROOT/usr/local/bin/boops"
 echo 'PASS registration failure restores prior installation'
+reset_fixture false false
+rm "$BOOPS_ROOT/usr/local/bin/boops" "$BOOPS_ROOT/etc/systemd/system/boops.service" "$BOOPS_ROOT/etc/systemd/system/boops.timer" "$BOOPS_ROOT/etc/boops/config.json"
+bash "$work/installer.sh" fresh-machine > "$work/output" 2>&1
+python3 - "$FIXTURE_STATE" "$FIXTURE_LOG" "$BOOPS_ROOT/etc/boops/config.json" <<'PY'
+import json,sys
+s=json.load(open(sys.argv[1]));assert s['enabled'] and s['active']
+log=open(sys.argv[2]).read();assert log.index('regist fresh-machine')<log.index('systemctl enable boops.timer')<log.index('systemctl start boops.timer')
+assert 'systemctl stop boops.timer' not in log and 'systemctl stop boops.service' not in log
+assert json.load(open(sys.argv[3]))['id']=='fresh-machine'
+PY
+echo 'PASS completely fresh installation with absent units'
+reset_fixture false false
+rm "$BOOPS_ROOT/usr/local/bin/boops" "$BOOPS_ROOT/etc/systemd/system/boops.service" "$BOOPS_ROOT/etc/systemd/system/boops.timer" "$BOOPS_ROOT/etc/boops/config.json"
+export FAIL_REGISTRATION=1
+if bash "$work/installer.sh" fresh-machine > "$work/output" 2>&1;then exit 1;fi
+test ! -e "$BOOPS_ROOT/usr/local/bin/boops"
+test ! -e "$BOOPS_ROOT/etc/systemd/system/boops.service"
+test ! -e "$BOOPS_ROOT/etc/systemd/system/boops.timer"
+test ! -e "$BOOPS_ROOT/etc/boops/config.json"
+! rg -q 'restoration also reported an error' "$work/output"
+python3 - "$FIXTURE_STATE" <<'PY'
+import json,sys
+s=json.load(open(sys.argv[1]));assert not s['enabled'] and not s['active']
+PY
+echo 'PASS completely fresh registration failure restores absent installation'
+for state in active activating;do
+    reset_fixture false false
+    python3 - "$FIXTURE_STATE" "$state" <<'PY'
+import json,sys
+p=sys.argv[1];s=json.load(open(p));s['service_status']=sys.argv[2];s['service_active']=sys.argv[2]=='active';open(p,'w').write(json.dumps(s))
+PY
+    export FAIL_RELOAD=1
+    run_failure;assert_rollback false false
+    python3 - "$FIXTURE_STATE" "$FIXTURE_LOG" <<'PY'
+import json,sys
+s=json.load(open(sys.argv[1]));assert s['service_status']=='active'
+lines=open(sys.argv[2]).read().splitlines();start=lines.index('systemctl start boops.service')
+for suffix in ('/usr/local/bin/boops','/etc/systemd/system/boops.service','/etc/systemd/system/boops.timer'):
+ assert any(v.startswith('mv ') and v.endswith(suffix) for v in lines[:start]),suffix
+assert 'systemctl daemon-reload' in lines[:start]
+PY
+    echo "PASS rollback resumes $state oneshot service with inactive timer"
+done
+reset_fixture true true;export FAIL_STOP_UNIT=boops.service
+run_failure
+assert_rollback true true
+! rg -q '^curl ' "$FIXTURE_LOG"
+echo 'PASS genuine stop failure aborts before download'
 echo 'All installer fixtures passed; no real systemd or NIC operation was performed.'

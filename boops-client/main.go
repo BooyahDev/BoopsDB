@@ -180,17 +180,9 @@ func handleSync(machineID string) error {
 			PrintStyledMessage("warning", "Previous network state is unreadable; retrying settings: "+err.Error())
 		}
 	}
-	// Validate the entire request before changing the hostname or network.
-	if _, err := client.NormalizeInterfaces(machine.Interfaces); err != nil {
-		return err
-	}
-	if machine.Hostname != "" && (previous == nil || previous.Hostname != machine.Hostname) {
-		output, err := exec.Command("hostnamectl", "set-hostname", "--", machine.Hostname).CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("set hostname: %w: %s", err, strings.TrimSpace(string(output)))
-		}
-	}
-	if err := syncNetworkState(machine, previous, func(interfaces []client.InterfaceInfo) error {
+	if err := syncMachineSettings(machine, previous, runtime.GOOS, func(name string, args ...string) ([]byte, error) {
+		return exec.Command(name, args...).CombinedOutput()
+	}, func(interfaces []client.InterfaceInfo) error {
 		return system.ApplyNetworkSettingsWithOps(interfaces, system.RealOps())
 	}, client.SaveMachineState); err != nil {
 		return err
@@ -198,6 +190,31 @@ func handleSync(machineID string) error {
 	updateInventory(machineID, machine)
 	PrintStyledMessage("success", "Sync completed successfully.")
 	return nil
+}
+
+func syncMachineSettings(machine client.Machine, previous *client.MachineState, platform string, run func(string, ...string) ([]byte, error), apply func([]client.InterfaceInfo) error, save func(*client.MachineState) error) error {
+	// Validate the entire request before changing the hostname or network.
+	if _, err := client.NormalizeInterfaces(machine.Interfaces); err != nil {
+		return err
+	}
+	if machine.Hostname != "" && (previous == nil || previous.Hostname != machine.Hostname) {
+		applied := false
+		if platform == "linux" {
+			output, err := run("hostnamectl", "set-hostname", "--", machine.Hostname)
+			if err != nil {
+				PrintStyledMessage("warning", fmt.Sprintf("Set hostname failed; continuing network sync: %v: %s", err, strings.TrimSpace(string(output))))
+			} else {
+				applied = true
+			}
+		}
+		if !applied {
+			machine.Hostname = ""
+			if previous != nil {
+				machine.Hostname = previous.Hostname
+			}
+		}
+	}
+	return syncNetworkState(machine, previous, apply, save)
 }
 
 func putMachineField(path string, payload any) error {
