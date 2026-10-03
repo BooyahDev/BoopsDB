@@ -238,6 +238,56 @@ func netplanHasIPv4Settings(n *yaml.Node) bool {
 	return false
 }
 
+func cloneNetplanForInspection(n *yaml.Node, depth int) (*yaml.Node, error) {
+	if n == nil || depth > 128 {
+		return nil, fmt.Errorf("unsupported recursive Netplan YAML")
+	}
+	if n.Kind == yaml.AliasNode {
+		return cloneNetplanForInspection(n.Alias, depth+1)
+	}
+	if n.Kind == yaml.MappingNode && nodeValue(n, "<<") != nil {
+		return nil, fmt.Errorf("cannot safely inspect foreign Netplan YAML merge")
+	}
+	copy := *n
+	copy.Anchor = ""
+	copy.Alias = nil
+	copy.Content = nil
+	for _, child := range n.Content {
+		cloned, err := cloneNetplanForInspection(child, depth+1)
+		if err != nil {
+			return nil, err
+		}
+		copy.Content = append(copy.Content, cloned)
+	}
+	return &copy, nil
+}
+
+// Netplan combines maps recursively, appends sequences, and replaces scalars.
+// Both inputs are private inspection copies, never nodes from a saved file.
+func mergeInspectedNetplan(previous, next *yaml.Node) *yaml.Node {
+	if previous == nil {
+		return next
+	}
+	if previous.Kind == yaml.MappingNode && next.Kind == yaml.MappingNode {
+		for i := 0; i < len(next.Content); i += 2 {
+			key := next.Content[i].Value
+			setNode(previous, key, mergeInspectedNetplan(nodeValue(previous, key), next.Content[i+1]))
+		}
+		return previous
+	}
+	if previous.Kind == yaml.SequenceNode && next.Kind == yaml.SequenceNode {
+		previous.Content = append(previous.Content, next.Content...)
+		return previous
+	}
+	return next
+}
+
+type foreignNetplanDefinition struct {
+	id    string
+	node  *yaml.Node
+	paths []string
+}
+
 func checkForeignNetplan(ifaces []client.InterfaceInfo, managedIDs map[string]string, ops Ops) error {
 	// Equal basenames are shadowed by /run, then /etc, then /lib.
 	effective := map[string]string{}
@@ -255,6 +305,7 @@ func checkForeignNetplan(ifaces []client.InterfaceInfo, managedIDs map[string]st
 		names = append(names, name)
 	}
 	sort.Strings(names)
+	definitions := map[string]foreignNetplanDefinition{}
 	for _, name := range names {
 		path := effective[name]
 		if path == netplanPath {
@@ -288,20 +339,38 @@ func checkForeignNetplan(ifaces []client.InterfaceInfo, managedIDs map[string]st
 				if nic, managed := managedIDs[id]; managed && (netplanHasIPv4Settings(device) || nodeValue(device, "match") != nil || nodeValue(device, "set-name") != nil) {
 					return fmt.Errorf("NIC %s shares Netplan ID %s with foreign definition in %s", nic, id, path)
 				}
-				for _, info := range ifaces {
-					matches, err := netplanMatches(id, device, info)
-					if err != nil {
-						return err
-					}
-					if matches && netplanHasIPv4Settings(device) {
-						return fmt.Errorf("NIC %s conflicts with foreign Netplan definition in %s", info.Name, path)
-					}
+				copy, err := cloneNetplanForInspection(device, 0)
+				if err != nil {
+					return fmt.Errorf("read %s definition %s: %w", path, id, err)
 				}
+				key := kind + "/" + id
+				definition := definitions[key]
+				definition.id = id
+				definition.node = mergeInspectedNetplan(definition.node, copy)
+				definition.paths = append(definition.paths, path)
+				definitions[key] = definition
 			}
 		}
 	}
 	if path, ok := effective[filepath.Base(netplanPath)]; ok && path != netplanPath {
 		return fmt.Errorf("%s shadows managed Netplan file %s", path, netplanPath)
+	}
+	keys := make([]string, 0, len(definitions))
+	for key := range definitions {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		definition := definitions[key]
+		for _, info := range ifaces {
+			matches, err := netplanMatches(definition.id, definition.node, info)
+			if err != nil {
+				return err
+			}
+			if matches && netplanHasIPv4Settings(definition.node) {
+				return fmt.Errorf("NIC %s conflicts with effective foreign Netplan ID %s in %s", info.Name, definition.id, strings.Join(definition.paths, ", "))
+			}
+		}
 	}
 	return nil
 }
@@ -417,6 +486,9 @@ func generateNetplan(data []byte, ifaces []client.InterfaceInfo) ([]byte, error)
 		usedIDs[id] = info.Name
 		if device.Kind != yaml.MappingNode || nodeValue(device, "<<") != nil || hasYAMLSharing(device) {
 			return nil, fmt.Errorf("NIC %s uses unsupported YAML alias/merge", info.Name)
+		}
+		if name := nodeValue(nodeValue(device, "match"), "name"); name != nil && strings.ContainsAny(name.Value, "*?[") {
+			return nil, fmt.Errorf("NIC %s matches a broad Netplan name pattern %q that may affect unrequested NICs", info.Name, name.Value)
 		}
 		addresses, err := keepIPv6Nodes(nodeValue(device, "addresses"), addressCIDRs(info), true)
 		if err != nil {

@@ -75,9 +75,55 @@ func hasDefaultRouteHook(line string) bool {
 	return (strings.Contains(s, "route") || strings.Contains(s, "ip r ")) && (strings.Contains(s, "default") || strings.Contains(s, "0.0.0.0"))
 }
 
+func hasIPv4DefaultRouteHook(line string) bool {
+	if !hasDefaultRouteHook(line) {
+		return false
+	}
+	// A compound shell hook cannot be classified as IPv6 from one flag.
+	if strings.ContainsAny(line, ";&|") {
+		return true
+	}
+	fields := strings.Fields(strings.ToLower(line))
+	ipv6 := false
+	for _, field := range fields[1:] {
+		if field == "-4" || field == "inet" {
+			return true
+		}
+		if field == "-6" || field == "inet6" {
+			ipv6 = true
+		}
+	}
+	return !ipv6
+}
+
+func validateInterfaceStanza(lines []string, stanza interfaceStanza, targets map[string]client.InterfaceInfo) error {
+	physical := strings.SplitN(stanza.name, ":", 2)[0]
+	info, target := targets[physical]
+	if !target {
+		return nil
+	}
+	for _, field := range strings.Fields(lines[stanza.start])[4:] {
+		if strings.HasPrefix(field, "#") {
+			break
+		}
+		if field == "inherits" {
+			return fmt.Errorf("NIC %s has inherited ifupdown configuration", info.Name)
+		}
+	}
+	for _, line := range lines[stanza.start+1 : stanza.end] {
+		if fields := strings.Fields(line); len(fields) > 0 && fields[0] == "inherits" {
+			return fmt.Errorf("NIC %s has inherited ifupdown configuration", info.Name)
+		}
+		if hasIPv4DefaultRouteHook(line) {
+			return fmt.Errorf("NIC %s has a custom IPv4 default-route hook in %s stanza", info.Name, stanza.family)
+		}
+	}
+	return nil
+}
+
 var sourceDirectoryName = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
-func checkInterfacesIncludes(ops Ops, path string, data []byte, targets map[string]client.InterfaceInfo, visited map[string]bool) error {
+func checkInterfacesIncludes(ops Ops, path string, data []byte, targets map[string]client.InterfaceInfo, visited map[string]bool, definitions map[string]bool) error {
 	if visited[path] {
 		return nil
 	}
@@ -106,6 +152,10 @@ func checkInterfacesIncludes(ops Ops, path string, data []byte, targets map[stri
 		}
 	}
 	for _, stanza := range interfaceStanzas(lines) {
+		definitions[stanza.name] = true
+		if err := validateInterfaceStanza(lines, stanza, targets); err != nil {
+			return err
+		}
 		physical := strings.SplitN(stanza.name, ":", 2)[0]
 		if _, ok := targets[physical]; ok && physical != stanza.name && stanza.family == "inet" {
 			return fmt.Errorf("NIC %s has a separate ifupdown alias %s in %s", physical, stanza.name, path)
@@ -157,7 +207,7 @@ func checkInterfacesIncludes(ops Ops, path string, data []byte, targets map[stri
 				if err != nil {
 					return fmt.Errorf("read include %s: %w", include, err)
 				}
-				if err := checkInterfacesIncludes(ops, include, bytes, targets, visited); err != nil {
+				if err := checkInterfacesIncludes(ops, include, bytes, targets, visited, definitions); err != nil {
 					return err
 				}
 			}
@@ -200,7 +250,7 @@ func generateInterfaces(data []byte, ifaces []client.InterfaceInfo) ([]byte, err
 			if fields := strings.Fields(line); len(fields) > 0 && fields[0] == "inherits" {
 				return nil, fmt.Errorf("NIC %s has inherited ifupdown configuration", stanza.name)
 			}
-			if hasDefaultRouteHook(line) {
+			if hasIPv4DefaultRouteHook(line) {
 				return nil, fmt.Errorf("NIC %s has a custom default-route hook", stanza.name)
 			}
 		}
@@ -251,6 +301,40 @@ func generateInterfaces(data []byte, ifaces []client.InterfaceInfo) ([]byte, err
 	return []byte(strings.TrimRight(strings.Join(out, "\n"), "\n") + "\n"), nil
 }
 
+func readIfupdownState(ops Ops, ifaces []client.InterfaceInfo) (map[string]string, error) {
+	path := "/run/network/ifstate"
+	exists, err := ops.Exists(path)
+	if err != nil {
+		return nil, err
+	}
+	state := map[string]string{}
+	if !exists {
+		return state, nil
+	}
+	data, err := ops.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	requested := map[string]bool{}
+	for _, info := range ifaces {
+		requested[info.Name] = true
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		physical, logical, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if !requested[physical] {
+			continue
+		}
+		if !ok || logical == "" || strings.ContainsAny(logical, "= \t\r\n") {
+			return nil, fmt.Errorf("invalid ifupdown state for NIC %s", physical)
+		}
+		if _, duplicate := state[physical]; duplicate {
+			return nil, fmt.Errorf("duplicate ifupdown state for NIC %s", physical)
+		}
+		state[physical] = logical
+	}
+	return state, nil
+}
+
 func applyInterfaces(ifaces []client.InterfaceInfo, ops Ops) error {
 	for _, tool := range []string{"ifdown", "ifup"} {
 		if _, err := ops.LookPath(tool); err != nil {
@@ -267,23 +351,50 @@ func applyInterfaces(ifaces []client.InterfaceInfo, ops Ops) error {
 		targets[info.Name] = info
 		names[i] = info.Name
 	}
-	if err := checkInterfacesIncludes(ops, interfacesPath, s.data, targets, map[string]bool{}); err != nil {
+	state, err := readIfupdownState(ops, ifaces)
+	if err != nil {
 		return err
+	}
+	for _, info := range ifaces {
+		if logical, ok := state[info.Name]; ok {
+			targets[logical] = info
+		}
+	}
+	definitions := map[string]bool{}
+	if err := checkInterfacesIncludes(ops, interfacesPath, s.data, targets, map[string]bool{}, definitions); err != nil {
+		return err
+	}
+	var oldNames []string
+	for _, info := range ifaces {
+		if logical, active := state[info.Name]; active {
+			if !definitions[logical] {
+				return fmt.Errorf("NIC %s has ifupdown state %s without an existing definition", info.Name, logical)
+			}
+			oldNames = append(oldNames, info.Name)
+		} else if definitions[info.Name] {
+			oldNames = append(oldNames, info.Name)
+		}
 	}
 	data, err := generateInterfaces(s.data, ifaces)
 	if err != nil {
 		return err
 	}
-	down := func() error { return runChecked(ops, "ifdown", append([]string{"--force", "--"}, names...)...) }
-	up := func() error { return runChecked(ops, "ifup", append([]string{"--force", "--"}, names...)...) }
+	runInterfaces := func(tool string, nics []string) error {
+		if len(nics) == 0 {
+			return nil
+		}
+		return runChecked(ops, tool, append([]string{"--force", "--"}, nics...)...)
+	}
+	down := func() error { return runInterfaces("ifdown", names) }
+	up := func() error { return runInterfaces("ifup", names) }
 	reactivateOriginal := func(cause error) error {
-		if err := up(); err != nil {
+		if err := runInterfaces("ifup", oldNames); err != nil {
 			return errors.Join(cause, fmt.Errorf("reactivate original ifupdown configuration: %w", err))
 		}
 		return cause
 	}
 	// ifdown needs the original method/options to release the old configuration.
-	if err := down(); err != nil {
+	if err := runInterfaces("ifdown", oldNames); err != nil {
 		return reactivateOriginal(err)
 	}
 	if err := replaceFile(ops, s.path, data, s.mode); err != nil {
@@ -298,7 +409,7 @@ func applyInterfaces(ifaces []client.InterfaceInfo, ops Ops) error {
 		if restoreErr := replaceFile(ops, s.path, s.data, s.mode); restoreErr != nil {
 			return errors.Join(append(errs, fmt.Errorf("restore %s: %w", s.path, restoreErr))...)
 		}
-		if restoreErr := up(); restoreErr != nil {
+		if restoreErr := runInterfaces("ifup", oldNames); restoreErr != nil {
 			errs = append(errs, fmt.Errorf("reactivate restored ifupdown configuration: %w", restoreErr))
 		}
 		return errors.Join(errs...)

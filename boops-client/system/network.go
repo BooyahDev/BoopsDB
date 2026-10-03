@@ -83,10 +83,33 @@ func ApplyNetworkSettingsWithOps(ifaces []client.InterfaceInfo, ops Ops) error {
 	}
 	switch ops.OS() {
 	case "linux":
-		for _, info := range normalized {
-			if err := runChecked(ops, "ip", "link", "show", "dev", info.Name); err != nil {
-				return fmt.Errorf("NIC %s preflight: %w", info.Name, err)
+		identities := make([]client.InterfaceInfo, len(normalized))
+		for i, info := range normalized {
+			out, err := ops.Run("ip", "-j", "link", "show", "dev", info.Name)
+			if err != nil {
+				return fmt.Errorf("NIC %s preflight: %w (%s)", info.Name, err, strings.TrimSpace(string(out)))
 			}
+			var links []struct {
+				Name string `json:"ifname"`
+				MAC  string `json:"address"`
+			}
+			if err := json.Unmarshal(out, &links); err != nil {
+				return fmt.Errorf("NIC %s identity: %w", info.Name, err)
+			}
+			if len(links) != 1 || links[0].Name != info.Name {
+				return fmt.Errorf("NIC %s identity did not identify the requested interface", info.Name)
+			}
+			localMAC := strings.TrimSpace(links[0].MAC)
+			if localMAC != "" {
+				mac, err := net.ParseMAC(localMAC)
+				if err != nil || len(mac) != 6 {
+					return fmt.Errorf("NIC %s has invalid local MAC %q", info.Name, localMAC)
+				}
+				localMAC = mac.String()
+			}
+			// Local identity is only for backend matching, never desired API/state data.
+			identities[i] = info
+			identities[i].MacAddress = localMAC
 		}
 		exists, err := ops.Exists("/etc/network/interfaces")
 		if err != nil {
@@ -96,7 +119,7 @@ func ApplyNetworkSettingsWithOps(ifaces []client.InterfaceInfo, ops Ops) error {
 			return applyInterfaces(normalized, ops)
 		}
 		if _, err := ops.LookPath("netplan"); err == nil {
-			return applyNetplan(normalized, ops)
+			return applyNetplan(identities, ops)
 		}
 		if _, err := ops.LookPath("nmcli"); err == nil {
 			return applyNetworkManager(normalized, ops)

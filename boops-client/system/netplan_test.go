@@ -1,6 +1,7 @@
 package system
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -250,5 +251,83 @@ func TestNetplanMatchRequiresNameAndMAC(t *testing.T) {
 	other := nodeValue(nodeValue(nodeValue(doc.Content[0], "network"), "ethernets"), "other")
 	if nodeValue(other, "dhcp4").Value != "true" || nodeValue(other, "addresses") != nil {
 		t.Fatalf("unmatched MAC NIC changed:\n%s", data)
+	}
+}
+
+func TestNetplanSplitForeignIDPreventsWrites(t *testing.T) {
+	for _, reversed := range []bool{false, true} {
+		t.Run(fmt.Sprint(reversed), func(t *testing.T) {
+			o := newFixtureOps(t, "netplan")
+			o.put(netplanPath, "network:\n  version: 2\n", 0600)
+			match := "network:\n  ethernets:\n    lan:\n      match: {name: eth0}\n"
+			settings := "network:\n  ethernets:\n    lan:\n      dhcp4: true\n"
+			if reversed {
+				match, settings = settings, match
+			}
+			o.put("/etc/netplan/20-first.yaml", match, 0600)
+			o.put("/etc/netplan/30-second.yaml", settings, 0600)
+			if err := ApplyNetworkSettingsWithOps(twoNICs()[:1], o); err == nil {
+				t.Fatal("split foreign identity/settings accepted")
+			}
+			if o.writes != 0 || o.count("netplan", "apply") != 0 {
+				t.Fatal("split foreign conflict changed host")
+			}
+		})
+	}
+}
+
+func TestNetplanWildcardCannotApplyToUnrequestedNIC(t *testing.T) {
+	o := newFixtureOps(t, "netplan")
+	o.put(netplanPath, "network:\n  version: 2\n  ethernets:\n    lan:\n      match: {name: 'eth*'}\n      dhcp4: true\n", 0600)
+	if err := ApplyNetworkSettingsWithOps(twoNICs()[:1], o); err == nil {
+		t.Fatal("broad match accepted for single requested NIC")
+	}
+	if o.writes != 0 || o.count("netplan", "apply") != 0 {
+		t.Fatal("unrequested NIC may receive requested static address")
+	}
+}
+
+func TestNetplanSplitForeignMatchUsesAllProperties(t *testing.T) {
+	o := newFixtureOps(t, "netplan")
+	o.put(netplanPath, "network:\n  version: 2\n", 0600)
+	o.put("/etc/netplan/20-name.yaml", "network:\n  ethernets:\n    lan:\n      match: {name: 'eth*'}\n", 0600)
+	o.put("/etc/netplan/30-mac.yaml", "network:\n  ethernets:\n    lan:\n      match: {macaddress: '02:00:00:00:00:02'}\n      dhcp4: true\n", 0600)
+	in := twoNICs()[:1]
+	in[0].MacAddress = "02:00:00:00:00:01"
+	if err := ApplyNetworkSettingsWithOps(in, o); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNetplanMatchesLocalMACWhenAPIMissingOrStale(t *testing.T) {
+	for _, apiMAC := range []string{"", "02:00:00:00:00:02"} {
+		t.Run(apiMAC, func(t *testing.T) {
+			o := newFixtureOps(t, "netplan")
+			o.put(netplanPath, "network:\n  version: 2\n  ethernets:\n    lan:\n      match: {macaddress: '02:00:00:00:00:01'}\n      set-name: eth0\n      dhcp4: true\n", 0600)
+			o.response = func(name string, args []string) ([]byte, error) {
+				if name == "ip" {
+					return []byte(`[{"ifname":"eth0","address":"02:00:00:00:00:01"}]`), nil
+				}
+				return nil, nil
+			}
+			in := twoNICs()[:1]
+			in[0].MacAddress = apiMAC
+			if err := ApplyNetworkSettingsWithOps(in, o); err != nil {
+				t.Fatal(err)
+			}
+			if in[0].MacAddress != apiMAC {
+				t.Fatal("API desired settings changed by identity preflight")
+			}
+			data, _ := o.ReadFile(netplanPath)
+			doc, err := parseNetplan(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ethernets := nodeValue(nodeValue(doc.Content[0], "network"), "ethernets")
+			lan := nodeValue(ethernets, "lan")
+			if nodeValue(lan, "addresses") == nil || nodeValue(ethernets, "eth0") != nil {
+				t.Fatalf("existing local-MAC definition not updated:\n%s", data)
+			}
+		})
 	}
 }

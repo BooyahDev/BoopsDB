@@ -2,6 +2,7 @@ package system
 
 import (
 	"boops/client"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -57,6 +58,14 @@ func (o *fixtureOps) Run(name string, args ...string) ([]byte, error) {
 		if b, e := o.response(name, args); b != nil || e != nil {
 			return b, e
 		}
+	}
+	if name == "ip" && len(args) > 2 && args[0] == "-j" && args[1] == "link" {
+		nic := args[len(args)-1]
+		mac := "02:00:00:00:00:01"
+		if nic == "eth1" {
+			mac = "02:00:00:00:00:02"
+		}
+		return json.Marshal([]map[string]string{{"ifname": nic, "address": mac}})
 	}
 	if name == "stat" {
 		s, e := os.Stat(o.local(args[len(args)-1]))
@@ -149,5 +158,26 @@ func TestGatherInterfacesSeparatesNameAndMAC(t *testing.T) {
 	}
 	if got["eth0"].Name != "eth0" || got["eth0"].MacAddress != "02:00:00:00:00:01" || len(got["eth0"].IPs) != 1 {
 		t.Fatalf("wrong gathered info: %#v", got)
+	}
+}
+
+func TestInvalidLocalIdentityPreventsWrites(t *testing.T) {
+	for _, data := range []string{"broken", `[]`, `[{"ifname":"eth0","address":"not a MAC"}]`, `[{"ifname":"other","address":"02:00:00:00:00:01"}]`} {
+		t.Run(data, func(t *testing.T) {
+			o := newFixtureOps(t, "netplan")
+			o.put(netplanPath, netplanOriginal, 0600)
+			o.response = func(name string, _ []string) ([]byte, error) {
+				if name == "ip" {
+					return []byte(data), nil
+				}
+				return nil, nil
+			}
+			if err := ApplyNetworkSettingsWithOps(twoNICs()[:1], o); err == nil {
+				t.Fatal("invalid local identity accepted")
+			}
+			if o.writes != 0 || o.count("netplan", "apply") != 0 {
+				t.Fatal("identity failure changed host")
+			}
+		})
 	}
 }

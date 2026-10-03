@@ -2,6 +2,7 @@ package system
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"strings"
@@ -224,5 +225,134 @@ func TestInterfacesContinuedOrdinaryHookAndManagedValues(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "post-up ip route add \\\n    203.0.113.0/24 via 192.0.2.5") {
 		t.Fatalf("ordinary continued hook lost:\n%s", data)
+	}
+}
+
+func TestInterfacesNewNICSkipsUnknownOldTeardown(t *testing.T) {
+	o := newFixtureOps(t, "interfaces")
+	o.put(interfacesPath, "auto lo\niface lo inet loopback\n", 0644)
+	o.response = func(name string, args []string) ([]byte, error) {
+		if name == "ifdown" || name == "ifup" {
+			data, _ := o.ReadFile(interfacesPath)
+			for _, nic := range args[2:] {
+				if !strings.Contains(string(data), "iface "+nic+" ") {
+					return nil, fmt.Errorf("unknown interface %s", nic)
+				}
+			}
+		}
+		return nil, nil
+	}
+	if err := ApplyNetworkSettingsWithOps(twoNICs()[:1], o); err != nil {
+		t.Fatal(err)
+	}
+	if o.count("ifdown", "") != 0 || o.count("ifup", "") != 1 || o.writes != 1 {
+		t.Fatal("first configuration performed old teardown or failed one batch")
+	}
+}
+
+func TestInterfacesIPv4HookInIPv6StanzaPreventsWrites(t *testing.T) {
+	for _, included := range []bool{false, true} {
+		t.Run(fmt.Sprint(included), func(t *testing.T) {
+			o := newFixtureOps(t, "interfaces")
+			stanza := "iface eth0 inet6 auto\n  post-up ip -4 route add \\\n    default via 192.0.2.254\n"
+			root := "auto eth0\niface eth0 inet static\n  address 192.0.2.9/24\n"
+			if included {
+				o.put(interfacesPath, root+"source interfaces.d/*\n", 0644)
+				o.put("/etc/network/interfaces.d/ipv6", stanza, 0644)
+			} else {
+				o.put(interfacesPath, root+stanza, 0644)
+			}
+			if err := ApplyNetworkSettingsWithOps(twoNICs()[:1], o); err == nil {
+				t.Fatal("IPv4 hook in preserved IPv6 family accepted")
+			}
+			if o.writes != 0 || o.count("ifdown", "") != 0 || o.count("ifup", "") != 0 {
+				t.Fatal("IPv4 hook conflict changed host")
+			}
+		})
+	}
+}
+
+func TestInterfacesKeepsIPv6DefaultHook(t *testing.T) {
+	o := newFixtureOps(t, "interfaces")
+	o.put(interfacesPath, "auto eth0\niface eth0 inet static\n  address 192.0.2.9/24\niface eth0 inet6 auto\n  post-up ip -6 route add default via 2001:db8::1\n", 0644)
+	if err := ApplyNetworkSettingsWithOps(twoNICs()[:1], o); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := o.ReadFile(interfacesPath)
+	if !strings.Contains(string(data), "post-up ip -6 route add default via 2001:db8::1") {
+		t.Fatal("IPv6 hook changed")
+	}
+}
+
+func TestInterfacesMixedNewNICAndFailureRestoreOnlyOriginalNIC(t *testing.T) {
+	for _, activationFails := range []bool{false, true} {
+		t.Run(fmt.Sprint(activationFails), func(t *testing.T) {
+			o := newFixtureOps(t, "interfaces")
+			original := "auto eth0\niface eth0 inet dhcp\n"
+			o.put(interfacesPath, original, 0640)
+			failed := false
+			o.response = func(name string, args []string) ([]byte, error) {
+				if name == "ifdown" || name == "ifup" {
+					data, _ := o.ReadFile(interfacesPath)
+					for _, nic := range args[2:] {
+						if !strings.Contains(string(data), "iface "+nic+" ") {
+							return nil, fmt.Errorf("unknown interface %s", nic)
+						}
+					}
+					if activationFails && !failed && name == "ifup" {
+						failed = true
+						return nil, errors.New("activation failed")
+					}
+				}
+				return nil, nil
+			}
+			err := ApplyNetworkSettingsWithOps(twoNICs(), o)
+			if activationFails && err == nil {
+				t.Fatal("activation failure ignored")
+			}
+			if !activationFails && err != nil {
+				t.Fatal(err)
+			}
+			var calls []string
+			for _, call := range o.calls {
+				if call.name == "ifdown" || call.name == "ifup" {
+					calls = append(calls, call.name+" "+strings.Join(call.args, " "))
+				}
+			}
+			want := "ifdown --force -- eth0|ifup --force -- eth0 eth1"
+			if activationFails {
+				want += "|ifdown --force -- eth0 eth1|ifup --force -- eth0"
+			}
+			if strings.Join(calls, "|") != want {
+				t.Fatalf("wrong old/new NIC operations: %v", calls)
+			}
+			if activationFails {
+				data, _ := o.ReadFile(interfacesPath)
+				if string(data) != original {
+					t.Fatal("original not restored")
+				}
+			}
+		})
+	}
+}
+
+func TestInterfacesActiveLogicalStateUsesOriginalDefinition(t *testing.T) {
+	o := newFixtureOps(t, "interfaces")
+	o.put(interfacesPath, "iface home inet dhcp\n", 0644)
+	o.put("/run/network/ifstate", "eth0=home\n", 0644)
+	if err := ApplyNetworkSettingsWithOps(twoNICs()[:1], o); err != nil {
+		t.Fatal(err)
+	}
+	if o.count("ifdown", "") != 1 {
+		t.Fatal("active original logical configuration was not stopped")
+	}
+	o = newFixtureOps(t, "interfaces")
+	o.put(interfacesPath, "iface lo inet loopback\n", 0644)
+	o.put("/run/network/ifstate", "eth0=missing\n", 0644)
+	if err := ApplyNetworkSettingsWithOps(twoNICs()[:1], o); err == nil {
+		t.Fatal("state with missing old definition accepted")
+	}
+	if o.writes != 0 || o.count("ifdown", "") != 0 {
+		t.Fatal("unknown active old state changed host")
 	}
 }
