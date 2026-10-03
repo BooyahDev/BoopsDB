@@ -18,30 +18,35 @@
       <div class="d-flex align-center flex-wrap ga-2 px-5 py-3"><span class="text-body-2">{{ pagination?.total || 0 }} 件中 {{ pagination?.total ? offset + 1 : 0 }}〜{{ offset + machines.length }} 件</span><v-spacer /><v-btn variant="text" prepend-icon="mdi-chevron-left" :disabled="offset === 0 || loading" @click="page(-1)">前へ</v-btn><v-btn variant="text" append-icon="mdi-chevron-right" :disabled="!pagination?.hasMore || loading" @click="page(1)">次へ</v-btn></div>
       <v-divider />
       <v-table density="comfortable">
-        <thead><tr><th>ホスト名</th><th>IP アドレス</th><th>用途</th><th>種類</th><th>最終接続</th></tr></thead>
+        <thead><tr><th>ホスト名</th><th>IP アドレス</th><th>用途</th><th>種類</th><th :aria-sort="sort === 'updated_at' ? (order === 'asc' ? 'ascending' : 'descending') : 'none'"><button type="button" class="update-sort" @click="sortUpdated">最終更新日時 <span aria-hidden="true">{{ sort === 'updated_at' ? (order === 'asc' ? '↑' : '↓') : '↕' }}</span></button></th><th>最終接続</th></tr></thead>
         <tbody>
           <tr v-for="machine in machines" :key="machine.id">
             <td><NuxtLink :to="{ path: `/machines/${machine.id}`, query: { returnTo: route.fullPath } }" class="hostname-link">{{ machine.hostname }}</NuxtLink><div class="text-caption text-medium-emphasis mono">{{ machine.id }}</div></td>
             <td><div v-for="iface in machine.interfaces" :key="iface.id"><span v-for="ip in iface.ips" :key="ip.id" class="d-block mono text-body-2">{{ ip.ip_address }}<span class="text-caption text-medium-emphasis ml-2">{{ iface.name }}</span></span></div></td>
-            <td>{{ machine.purpose || '—' }}</td><td><v-chip size="small" variant="tonal">{{ machine.is_virtual ? '仮想' : '物理' }}</v-chip></td><td>{{ formatDate(machine.last_alive) }}</td>
+            <td>{{ machine.purpose || '—' }}</td><td><v-chip size="small" variant="tonal">{{ machine.is_virtual ? '仮想' : '物理' }}</v-chip></td>
+            <td class="update-cell"><v-chip :color="getUpdateStatus(machine.updated_at, now).color" size="small" variant="tonal">{{ getUpdateStatus(machine.updated_at, now).label }}</v-chip><div class="text-body-2 mt-1">{{ formatDate(machine.updated_at) }}</div></td>
+            <td>{{ formatDate(machine.last_alive) }}</td>
           </tr>
-          <tr v-if="!loading && !machines.length"><td colspan="5" class="text-center pa-8 text-medium-emphasis">条件に一致するマシンはありません。</td></tr>
+          <tr v-if="!loading && !machines.length"><td colspan="6" class="text-center pa-8 text-medium-emphasis">条件に一致するマシンはありません。</td></tr>
         </tbody>
       </v-table>
     </v-card>
   </v-container>
 </template>
 <script setup>
-import { ref, watch, onMounted } from 'vue';
+import { ref, watch, onMounted, onUnmounted } from 'vue';
 import { useApiBaseUrl } from '@/apiConfig';
 import { useDateFormatter } from '@/composables/useDateFormatter';
 import { createMachineSearchParams } from '@/utils/machineSearchParams.js';
+import { getUpdateStatus } from '@/utils/updateStatus.js';
 const apiBaseUrl = useApiBaseUrl();
 const route = useRoute(), router = useRouter();
 const { formatDate } = useDateFormatter();
 const query = ref(''), sort = ref(''), order = ref('asc'), limit = ref(50), offset = ref(0);
 const machines = ref([]), pagination = ref(null), loading = ref(false), error = ref('');
-const sortOptions = [{ title: '登録順（既定）', value: '' }, { title: 'ホスト名', value: 'hostname' }, { title: '登録日時', value: 'created_at' }, { title: '更新日時', value: 'updated_at' }, { title: '最終接続', value: 'last_alive' }, { title: 'OS', value: 'os_name' }, { title: '用途', value: 'purpose' }];
+const sortOptions = [{ title: '登録順（既定）', value: '' }, { title: 'ホスト名', value: 'hostname' }, { title: '登録日時', value: 'created_at' }, { title: '最終更新日時', value: 'updated_at' }, { title: '最終接続', value: 'last_alive' }, { title: 'OS', value: 'os_name' }, { title: '用途', value: 'purpose' }];
+const now = ref(Date.now());
+let clockTimer;
 let requestSequence = 0;
 const load = async () => {
   const sequence = ++requestSequence;
@@ -70,11 +75,23 @@ const navigate = nextOffset => {
   else router.push({ path: '/machines', query: next });
 };
 const search = () => navigate(0);
+const sortUpdated = () => {
+  order.value = sort.value === 'updated_at' && order.value === 'desc' ? 'asc' : 'desc';
+  sort.value = 'updated_at';
+  navigate(0);
+};
 const page = direction => navigate(Math.max(0, offset.value + direction * limit.value));
 watch(() => route.fullPath, load);
-onMounted(load);
+onMounted(() => {
+  load();
+  clockTimer = setInterval(() => { now.value = Date.now(); }, 1000);
+});
+onUnmounted(() => clearInterval(clockTimer));
 </script>
 <style scoped>
 .hostname-link { color: rgb(var(--v-theme-primary)); font-weight: 500; text-decoration: none; }
 .hostname-link:hover { text-decoration: underline; }
+.update-cell { white-space: nowrap; }
+.update-sort { font: inherit; color: inherit; cursor: pointer; }
+.update-sort:focus-visible { outline: 2px solid rgb(var(--v-theme-primary)); outline-offset: 4px; }
 </style>

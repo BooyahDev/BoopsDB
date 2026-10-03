@@ -185,3 +185,17 @@ test('basic save for another machine cannot refresh the current route', async ()
   await refreshUpdatedMachine({ id: 'abcdef12-abcd-4abc-8def-abcdef123456' }, 'abcdef12-abcd-4abc-8def-abcdef123457', () => { requests++; });
   assert.equal(requests, 0);
 });
+test('最終更新の色は5分と3日の境界で切り替わり、未更新は紫になる', async () => {
+  const { getUpdateStatus } = await import('../utils/updateStatus.js');
+  const now = Date.parse('2026-10-04T12:00:00Z');
+  const at = age => new Date(now - age).toISOString();
+  assert.equal(getUpdateStatus(at(0), now).color, 'success');
+  assert.equal(getUpdateStatus(at(300000), now).color, 'success');
+  assert.equal(getUpdateStatus(at(300001), now).color, 'warning');
+  assert.equal(getUpdateStatus(at(259200000 - 1), now).color, 'warning');
+  assert.equal(getUpdateStatus(at(259200000), now).color, 'error');
+  for (const value of [null, undefined, '', 'invalid']) {
+    assert.equal(getUpdateStatus(value, now).color, 'purple');
+  }
+  assert.equal(getUpdateStatus(at(-60000), now).color, 'success');
+});
