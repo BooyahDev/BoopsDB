@@ -1,13 +1,13 @@
 package system
 
 import (
+	"boops/client"
 	"encoding/json"
 	"fmt"
-	"os/exec"
-	"runtime"
+	"net"
+	"net/netip"
+	"sort"
 	"strings"
-
-	"boops/client"
 )
 
 // ANSI color codes for styled output
@@ -45,542 +45,149 @@ func PrintStyledMessage(msgType string, msg string) {
 	fmt.Println()
 }
 
+// ApplyNetworkSettings accepts the legacy map and the API's NIC slice.
 func ApplyNetworkSettings(ifaceArg interface{}) error {
-	var ifaces map[string]client.InterfaceInfo
-
+	var ifaces []client.InterfaceInfo
 	switch v := ifaceArg.(type) {
-	case map[string]client.InterfaceInfo:
-		ifaces = v
 	case []client.InterfaceInfo:
-		ifaces = make(map[string]client.InterfaceInfo)
-		for i, info := range v {
-			if len(info.IPs) > 0 && len(info.IPs[0].IP) > 0 {
-				ifaceName := info.Name // Use actual interface name if available
-				if ifaceName == "" {
-					ifaceName = fmt.Sprintf("interface-%d", i)
-				}
-				ifaces[ifaceName] = info
+		ifaces = v
+	case map[string]client.InterfaceInfo:
+		names := make([]string, 0, len(v))
+		for name := range v {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			info := v[name]
+			if info.Name == "" {
+				info.Name = name
 			}
+			if info.Name != name {
+				return fmt.Errorf("NIC map key %s differs from name %s", name, info.Name)
+			}
+			ifaces = append(ifaces, info)
 		}
 	default:
 		return fmt.Errorf("unsupported interface argument type: %T", ifaceArg)
 	}
+	return ApplyNetworkSettingsWithOps(ifaces, RealOps())
+}
 
-	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
-		return fmt.Errorf("unsupported OS: %s", runtime.GOOS)
+func ApplyNetworkSettingsWithOps(ifaces []client.InterfaceInfo, ops Ops) error {
+	normalized, err := client.NormalizeInterfaces(ifaces)
+	if err != nil {
+		return err
 	}
-	if len(ifaces) == 0 {
+	if len(normalized) == 0 {
 		return fmt.Errorf("no network interfaces provided")
 	}
-
-	if runtime.GOOS == "linux" {
-		return applyLinux(ifaces)
-	} else if runtime.GOOS == "windows" {
-		return applyWindows(ifaces)
-	}
-	return nil
-}
-
-func applyLinux(ifaces map[string]client.InterfaceInfo) error {
-	isDebian, usesInterfacesFile, err := isDebianSystem()
-	if err != nil {
-		return fmt.Errorf("unable to determine system type: %v", err)
-	}
-
-	for name, info := range ifaces {
-		// Check if interface exists
-		cmd := exec.Command("ip", "link", "show", name)
-		output, err := cmd.CombinedOutput()
-		if err != nil || strings.Contains(string(output), "Device does not exist") {
-			return fmt.Errorf("interface %s does not exist on this system", name)
+	switch ops.OS() {
+	case "linux":
+		for _, info := range normalized {
+			if err := runChecked(ops, "ip", "link", "show", "dev", info.Name); err != nil {
+				return fmt.Errorf("NIC %s preflight: %w", info.Name, err)
+			}
 		}
-
-		if usesInterfacesFile {
-			err = applyInterfacesFile(name, info)
-		} else if isDebian {
-			err = applyNetplan(name, info)
-		} else {
-			err = applyNmcli(name, info)
-		}
+		exists, err := ops.Exists("/etc/network/interfaces")
 		if err != nil {
-			return fmt.Errorf("failed to apply settings for interface %s: %v", name, err)
+			return err
 		}
+		if exists {
+			return applyInterfaces(normalized, ops)
+		}
+		if _, err := ops.LookPath("netplan"); err == nil {
+			return applyNetplan(normalized, ops)
+		}
+		if _, err := ops.LookPath("nmcli"); err == nil {
+			return applyNetworkManager(normalized, ops)
+		}
+		return fmt.Errorf("no supported Linux network configuration backend found")
+	case "windows":
+		return applyWindows(normalized, ops)
+	default:
+		return fmt.Errorf("unsupported OS: %s", ops.OS())
 	}
-
-	return nil
 }
 
-func isDebianSystem() (bool, bool, error) {
-	var isDebian bool
-	var usesInterfacesFile bool
-
-	// Check for /etc/network/interfaces file first as a primary indicator of configuration method
-	if _, err := exec.Command("test", "-f", "/etc/network/interfaces").CombinedOutput(); err == nil {
-		usesInterfacesFile = true
-	} else {
-		// Check for Debian-based system
-		if _, err := exec.Command("test", "-f", "/etc/debian_version").CombinedOutput(); err == nil {
-			isDebian = true
-
-			// For Debian systems, check if netplan is available instead of /etc/network/interfaces
-			if _, err := exec.Command("which", "netplan").CombinedOutput(); err == nil {
-				usesInterfacesFile = false // Use Netplan instead
-			} else {
-				usesInterfacesFile = true // Default to interfaces file for Debian
-			}
-		} else if _, err := exec.Command("test", "-f", "/etc/redhat-release").CombinedOutput(); err == nil {
-			isDebian = false
-
-			// For RedHat systems, check if nmcli is available instead of /etc/network/interfaces
-			if _, err := exec.Command("which", "nmcli").CombinedOutput(); err == nil {
-				usesInterfacesFile = false // Use nmcli instead
-			} else {
-				usesInterfacesFile = true // Default to interfaces file for RedHat
-			}
-		} else {
-			// If neither Debian nor RedHat markers are found, we can't determine the OS type
-			return false, false, fmt.Errorf("unable to determine OS type")
-		}
+func subnetMaskToCIDR(mask string) (int, error) {
+	addr, err := netip.ParseAddr(mask)
+	if err != nil || !addr.Is4() {
+		return 0, fmt.Errorf("invalid IPv4 subnet mask %q", mask)
 	}
-
-	return isDebian, usesInterfacesFile, nil
+	b := addr.As4()
+	ones, bits := net.IPMask(b[:]).Size()
+	if bits != 32 {
+		return 0, fmt.Errorf("non-contiguous subnet mask %q", mask)
+	}
+	return ones, nil
 }
-
-func applyNetplan(iface string, info client.InterfaceInfo) error {
-	configPath := "/etc/netplan/01-netcfg.yaml"
-	// IP アドレスとサブネットを CIDR 形式で連結
-	var addresses []string
-	for _, ip := range info.IPs {
-		cidr, err := subnetMaskToCIDR(ip.Subnet)
-		if err != nil {
-			return fmt.Errorf("invalid subnet mask %s: %w", ip.Subnet, err)
-		}
-		addresses = append(addresses, fmt.Sprintf("%s/%d", ip.IP, cidr))
-	}
-
-	// DNS サーバをスライスに変換
-	var dnsList []string
-	for _, dns := range strings.Split(info.DnsServers, ",") {
-		trimmed := strings.TrimSpace(dns)
-		if trimmed != "" {
-			dnsList = append(dnsList, trimmed)
-		}
-	}
-
-	// YAML 生成
-	content := fmt.Sprintf(`network:
-  version: 2
-  ethernets:
-    %s:
-      dhcp4: no
-      addresses: [%s]
-      gateway4: %s
-      nameservers:
-        addresses: [%s]
-`, iface, strings.Join(addresses, ", "), info.Gateway, strings.Join(dnsList, ", "))
-
-	// Remove all existing netplan configurations to avoid conflicts
-	var cmd *exec.Cmd
-	var output []byte
-	var err error
-
-	cmd = exec.Command("sh", "-c", "rm -f /etc/netplan/*.yaml")
-	output, err = cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to remove existing netplan configs: %v, output: %s", err, string(output))
-	}
-
-	err = writeNetplanConfig(configPath, content)
-	if err != nil {
-		return fmt.Errorf("failed to write netplan config: %v", err)
-	}
-
-	cmd = exec.Command("sh", "-c", "chmod 600 "+configPath)
-	output, err = cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to set file permissions: %v, output: %s", err, string(output))
-	}
-
-	cmd = exec.Command("sh", "-c", "netplan apply")
-	output, err = cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("netplan apply failed with error: %v, output: %s", err, string(output))
-	}
-	return nil
-}
-
-func writeNetplanConfig(path, content string) error {
-	cmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | tee %s > /dev/null", content, path))
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to write config: %v, output: %s", err, string(output))
-	}
-	return nil
-}
-
-func applyInterfacesFile(iface string, info client.InterfaceInfo) error {
-	existingContent, err := readInterfacesFile("/etc/network/interfaces")
-	if err != nil {
-		return fmt.Errorf("failed to read interfaces file: %v", err)
-	}
-
-	lines := strings.Split(existingContent, "\n")
-	var newLines []string
-
-	inTargetBlock := false
-	for i := 0; i < len(lines); i++ {
-		line := lines[i]
-		trimmed := strings.TrimSpace(line)
-
-		// iface セクション開始を検出
-		if strings.HasPrefix(trimmed, "iface "+iface+" ") {
-			inTargetBlock = true
-			newLines = append(newLines, line)
-			continue
-		}
-
-		// ブロック終了条件（次の iface/auto 行や空行）
-		if inTargetBlock {
-			if trimmed == "" || strings.HasPrefix(trimmed, "iface ") || strings.HasPrefix(trimmed, "auto ") {
-				inTargetBlock = false
-				newLines = append(newLines, line)
-				continue
-			}
-
-			// ブロック内で address / gateway はスキップ（後で再挿入）
-			if strings.HasPrefix(trimmed, "address") || strings.HasPrefix(trimmed, "gateway") {
-				continue
-			}
-		}
-
-		// 通常行はそのまま
-		newLines = append(newLines, line)
-	}
-
-	// address 行生成
-	var insertLines []string
-	for _, ipInfo := range info.IPs {
-		cidr, err := subnetMaskToCIDR(ipInfo.Subnet)
-		if err != nil {
-			return fmt.Errorf("invalid subnet mask %s: %w", ipInfo.Subnet, err)
-		}
-		insertLines = append(insertLines, fmt.Sprintf("    address %s/%d", ipInfo.IP, cidr))
-	}
-
-	// gateway が有効なら追加（最初の1個のみ）
-	if info.Gateway != "" && info.Gateway != "0.0.0.0" {
-		insertLines = append(insertLines, fmt.Sprintf("    gateway %s", info.Gateway))
-	}
-
-	// iface ブロックに address/gateway を挿入
-	newLines = insertIntoIfaceBlock(newLines, iface, insertLines)
-
-	// ファイルへ書き戻し
-	err = writeInterfacesFile("/etc/network/interfaces", strings.Join(newLines, "\n"))
-	if err != nil {
-		return fmt.Errorf("failed to write interfaces file: %v", err)
-	}
-
-	// ネットワーク再起動
-	cmd := exec.Command("sh", "-c", "systemctl restart networking")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("networking service restart failed: %v, output: %s", err, string(output))
-	}
-
-	return nil
-}
-
-func insertIntoIfaceBlock(lines []string, iface string, insertLines []string) []string {
-	var result []string
-	inBlock := false
-	inserted := false
-
-	for i := 0; i < len(lines); i++ {
-		line := lines[i]
-		trimmed := strings.TrimSpace(line)
-		result = append(result, line)
-
-		// 対象の iface 行を検出
-		if strings.HasPrefix(trimmed, "iface "+iface+" ") {
-			inBlock = true
-			continue
-		}
-
-		// ブロック内挿入ポイント検出（次が新しい iface/auto/空行など）
-		if inBlock {
-			nextIsBoundary := (i+1 == len(lines)) ||
-				strings.TrimSpace(lines[i+1]) == "" ||
-				strings.HasPrefix(strings.TrimSpace(lines[i+1]), "iface ") ||
-				strings.HasPrefix(strings.TrimSpace(lines[i+1]), "auto ")
-
-			if nextIsBoundary {
-				result = append(result, insertLines...)
-				inserted = true
-				inBlock = false
-			}
-		}
-	}
-
-	if !inserted {
-		result = append(result, insertLines...)
-	}
-
-	return result
-}
-
-func readInterfacesFile(path string) (string, error) {
-	cmd := exec.Command("cat", path)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("failed to read interfaces file: %v", err)
-	}
-	return strings.TrimRight(string(output), "\n"), nil
-}
-
-func writeInterfacesFile(path, content string) error {
-	escaped := strings.ReplaceAll(content, `'`, `'\''`)
-	cmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' | sudo tee %s > /dev/null", escaped, path))
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("failed to write interfaces file: %v, output: %s", err, string(output))
-	}
-	return nil
-}
-
-func applyNmcli(iface string, info client.InterfaceInfo) error {
-	// Check if interface exists before applying settings
-	cmd := exec.Command("ip", "link", "show", iface)
-	output, err := cmd.CombinedOutput()
-	if err != nil || strings.Contains(string(output), "Device does not exist") {
-		return fmt.Errorf("interface %s does not exist on this system", iface)
-	}
-
-	// IP アドレスとサブネットを CIDR 形式で連結
-	var addresses []string
-	for _, ip := range info.IPs {
-		cidr, err := subnetMaskToCIDR(ip.Subnet)
-		if err != nil {
-			return fmt.Errorf("invalid subnet mask %s: %w", ip.Subnet, err)
-		}
-		addresses = append(addresses, fmt.Sprintf("%s/%d", ip.IP, cidr))
-	}
-
-	// DNS サーバをスライスに変換
-	var dnsList []string
-	for _, dns := range strings.Split(info.DnsServers, ",") {
-		trimmed := strings.TrimSpace(dns)
-		if trimmed != "" {
-			dnsList = append(dnsList, trimmed)
-		}
-	}
-
-	cmds := []string{
-		fmt.Sprintf("nmcli con mod %s ipv4.method manual ipv4.addresses \"%s\"", iface, strings.Join(addresses, ", ")),
-	}
-
-	if info.Gateway != "" {
-		cmds = append(cmds, fmt.Sprintf("nmcli con mod %s ipv4.gateway \"%s\"", iface, info.Gateway))
-	}
-
-	for _, cmdStr := range cmds { // Use a string variable to avoid shadowing the exec.Command
-		output, err = exec.Command("sh", "-c", cmdStr).CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("nmcli command failed with error: %v, output: %s", err, string(output))
-		}
-	}
-
-	if len(dnsList) > 0 {
-		cmd := fmt.Sprintf("nmcli con mod %s ipv4.dns \"%s\"", iface, strings.Join(dnsList, ", "))
-		output, err = exec.Command("sh", "-c", cmd).CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("Setting DNS failed with error: %v, output: %s", err, string(output))
-		}
-	}
-
-	cmd = exec.Command("sh", "-c", "nmcli con up "+iface)
-	output, err = cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("nmcli connection up failed with error: %v, output: %s", err, string(output))
-	}
-	return nil
-}
-
-func applyWindows(ifaces map[string]client.InterfaceInfo) error {
-	for name, info := range ifaces {
-		for _, ipInfo := range info.IPs {
-			args := []string{
-				"interface ip set address", fmt.Sprintf("name=\"%s\"", name), fmt.Sprintf("static %s %s", ipInfo.IP, ipInfo.Subnet),
-			}
-			if info.Gateway != "" {
-				args = append(args, info.Gateway)
-			}
-			exec.Command("netsh", args...).Run()
-		}
-	}
-	return nil
-}
-
 func MaskToCIDR(mask string) string {
-	parts := strings.Split(mask, ".")
-	bits := 0
-	for _, part := range parts {
-		n := 0
-		fmt.Sscanf(part, "%d", &n)
-		for n > 0 {
-			bits += int(n % 2)
-			n >>= 1
-		}
+	bits, err := subnetMaskToCIDR(mask)
+	if err != nil {
+		return ""
 	}
-	return fmt.Sprintf("%d", bits)
+	return fmt.Sprint(bits)
+}
+func addressCIDRs(info client.InterfaceInfo) []string {
+	out := make([]string, len(info.IPs))
+	for i, ip := range info.IPs {
+		bits, _ := subnetMaskToCIDR(ip.Subnet)
+		out[i] = fmt.Sprintf("%s/%d", ip.IP, bits)
+	}
+	return out
+}
+func dnsAddresses(info client.InterfaceInfo) []string {
+	if info.DnsServers == "" {
+		return nil
+	}
+	return strings.Split(info.DnsServers, ",")
 }
 
-// GatherNetworkInterfaces returns a map of network interfaces and their current information
 func GatherNetworkInterfaces() (map[string]client.InterfaceInfo, error) {
-	out, err := exec.Command("ip", "-j", "addr").CombinedOutput()
+	return gatherNetworkInterfacesWithOps(RealOps())
+}
+func gatherNetworkInterfacesWithOps(ops Ops) (map[string]client.InterfaceInfo, error) {
+	out, err := ops.Run("ip", "-j", "addr")
 	if err != nil {
-		return nil, fmt.Errorf("command failed with error: %v, output: %s", err, string(out))
+		return nil, fmt.Errorf("read network interfaces: %w (%s)", err, out)
 	}
-	var data []map[string]interface{}
-	err = json.Unmarshal(out, &data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse JSON: %v", err)
+	var data []struct {
+		Name      string `json:"ifname"`
+		MAC       string `json:"address"`
+		Addresses []struct {
+			Family string `json:"family"`
+			Local  string `json:"local"`
+			Prefix int    `json:"prefixlen"`
+		} `json:"addr_info"`
 	}
-
-	result := make(map[string]client.InterfaceInfo)
-	for _, ifaceData := range data {
-		name := ifaceData["ifname"].(string)
-
-		var macAddr string
-		macCmd := exec.Command("ip", "-o", "link")
-		macOutput, err := macCmd.CombinedOutput()
-		if err == nil {
-			lines := strings.Split(string(macOutput), "\n")
-			for _, line := range lines {
-				if strings.Contains(line, name) && strings.Contains(line, "link/ether") {
-					fields := strings.Fields(line)
-					for i, field := range fields {
-						if field == "link/ether" && i+1 < len(fields) {
-							macAddr = fields[i+1]
-							break
-						}
-					}
-				}
-			}
-
-			if macAddr == "" {
-				cmd := exec.Command("cat", "/sys/class/net/"+name+"/address")
-				output, err := cmd.CombinedOutput()
-				if err == nil && len(output) > 0 {
-					macAddr = strings.TrimSpace(string(output))
-				}
-			}
-		}
-
-		var ipInfos []client.IPInfo
-		if addrs, ok := ifaceData["addr_info"].([]interface{}); ok && len(addrs) > 0 {
-			for _, addrData := range addrs {
-				addrMap := addrData.(map[string]interface{})
-				local := addrMap["local"].(string)
-				prefixlen := int(addrMap["prefixlen"].(float64))
-				subnet := cidrToMask(prefixlen)
-
-				ipInfos = append(ipInfos, client.IPInfo{
-					IP:     local,
-					Subnet: subnet,
-				})
-			}
-		}
-
-		result[name] = client.InterfaceInfo{
-			IPs:        ipInfos,
-			Gateway:    "",
-			DnsServers: "", // Empty string for DNS servers, will be set to comma-separated values elsewhere if needed
-			MacAddress: macAddr,
-			Name:       name, // Add the actual interface name
-		}
+	if err := json.Unmarshal(out, &data); err != nil {
+		return nil, fmt.Errorf("parse interface data: %w", err)
 	}
-
+	result := make(map[string]client.InterfaceInfo, len(data))
+	for _, entry := range data {
+		if entry.Name == "" {
+			continue
+		}
+		info := client.InterfaceInfo{Name: entry.Name, MacAddress: entry.MAC}
+		for _, address := range entry.Addresses {
+			addr, err := netip.ParseAddr(address.Local)
+			if err != nil || !addr.Is4() || address.Prefix < 0 || address.Prefix > 32 {
+				continue
+			}
+			info.IPs = append(info.IPs, client.IPInfo{IP: addr.String(), Subnet: cidrToMask(address.Prefix)})
+		}
+		result[entry.Name] = info
+	}
 	return result, nil
 }
 
-// GetMacAddress retrieves the MAC address for a given interface name using platform-specific commands
 func GetMacAddress(iface string) (string, error) {
-	var cmd *exec.Cmd
-
-	switch runtime.GOOS {
-	case "linux":
-		cmd = exec.Command("sh", "-c", fmt.Sprintf(`cat $(find /sys/devices/ -name %s)/address`, iface))
-	case "windows":
-		cmd = exec.Command("wmic", "nic where \"NetConnectionID like '%"+iface+"%'", "get MACAddress /value")
-	default:
-		return "", fmt.Errorf("unsupported OS: %s", runtime.GOOS)
-	}
-
-	output, err := cmd.CombinedOutput()
+	nic, err := net.InterfaceByName(iface)
 	if err != nil {
-		return "", fmt.Errorf("command failed with error: %v, output: %s", err, string(output))
+		return "", err
 	}
-
-	var macAddr string
-	switch runtime.GOOS {
-	case "linux":
-		macAddr = strings.TrimSpace(string(output))
-		if macAddr == "" {
-			cmd = exec.Command("cat", "/sys/class/net/"+iface+"/address")
-			output, err = cmd.CombinedOutput()
-			if err == nil && len(output) > 0 {
-				macAddr = strings.TrimSpace(string(output))
-			}
-		}
-
-	case "windows":
-		lines := strings.Split(string(output), "\n")
-		for _, line := range lines {
-			if strings.Contains(line, "MACAddress=") {
-				macAddr = strings.ReplaceAll(strings.TrimSpace(strings.Split(line, "=")[1]), "\"", "")
-				break
-			}
-		}
+	if len(nic.HardwareAddr) == 0 {
+		return "", fmt.Errorf("MAC address not found for NIC %s", iface)
 	}
-
-	if macAddr == "" {
-		return "", fmt.Errorf("MAC address not found for interface: %s", iface)
-	}
-
-	return macAddr, nil
-}
-
-// サブネットマスク（例: "255.255.255.0"）を CIDR 表記（例: 24）に変換
-func subnetMaskToCIDR(mask string) (int, error) {
-	octets := strings.Split(mask, ".")
-	if len(octets) != 4 {
-		return 0, fmt.Errorf("invalid subnet format")
-	}
-	cidr := 0
-	for _, octet := range octets {
-		switch octet {
-		case "255":
-			cidr += 8
-		case "254":
-			cidr += 7
-		case "252":
-			cidr += 6
-		case "248":
-			cidr += 5
-		case "240":
-			cidr += 4
-		case "224":
-			cidr += 3
-		case "192":
-			cidr += 2
-		case "128":
-			cidr += 1
-		case "0":
-			// nothing
-		default:
-			return 0, fmt.Errorf("unsupported octet: %s", octet)
-		}
-	}
-	return cidr, nil
+	return nic.HardwareAddr.String(), nil
 }

@@ -1,10 +1,10 @@
 package system
 
 import (
-	"encoding/json"
 	"fmt"
 	"os/exec"
 	"runtime"
+	"sort"
 	"strings"
 
 	"boops/client"
@@ -98,49 +98,21 @@ func getDiskInfo() string {
 }
 
 func getInterfaces() []client.InterfaceInfo {
-	out, _ := exec.Command("ip", "-j", "addr").Output()
-	var data []map[string]interface{}
-	json.Unmarshal(out, &data)
-	result := make([]client.InterfaceInfo, 0)
-
-	for _, ifaceData := range data {
-		name := ifaceData["ifname"].(string)
-		if name == "" { // Skip empty interface names
-			continue
-		}
-
-		var ipInfos []client.IPInfo
-
-		if addrs, ok := ifaceData["addr_info"].([]interface{}); ok && len(addrs) > 0 {
-			for _, addrData := range addrs {
-				addrMap := addrData.(map[string]interface{})
-				local := addrMap["local"].(string)
-				prefixlen := int(addrMap["prefixlen"].(float64))
-
-				// Ensure prefix length is valid
-				if prefixlen < 0 || prefixlen > 32 {
-					continue // Skip invalid addresses
-				}
-
-				subnet := cidrToMask(prefixlen)
-
-				ipInfos = append(ipInfos, client.IPInfo{
-					IP:     local,
-					Subnet: subnet,
-				})
-			}
-		}
-
-		if len(ipInfos) > 0 { // Only include interfaces with valid IP addresses
-			result = append(result, client.InterfaceInfo{
-				IPs:        ipInfos,
-				Gateway:    "",
-				DnsServers: "",   // Empty string instead of slice
-				MacAddress: name, // Use interface name as ID for now
-			})
+	ifaces, err := GatherNetworkInterfaces()
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(ifaces))
+	for name := range ifaces {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	result := make([]client.InterfaceInfo, 0, len(names))
+	for _, name := range names {
+		if len(ifaces[name].IPs) > 0 {
+			result = append(result, ifaces[name])
 		}
 	}
-
 	return result
 }
 
