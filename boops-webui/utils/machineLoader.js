@@ -16,3 +16,8 @@ export function createMachineLoader({ getMachine, getMachineId, onMachine, onLoa
     }
   };
 }
+
+export function refreshUpdatedMachine(updatedMachine, currentMachineId, reload) {
+  if (typeof updatedMachine.id === 'string' && typeof currentMachineId === 'string'
+    && updatedMachine.id.toLowerCase() === currentMachineId.toLowerCase()) return reload();
+}

@@ -71,7 +71,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useMachineApi } from '@/composables/useMachineApi';
 import { useInterfaceApi } from '@/composables/useInterfaceApi';
-import { createMachineLoader } from '@/utils/machineLoader.js';
+import { createMachineLoader, refreshUpdatedMachine } from '@/utils/machineLoader.js';
 
 // Components
 import MachineBasicInfo from '@/components/machine/MachineBasicInfo.vue';
@@ -118,7 +118,7 @@ const loadMachine = createMachineLoader({
 
 // Handle machine updates
 const handleMachineUpdate = (updatedMachine) => {
-  if (updatedMachine.id === route.params.id) loadMachine();
+  return refreshUpdatedMachine(updatedMachine, route.params.id, loadMachine);
 };
 
 // Handle duplicate

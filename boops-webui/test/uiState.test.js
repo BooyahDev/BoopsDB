@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { normalizeThemePreference, resolveTheme } from '../utils/themePreference.js';
 import { createIpEditRows, toIpPayload } from '../utils/interfaceRows.js';
 import { createMachineSearchParams } from '../utils/machineSearchParams.js';
-import { createMachineLoader } from '../utils/machineLoader.js';
+import { createMachineLoader, refreshUpdatedMachine } from '../utils/machineLoader.js';
 import { syncInterfaceDraft } from '../utils/interfaceDraft.js';
 
 test('system follows OS while explicit theme ignores OS', () => {
@@ -156,4 +156,32 @@ test('reopening or selecting another NIC seeds fresh server data', () => {
   syncInterfaceDraft(draft, false, second, nextId);
   syncInterfaceDraft(draft, true, first, nextId);
   assert.equal(draft.ips[0].ip_address, '10.0.0.2');
+});
+
+test('basic save reloads canonical server ID on lowercase and uppercase UUID routes', async () => {
+  const canonicalId = 'abcdef12-abcd-4abc-8def-abcdef123456';
+  for (const routeId of [canonicalId, canonicalId.toUpperCase()]) {
+    const state = { machine: null };
+    let requests = 0;
+    const load = createMachineLoader({
+      getMachine: async requestedId => {
+        assert.equal(requestedId, routeId);
+        requests++;
+        return { id: canonicalId, hostname: requests === 1 ? 'before' : 'after' };
+      },
+      getMachineId: () => routeId,
+      onMachine: machine => { state.machine = machine; },
+      onLoading: () => {}, onError: () => {},
+    });
+    await load();
+    await refreshUpdatedMachine({ id: canonicalId, hostname: 'after' }, routeId, load);
+    assert.equal(requests, 2, routeId);
+    assert.equal(state.machine.hostname, 'after', routeId);
+  }
+});
+
+test('basic save for another machine cannot refresh the current route', async () => {
+  let requests = 0;
+  await refreshUpdatedMachine({ id: 'abcdef12-abcd-4abc-8def-abcdef123456' }, 'abcdef12-abcd-4abc-8def-abcdef123457', () => { requests++; });
+  assert.equal(requests, 0);
 });
