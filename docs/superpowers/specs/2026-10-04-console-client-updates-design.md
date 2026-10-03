@@ -4,7 +4,7 @@
 
 調査基準: `df408bbad18ac19b48ca9c815df7c8a81f90e1b4`
 
-状態: 変更方針はユーザー確認済み。この設計書の内容レビュー待ち。
+状態: ユーザーによる内容承認済み。実装計画を作成する段階。
 
 ## 目的と対象
 
@@ -117,6 +117,8 @@ Netplan は有効な設定を `/lib/netplan`、`/etc/netplan`、`/run/netplan` �
 ### 既存端末の初回移行
 
 旧版には更新処理がないため、配布先へのアップロードだけでは移行できない。新しいインストーラーを提供し、一度実行すると、その後は定期同期で更新できるようにする。新規登録と既存端末の更新を分け、既存 ID と同期状態を維持する。更新時は元の有効・稼働状態を記録し、timer 停止、実行中 service 停止、ダウンロードと検証、原子的なバイナリ置換、元の timer 状態の復元の順で処理する。既存 ID がある場合は `regist` を呼ばず、`config.json` と `machine_state.json` のバイト列を変更しない。非アクティブなタイマーを勝手に起動しない。
+
+実装計画のための追加確認で、現行の `regist` は存在しない `POST /api/machines/:id` に送信し、404 でも成功を表示することが分かった。新しい `regist <machine-id>` は、WebUI で作成済みのマシンを `GET /api/machines/:id` で確認してからローカルに ID を保存する。取得失敗・ID 不一致の場合は保存しない。登録のためにサーバーの NIC 設定を置き換えず、初回同期で API の設定を適用する。既存の登録コマンド名と ID の指定方法は維持する。
 
 インストーラーは最新情報の署名とダウンロードしたバイナリを検証し、一時ファイルから置換する。検証用公開鍵はインストーラーに固定する。JSON と Base64 の処理に Python 3、署名検証に OpenSSL 3.0 以上を必要とし、非対応の場合は未検証のインストールを続行しない。必要なコマンドは導入説明に記載する。検証は `openssl pkeyutl -verify -rawin -pubin -inkey public-key.pem -in payload.json -sigfile signature.bin` とし、Go と同じ payload の生バイトを使う。仕様の根拠は [OpenSSL の公式文書](https://docs.openssl.org/3.0/man1/openssl-pkeyutl/) である。
 
