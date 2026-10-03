@@ -1,13 +1,14 @@
-import { apiBaseUrl } from '@/apiConfig';
+import { useApiBaseUrl } from '@/apiConfig';
 
 export function useInterfaceApi() {
+  const apiBaseUrl = useApiBaseUrl();
   const updateInterfaceGateway = async (machineId, interfaceName, gateway) => {
     const response = await fetch(
-      `${apiBaseUrl}/interfaces/${machineId}/${interfaceName}/update-gateway`,
+      `${apiBaseUrl}/interfaces/${machineId}/${encodeURIComponent(interfaceName)}/update-gateway`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ gateway: gateway || null })
+        body: JSON.stringify({ gateway: gateway?.trim() || '' })
       }
     );
 
@@ -19,7 +20,7 @@ export function useInterfaceApi() {
 
   const updateInterfaceDns = async (machineId, interfaceName, dnsServers) => {
     const response = await fetch(
-      `${apiBaseUrl}/interfaces/${machineId}/${interfaceName}/update-dns`,
+      `${apiBaseUrl}/interfaces/${machineId}/${encodeURIComponent(interfaceName)}/update-dns`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -35,7 +36,7 @@ export function useInterfaceApi() {
 
   const updateInterfaceIps = async (machineId, interfaceName, ips) => {
     const response = await fetch(
-      `${apiBaseUrl}/interfaces/${machineId}/${interfaceName}/ips`,
+      `${apiBaseUrl}/interfaces/${machineId}/${encodeURIComponent(interfaceName)}/ips`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -51,7 +52,7 @@ export function useInterfaceApi() {
 
   const updateInterfaceName = async (machineId, oldName, newName) => {
     const response = await fetch(
-      `${apiBaseUrl}/interfaces/${machineId}/${oldName}/update-name`,
+      `${apiBaseUrl}/interfaces/${machineId}/${encodeURIComponent(oldName)}/update-name`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -80,7 +81,7 @@ export function useInterfaceApi() {
 
   const deleteInterface = async (machineId, interfaceName) => {
     const response = await fetch(
-      `${apiBaseUrl}/machines/${machineId}/interfaces/${interfaceName}`,
+      `${apiBaseUrl}/machines/${machineId}/interfaces/${encodeURIComponent(interfaceName)}`,
       {
         method: 'DELETE'
       }

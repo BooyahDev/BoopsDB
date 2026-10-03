@@ -1,14 +1,14 @@
 <template>
-  <div>
+  <div class="mt-8 pt-4">
     <v-btn color="error" @click="showDeleteDialog = true">
       <v-icon start>mdi-delete</v-icon>
-      Machine Delete
+      マシンを削除
     </v-btn>
 
     <!-- Machine delete confirmation dialog -->
     <v-dialog v-model="showDeleteDialog" max-width="500">
       <v-card>
-        <v-card-title>Confirm Machine Deletion</v-card-title>
+        <v-card-title>マシンの削除</v-card-title>
         <v-card-text>
           <p>本当にこのマシンを削除しますか？</p>
           <p class="text-error">この操作は元に戻せません！</p>
@@ -18,7 +18,7 @@
           <v-btn color="error" @click="deleteMachine" :loading="isDeleting">
             削除
           </v-btn>
-          <v-btn color="secondary" @click="showDeleteDialog = false">
+          <v-btn variant="text" @click="showDeleteDialog = false">
             キャンセル
           </v-btn>
         </v-card-actions>

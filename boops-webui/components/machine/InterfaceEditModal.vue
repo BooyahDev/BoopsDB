@@ -1,270 +1,58 @@
 <template>
-  <v-dialog v-model="show" max-width="800">
+  <v-dialog v-model="show" max-width="850">
     <v-card>
-      <v-card-title>
-        <template v-if="isEditingInterfaceName">
-          <v-text-field
-            v-model="editingInterfaceName"
-            label="Interface Name"
-            density="compact"
-            hide-details
-            class="mb-2"
-          />
-        </template>
-        <template v-else>
-          Edit IP Addresses - {{ selectedInterface?.name || 'Unknown Interface' }}
-          <v-btn
-            icon
-            variant="text"
-            size="small"
-            @click="enableEditInterfaceName"
-            class="ml-2"
-            :disabled="!selectedInterface"
-          >
-            <v-icon>mdi-pencil</v-icon>
-          </v-btn>
-        </template>
-      </v-card-title>
-      
+      <v-card-title class="pt-5 px-6">{{ selectedInterface?.name }} の名前・IPを編集</v-card-title>
       <v-card-text>
-        <v-table>
-          <thead>
-            <tr>
-              <th>IP Address</th>
-              <th>Subnet Mask</th>
-              <th>iDNS</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(ip, index) in editingIps" :key="index">
-              <td>
-                <v-text-field
-                  v-model="ip.ip_address"
-                  density="compact"
-                  hide-details
-                  placeholder="192.168.1.100"
-                />
-              </td>
-              <td>
-                <v-text-field
-                  v-model="ip.subnet_mask"
-                  density="compact"
-                  hide-details
-                  placeholder="255.255.255.0"
-                />
-              </td>
-              <td>
-                <v-checkbox
-                  v-model="ip.dns_register"
-                  label="iDNS Regist"
-                  hide-details
-                  density="compact"
-                  class="ml-2" 
-                />
-              </td>
-              <td>
-                <v-btn
-                  icon
-                  color="error"
-                  size="small"
-                  @click="removeIpFromEdit(index)"
-                >
-                  <v-icon>mdi-delete</v-icon>
-                </v-btn>
-              </td>
-            </tr>
-            <tr>
-              <td colspan="4" class="text-center pt-4">
-                <v-btn
-                  color="primary"
-                  @click="addNewIpRow"
-                  prepend-icon="mdi-plus"
-                >
-                  Add IP Row
-                </v-btn>
-              </td>
-            </tr>
-          </tbody>
-        </v-table>
-        
-        <v-alert v-if="error" type="error" density="compact" class="mt-4">
-          {{ error }}
-        </v-alert>
+        <v-text-field v-model="name" label="NIC 名" :disabled="saving" />
+        <v-btn color="primary" variant="tonal" class="mb-6" @click="saveName" :loading="saving" :disabled="name.trim() === selectedInterface?.name">名前を保存</v-btn>
+        <p class="text-caption mb-3">IP 行の追加・削除は「IP を保存」で反映します。最後の行は削除できません。</p>
+        <div v-for="(ip, index) in ips" :key="ip.rowId" class="ip-edit-row mb-3">
+          <v-text-field v-model="ip.ip_address" :label="`IP アドレス ${index + 1}`" hide-details :disabled="saving" />
+          <v-text-field v-model="ip.subnet_mask" label="サブネットマスク" hide-details :disabled="saving" />
+          <v-checkbox v-model="ip.dns_register" label="iDNS 登録" hide-details density="compact" :disabled="saving" />
+          <v-btn icon="mdi-delete-outline" variant="text" color="error" :aria-label="`IP 行 ${index + 1} を削除`" :disabled="ips.length === 1 || saving" @click="ips.splice(index, 1)" />
+        </div>
+        <v-btn prepend-icon="mdi-plus" variant="text" color="primary" :disabled="saving" @click="addIp">IP 行を追加</v-btn>
+        <v-alert v-if="error" type="error" variant="tonal" class="mt-4">{{ error }}</v-alert>
       </v-card-text>
-      
-      <v-card-actions>
-        <v-spacer></v-spacer>
-        <template v-if="isEditingInterfaceName">
-          <v-btn
-            color="primary"
-            @click="saveInterfaceName"
-            :loading="isSavingInterfaceName"
-          >
-            Save Name
-          </v-btn>
-          <v-btn
-            color="secondary"
-            @click="cancelEditInterfaceName"
-          >
-            Cancel
-          </v-btn>
-        </template>
-        <template v-else>
-          <v-btn
-            color="primary"
-            @click="saveInterfaceIps"
-            :loading="isSavingInterfaceIps"
-          >
-            Save Changes
-          </v-btn>
-          <v-btn
-            color="secondary"
-            @click="cancel"
-          >
-            Cancel
-          </v-btn>
-        </template>
-      </v-card-actions>
+      <v-card-actions class="px-6 pb-5"><v-spacer /><v-btn :disabled="saving" @click="show = false">キャンセル</v-btn><v-btn color="primary" variant="flat" @click="saveIps" :loading="saving">IP を保存</v-btn></v-card-actions>
     </v-card>
   </v-dialog>
 </template>
-
 <script setup>
 import { ref, computed, watch } from 'vue';
 import { useInterfaceApi } from '@/composables/useInterfaceApi';
-
-const props = defineProps({
-  modelValue: {
-    type: Boolean,
-    default: false
-  },
-  selectedInterface: {
-    type: Object,
-    default: null
-  },
-  machineId: {
-    type: String,
-    required: true
-  }
-});
-
+import { createIpEditRows, toIpPayload } from '@/utils/interfaceRows.js';
+const props = defineProps({ modelValue: Boolean, selectedInterface: { type: Object, default: null }, machineId: { type: String, default: '' } });
 const emit = defineEmits(['update:modelValue', 'saved']);
-
 const { updateInterfaceIps, updateInterfaceName } = useInterfaceApi();
-
-const show = computed({
-  get: () => props.modelValue,
-  set: (value) => emit('update:modelValue', value)
-});
-
-// State
-const editingIps = ref([]);
-const editingInterfaceName = ref('');
-const isEditingInterfaceName = ref(false);
-const isSavingInterfaceIps = ref(false);
-const isSavingInterfaceName = ref(false);
-const error = ref('');
-
-// Watch for interface changes
-watch(() => props.selectedInterface, (newInterface) => {
-  if (newInterface) {
-    editingIps.value = newInterface.ips?.length > 0
-      ? newInterface.ips.map(ip => ({ ...ip }))
-      : [{ ip_address: '', subnet_mask: '255.255.255.0', dns_register: false }];
-    editingInterfaceName.value = newInterface.name || '';
-    isEditingInterfaceName.value = false;
-  }
+const show = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) });
+const ips = ref([]), name = ref(''), saving = ref(false), error = ref('');
+let sequence = 0;
+const nextId = () => `draft-${++sequence}`;
+watch(() => [props.modelValue, props.selectedInterface], () => {
+  if (!props.modelValue || !props.selectedInterface) return;
+  ips.value = createIpEditRows(props.selectedInterface.ips, nextId);
+  name.value = props.selectedInterface.name;
+  error.value = '';
 }, { immediate: true });
-
-// Interface name editing
-const enableEditInterfaceName = () => {
-  isEditingInterfaceName.value = true;
+const addIp = () => { ips.value.push(...createIpEditRows([], nextId)); };
+const saveName = async () => {
+  if (!name.value.trim()) { error.value = 'NIC 名を入力してください。'; return; }
+  saving.value = true; error.value = '';
+  try { await updateInterfaceName(props.machineId, props.selectedInterface.name, name.value.trim()); show.value = false; emit('saved'); }
+  catch (err) { error.value = err.message; }
+  finally { saving.value = false; }
 };
-
-const cancelEditInterfaceName = () => {
-  isEditingInterfaceName.value = false;
-  editingInterfaceName.value = props.selectedInterface?.name || '';
-};
-
-const saveInterfaceName = async () => {
-  if (!props.selectedInterface) return;
-
-  const newName = editingInterfaceName.value.trim();
-  if (!newName) {
-    error.value = 'Interface name cannot be empty';
-    return;
-  }
-
-  isSavingInterfaceName.value = true;
-  error.value = '';
-
-  try {
-    await updateInterfaceName(props.machineId, props.selectedInterface.name, newName);
-    isEditingInterfaceName.value = false;
-    emit('saved');
-  } catch (err) {
-    error.value = err.message;
-  } finally {
-    isSavingInterfaceName.value = false;
-  }
-};
-
-// IP editing
-const addNewIpRow = () => {
-  editingIps.value.push({
-    ip_address: '',
-    subnet_mask: '255.255.255.0',
-    dns_register: false
-  });
-};
-
-const removeIpFromEdit = (index) => {
-  editingIps.value.splice(index, 1);
-};
-
-const isValidIp = (ip) => {
-  const ipRegex = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
-  return ipRegex.test(ip);
-};
-
-const saveInterfaceIps = async () => {
-  if (!props.selectedInterface) return;
-
-  isSavingInterfaceIps.value = true;
-  error.value = '';
-
-  try {
-    // Validation
-    const invalidIps = editingIps.value.filter(
-      ip => ip.ip_address && !isValidIp(ip.ip_address)
-    );
-    
-    if (invalidIps.length > 0) {
-      throw new Error('Invalid IP address format');
-    }
-
-    // Filter empty IP addresses and prepare data
-    const ipsToSave = editingIps.value
-      .filter(ip => ip.ip_address.trim() !== '')
-      .map(ip => ({
-        ip_address: ip.ip_address,
-        subnet_mask: ip.subnet_mask || '255.255.255.0',
-        dns_register: !!ip.dns_register
-      }));
-
-    await updateInterfaceIps(props.machineId, props.selectedInterface.name, ipsToSave);
-    show.value = false;
-    emit('saved');
-  } catch (err) {
-    error.value = err.message;
-  } finally {
-    isSavingInterfaceIps.value = false;
-  }
-};
-
-const cancel = () => {
-  show.value = false;
-  error.value = '';
+const saveIps = async () => {
+  if (!ips.value.length || ips.value.some(ip => !ip.ip_address.trim())) { error.value = 'すべての行に IP アドレスを入力してください。'; return; }
+  saving.value = true; error.value = '';
+  try { await updateInterfaceIps(props.machineId, props.selectedInterface.name, toIpPayload(ips.value)); show.value = false; emit('saved'); }
+  catch (err) { error.value = err.message; }
+  finally { saving.value = false; }
 };
 </script>
+<style scoped>
+.ip-edit-row { display: grid; grid-template-columns: 1fr 1fr 130px 40px; align-items: center; gap: 10px; }
+@media(max-width: 600px) { .ip-edit-row { grid-template-columns: 1fr 40px; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); padding-bottom: 12px; } .ip-edit-row > :nth-child(1), .ip-edit-row > :nth-child(2) { grid-column: 1 / -1; } }
+</style>

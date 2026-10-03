@@ -1,219 +1,49 @@
 <template>
-  <v-sheet class="mt-8">
-    <h2 class="text-h5 mb-4">Add New Interface</h2>
-    <v-form @submit.prevent="addInterface">
-      <v-table>
-        <tbody>
-          <tr>
-            <th width="20%">Name:</th>
-            <td width="80%">
-              <v-text-field 
-                v-model="interfaceForm.name" 
-                placeholder="eth0" 
-                density="compact" 
-                hide-details
-                :rules="[required]"
-              />
-            </td>
-          </tr>
-          <tr>
-            <th>IP Addresses:</th>
-            <td>
-              <div v-for="(ip, index) in interfaceForm.ips" :key="index" class="mb-2">
-                <div class="d-flex align-center">
-                  <v-text-field
-                    v-model="ip.ip_address"
-                    placeholder="192.168.1.100"
-                    density="compact"
-                    hide-details
-                    class="mr-2"
-                    :rules="[required]"
-                  />
-                  <v-text-field
-                    v-model="ip.subnet_mask"
-                    placeholder="255.255.255.0"
-                    density="compact"
-                    hide-details
-                    class="mr-2"
-                  />
-                  <v-checkbox
-                    v-model="ip.dns_register"
-                    label="iDNS Regist"
-                    hide-details
-                    density="compact"
-                    class="mr-2"
-                  />
-                  <v-btn
-                    icon
-                    color="error"
-                    size="small"
-                    @click="removeIp(index)"
-                    v-if="interfaceForm.ips.length > 1"
-                  >
-                    <v-icon>mdi-delete</v-icon>
-                  </v-btn>
-                </div>
-              </div>
-              <v-btn
-                color="primary"
-                @click="addIp"
-                prepend-icon="mdi-plus"
-                size="small"
-              >
-                Add IP Address
-              </v-btn>
-            </td>
-          </tr>
-          <tr>
-            <th>MAC Address:</th>
-            <td>
-              <v-text-field 
-                v-model="interfaceForm.mac_address" 
-                placeholder="00:1A:2B:3C:4D:5E" 
-                density="compact" 
-                hide-details
-              />
-            </td>
-          </tr>
-          <tr>
-            <th>Gateway:</th>
-            <td>
-              <v-text-field 
-                v-model="interfaceForm.gateway" 
-                placeholder="192.168.1.1" 
-                density="compact" 
-                hide-details
-              />
-            </td>
-          </tr>
-          <tr>
-            <th>DNS Servers:</th>
-            <td>
-              <v-text-field 
-                v-model="interfaceForm.dns_servers" 
-                placeholder="8.8.8.8,8.8.4.4" 
-                density="compact" 
-                hide-details
-              />
-            </td>
-          </tr>
-          <tr>
-            <td colspan="2" class="text-right pt-4">
-              <v-btn 
-                color="primary" 
-                type="submit" 
-                :loading="isLoading"
-              >
-                Add Interface
-              </v-btn>
-              <v-alert v-if="error" type="error" density="compact" class="mt-2">
-                {{ error }}
-              </v-alert>
-            </td>
-          </tr>
-        </tbody>
-      </v-table>
-    </v-form>
-  </v-sheet>
+  <v-card class="console-card mt-6">
+    <v-card-title class="py-4"><v-icon class="mr-2">mdi-ethernet</v-icon>NIC を追加</v-card-title>
+    <v-divider />
+    <v-card-text>
+      <v-form @submit.prevent="addInterface">
+        <v-row><v-col cols="12" md="6"><v-text-field v-model="form.name" label="NIC 名" placeholder="eth2" /></v-col><v-col cols="12" md="6"><v-text-field v-model="form.mac_address" label="MAC アドレス" /></v-col></v-row>
+        <div v-for="(ip, index) in form.ips" :key="ip.rowId" class="ip-add-row mb-3">
+          <v-text-field v-model="ip.ip_address" :label="`IP アドレス ${index + 1}`" hide-details />
+          <v-text-field v-model="ip.subnet_mask" label="サブネットマスク" hide-details />
+          <v-checkbox v-model="ip.dns_register" label="iDNS 登録" hide-details />
+          <v-btn icon="mdi-delete-outline" variant="text" color="error" :aria-label="`追加 IP 行 ${index + 1} を削除`" :disabled="form.ips.length === 1" @click="form.ips.splice(index, 1)" />
+        </div>
+        <v-btn prepend-icon="mdi-plus" variant="text" color="primary" class="mb-4" @click="form.ips.push(...createIpEditRows([], nextId))">IP 行を追加</v-btn>
+        <v-checkbox v-model="useGateway" label="この NIC をデフォルトゲートウェイに使用" hide-details />
+        <v-text-field v-if="useGateway" v-model="form.gateway" label="ゲートウェイ IPv4 アドレス" hint="保存時に他の NIC のゲートウェイを解除します。" persistent-hint class="mt-3" />
+        <v-text-field v-model="form.dns_servers" label="DNS サーバー（カンマ区切り）" class="mt-4" />
+        <v-alert v-if="error" type="error" variant="tonal" class="mb-4">{{ error }}</v-alert>
+        <v-btn type="submit" color="primary" :loading="loading" prepend-icon="mdi-plus">NIC を追加</v-btn>
+      </v-form>
+    </v-card-text>
+  </v-card>
 </template>
-
 <script setup>
 import { ref } from 'vue';
 import { useInterfaceApi } from '@/composables/useInterfaceApi';
-
-const props = defineProps({
-  machineId: {
-    type: String,
-    required: true
-  }
-});
-
+import { createIpEditRows, toIpPayload } from '@/utils/interfaceRows.js';
+const props = defineProps({ machineId: { type: String, required: true } });
 const emit = defineEmits(['added']);
-
 const { createInterface } = useInterfaceApi();
-
-const required = (value) => !!value || 'Required';
-
-const interfaceForm = ref({
-  name: '',
-  mac_address: '',
-  gateway: '',
-  dns_servers: '',
-  ips: [
-    { ip_address: '', subnet_mask: '255.255.255.0', dns_register: false }
-  ]
-});
-
-const isLoading = ref(false);
-const error = ref('');
-
-const addIp = () => {
-  interfaceForm.value.ips.push({
-    ip_address: '',
-    subnet_mask: '255.255.255.0',
-    dns_register: false
-  });
-};
-
-const removeIp = (index) => {
-  interfaceForm.value.ips.splice(index, 1);
-};
-
+let sequence = 0;
+const nextId = () => `new-${++sequence}`;
+const blankForm = () => ({ name: '', mac_address: '', gateway: '', dns_servers: '', ips: createIpEditRows([], nextId) });
+const form = ref(blankForm()), useGateway = ref(false), error = ref(''), loading = ref(false);
 const addInterface = async () => {
-  // Validation
-  if (!interfaceForm.value.name) {
-    error.value = 'Interface name is required';
-    return;
-  }
-
-  if (!interfaceForm.value.ips.some(ip => ip.ip_address)) {
-    error.value = 'At least one IP address is required';
-    return;
-  }
-
-  isLoading.value = true;
-  error.value = '';
-
+  if (!form.value.name.trim() || form.value.ips.some(ip => !ip.ip_address.trim())) { error.value = 'NIC 名とすべての IP アドレスを入力してください。'; return; }
+  if (useGateway.value && (!form.value.gateway.trim() || form.value.gateway.trim() === '0.0.0.0')) { error.value = '使用するゲートウェイの IPv4 アドレスを入力してください。'; return; }
+  loading.value = true; error.value = '';
   try {
-    // Prepare request data
-    const requestData = {
-      name: interfaceForm.value.name,
-      mac_address: interfaceForm.value.mac_address || null,
-      gateway: interfaceForm.value.gateway || null,
-      dns_servers: interfaceForm.value.dns_servers 
-        ? interfaceForm.value.dns_servers.split(',').map(s => s.trim()).filter(s => s)
-        : null,
-      ips: interfaceForm.value.ips
-        .filter(ip => ip.ip_address)
-        .map(ip => ({
-          ip_address: ip.ip_address,
-          subnet_mask: ip.subnet_mask || '255.255.255.0',
-          dns_register: !!ip.dns_register
-        }))
-    };
-
-    await createInterface(props.machineId, requestData);
-    
-    // Reset form
-    interfaceForm.value = {
-      name: '',
-      mac_address: '',
-      gateway: '',
-      dns_servers: '',
-      ips: [
-        { ip_address: '', subnet_mask: '255.255.255.0', dns_register: false }
-      ]
-    };
-
-    emit('added');
-  } catch (err) {
-    error.value = err.message;
-  } finally {
-    isLoading.value = false;
-  }
+    await createInterface(props.machineId, { name: form.value.name.trim(), mac_address: form.value.mac_address || null, ips: toIpPayload(form.value.ips), gateway: useGateway.value ? form.value.gateway.trim() : '', dns_servers: form.value.dns_servers.split(',').map(s => s.trim()).filter(Boolean) });
+    form.value = blankForm(); useGateway.value = false; emit('added');
+  } catch (err) { error.value = err.message; }
+  finally { loading.value = false; }
 };
 </script>
-
 <style scoped>
-* { text-transform: none !important; }
+.ip-add-row { display: grid; grid-template-columns: 1fr 1fr 140px 40px; align-items: center; gap: 12px; }
+@media(max-width: 600px) { .ip-add-row { grid-template-columns: 1fr 40px; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); padding-bottom: 12px; } .ip-add-row > :nth-child(1), .ip-add-row > :nth-child(2) { grid-column: 1 / -1; } }
 </style>

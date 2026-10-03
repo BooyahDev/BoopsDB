@@ -1,467 +1,90 @@
 <template>
-  <v-container class="mt-8">
-    <v-card class="pa-6">
-      <v-card-title class="mb-6">
-        <h1 class="text-h4">マシン新規登録</h1>
-      </v-card-title>
-
-      <v-card-text>
-        <v-form @submit.prevent="submitMachine">
-          <!-- 基本情報セクション -->
-          <v-sheet class="mb-8">
-            <h2 class="text-h5 mb-4">Basic Information</h2>
-            <v-table class="elevation-1">
-              <tbody>
-                <tr>
-                  <th width="20%">Hostname:</th>
-                  <td width="80%">
-                    <v-text-field
-                      v-model="machine.hostname"
-                      density="compact"
-                      hide-details
-                      :rules="[required]"
-                      required
-                    />
-                  </td>
-                </tr>
-                <tr>
-                  <th>OS:</th>
-                  <td>
-                    <v-text-field
-                      v-model="machine.os_name"
-                      density="compact"
-                      hide-details
-                    />
-                  </td>
-                </tr>
-                <tr>
-                  <th>CPU Info:</th>
-                  <td>
-                    <v-text-field
-                      v-model="machine.cpu_info"
-                      density="compact"
-                      hide-details
-                    />
-                  </td>
-                </tr>
-                <tr>
-                  <th>CPU Architecture:</th>
-                  <td>
-                    <v-select
-                      v-model="machine.cpu_arch"
-                      :items="['x86_64', 'arm64', 'i386', 'other']"
-                      density="compact"
-                      hide-details
-                    />
-                  </td>
-                </tr>
-                <tr>
-                  <th>Memory Size:</th>
-                  <td>
-                    <v-text-field
-                      v-model="machine.memory_size"
-                      density="compact"
-                      hide-details
-                    />
-                  </td>
-                </tr>
-                <tr>
-                  <th>Disk Info:</th>
-                  <td>
-                    <v-text-field
-                      v-model="machine.disk_info"
-                      density="compact"
-                      hide-details
-                    />
-                  </td>
-                </tr>
-                <tr>
-                  <th>Is Virtual Machine:</th>
-                  <td>
-                    <v-checkbox
-                      v-model="machine.is_virtual"
-                      label="Is Virtual Machine"
-                      hide-details
-                      density="compact"
-                    />
-                  </td>
-                </tr>
-                <tr v-if="machine.is_virtual">
-                  <th>Parent Machine ID:</th>
-                  <td>
-                    <v-text-field
-                      v-model="machine.parent_machine_id"
-                      density="compact"
-                      hide-details
-                    />
-                  </td>
-                </tr>
-                <tr>
-                  <th>Purpose:</th>
-                  <td>
-                    <v-text-field
-                      v-model="machine.purpose"
-                      density="compact"
-                      hide-details
-                    />
-                  </td>
-                </tr>
-                <tr>
-                  <th>Memo:</th>
-                  <td>
-                    <v-textarea
-                      v-model="machine.memo"
-                      rows="3"
-                      density="compact"
-                      hide-details
-                    />
-                  </td>
-                </tr>
-              </tbody>
-            </v-table>
-          </v-sheet>
-
-          <!-- インターフェースセクション -->
-          <v-sheet v-for="(interfaceData, index) in machine.interfaces" :key="index" class="mb-8">
-            <div class="d-flex justify-space-between align-center mb-4">
-              <h2 class="text-h5">
-                Interface: {{ interfaceData.name || `Interface ${index + 1}` }}
-              </h2>
-              <div>
-                <v-btn
-                  icon
-                  variant="text"
-                  size="small"
-                  color="error"
-                  @click="removeInterface(index)"
-                >
-                  <v-icon>mdi-delete</v-icon>
-                </v-btn>
-              </div>
-            </div>
-
-            <v-table class="elevation-1">
-              <tbody>
-                <tr>
-                  <th width="20%">Name:</th>
-                  <td width="80%">
-                    <v-text-field
-                      v-model="interfaceData.name"
-                      placeholder="eth0"
-                      density="compact"
-                      hide-details
-                      :rules="[required]"
-                      required
-                    />
-                  </td>
-                </tr>
-                <tr>
-                  <th>IP Addresses:</th>
-                  <td>
-                    <div v-for="(ip, ipIndex) in interfaceData.ips" :key="ipIndex" class="mb-2">
-                      <div class="d-flex align-center">
-                        <v-text-field
-                          v-model="ip.ip_address"
-                          placeholder="192.168.1.100"
-                          density="compact"
-                          hide-details
-                          class="mr-2"
-                          :rules="[required]"
-                          required
-                        />
-                        <v-text-field
-                          v-model="ip.subnet_mask"
-                          placeholder="255.255.255.0"
-                          density="compact"
-                          hide-details
-                          class="mr-2"
-                        />
-                        <v-btn
-                          icon
-                          color="error"
-                          size="small"
-                          @click="removeIp(index, ipIndex)"
-                          v-if="interfaceData.ips.length > 1"
-                        >
-                          <v-icon>mdi-delete</v-icon>
-                        </v-btn>
-                        <v-checkbox
-                          v-model="ip.dns_register"
-                          label="iDNS Regist"
-                          hide-details
-                          density="compact"
-                          class="ml-2"
-                        />
-                      </div>
-                    </div>
-                    <v-btn
-                      color="primary"
-                      @click="addIp(index)"
-                      prepend-icon="mdi-plus"
-                      size="small"
-                    >
-                      Add IP Address
-                    </v-btn>
-                  </td>
-                </tr>
-                <tr>
-                  <th>MAC Address:</th>
-                  <td>
-                    <v-text-field
-                      v-model="interfaceData.mac_address"
-                      placeholder="00:1A:2B:3C:4D:5E"
-                      density="compact"
-                      hide-details
-                    />
-                  </td>
-                </tr>
-                <tr>
-                  <th>Gateway:</th>
-                  <td>
-                    <v-text-field
-                      v-model="interfaceData.gateway"
-                      placeholder="192.168.1.1"
-                      density="compact"
-                      hide-details
-                    />
-                  </td>
-                </tr>
-                <tr>
-                  <th>DNS Servers:</th>
-                  <td>
-                    <v-text-field
-                      v-model="interfaceData.dns_servers"
-                      placeholder="8.8.8.8,8.8.4.4"
-                      density="compact"
-                      hide-details
-                    />
-                  </td>
-                </tr>
-              </tbody>
-            </v-table>
-          </v-sheet>
-
-          <!-- 新しいインターフェース追加 -->
-          <v-sheet class="mt-8">
-            <div class="d-flex justify-space-between align-center mb-4">
-              <h2 class="text-h5">Add New Interface</h2>
-              <v-btn
-                color="primary"
-                @click="addInterface"
-                prepend-icon="mdi-plus"
-              >
-                Add Interface
-              </v-btn>
-            </div>
-          </v-sheet>
-
-          <!-- 送信ボタン -->
-          <div class="mt-8 text-right">
-            <v-btn
-              color="primary"
-              type="submit"
-              :loading="isSubmitting"
-              size="large"
-            >
-              Register Machine
-            </v-btn>
-            <v-alert
-              v-if="submitError"
-              type="error"
-              density="compact"
-              class="mt-4"
-            >
-              {{ submitError }}
-            </v-alert>
+  <v-container class="page-container">
+    <div class="page-heading"><div><h1>マシン登録</h1><p class="page-subtitle">基本情報と NIC の設定を登録</p></div><v-btn to="/machines" variant="text" prepend-icon="mdi-arrow-left">一覧へ</v-btn></div>
+    <v-form @submit.prevent="submitMachine">
+      <v-card class="console-card mb-6"><v-card-title class="py-4">基本情報</v-card-title><v-divider /><v-card-text>
+        <v-row>
+          <v-col cols="12" md="6"><v-text-field v-model="machine.hostname" label="ホスト名（必須）" /></v-col>
+          <v-col cols="12" md="6"><v-text-field v-model="machine.os_name" label="OS" /></v-col>
+          <v-col cols="12" md="6"><v-text-field v-model="machine.cpu_info" label="CPU" /></v-col>
+          <v-col cols="12" md="6"><v-select v-model="machine.cpu_arch" :items="['x86_64', 'arm64', 'i386', 'other']" label="CPU アーキテクチャ" /></v-col>
+          <v-col cols="12" md="6"><v-text-field v-model="machine.memory_size" label="メモリー容量" /></v-col>
+          <v-col cols="12" md="6"><v-text-field v-model="machine.disk_info" label="ディスク情報" /></v-col>
+          <v-col cols="12"><v-text-field v-model="machine.purpose" label="用途" /></v-col>
+          <v-col cols="12"><v-checkbox v-model="machine.is_virtual" label="仮想マシン" hide-details /></v-col>
+          <v-col v-if="machine.is_virtual" cols="12"><v-text-field v-model="machine.parent_machine_id" label="親マシン UUID" /></v-col>
+          <v-col cols="12"><v-textarea v-model="machine.memo" label="メモ" rows="3" /></v-col>
+        </v-row>
+      </v-card-text></v-card>
+      <div class="page-heading mb-4"><h2 class="text-h5">ネットワークインターフェース</h2><v-btn prepend-icon="mdi-plus" variant="tonal" color="primary" @click="addInterface">NIC を追加</v-btn></div>
+      <v-card v-for="(iface, index) in machine.interfaces" :key="iface.rowId" class="console-card mb-5">
+        <v-card-title class="d-flex align-center ga-2 py-4"><v-icon>mdi-ethernet</v-icon><span>{{ iface.name || `NIC ${index + 1}` }}</span><v-spacer /><v-btn icon="mdi-delete-outline" variant="text" color="error" :aria-label="`NIC ${index + 1} を削除`" :disabled="machine.interfaces.length === 1" @click="machine.interfaces.splice(index, 1)" /></v-card-title><v-divider />
+        <v-card-text>
+          <v-row><v-col cols="12" md="6"><v-text-field v-model="iface.name" label="NIC 名（必須）" placeholder="eth0" /></v-col><v-col cols="12" md="6"><v-text-field v-model="iface.mac_address" label="MAC アドレス" /></v-col></v-row>
+          <div v-for="(ip, ipIndex) in iface.ips" :key="ip.rowId" class="ip-row mb-3">
+            <v-text-field v-model="ip.ip_address" :label="`IP アドレス ${ipIndex + 1}`" hide-details />
+            <v-text-field v-model="ip.subnet_mask" label="サブネットマスク" hide-details />
+            <v-checkbox v-model="ip.dns_register" label="iDNS 登録" hide-details />
+            <v-btn icon="mdi-delete-outline" variant="text" color="error" :aria-label="`NIC ${index + 1} の IP 行 ${ipIndex + 1} を削除`" :disabled="iface.ips.length === 1" @click="iface.ips.splice(ipIndex, 1)" />
           </div>
-        </v-form>
-      </v-card-text>
-    </v-card>
+          <v-btn variant="text" color="primary" prepend-icon="mdi-plus" @click="iface.ips.push(...createIpEditRows([], nextId))">IP 行を追加</v-btn>
+          <v-checkbox :model-value="gatewayNic === iface.rowId" label="この NIC をデフォルトゲートウェイに使用" hide-details @update:model-value="value => gatewayNic = value ? iface.rowId : null" />
+          <v-text-field v-if="gatewayNic === iface.rowId" v-model="iface.gateway" label="ゲートウェイ IPv4 アドレス" class="mt-3" />
+          <v-text-field v-model="iface.dns_servers" label="DNS サーバー（カンマ区切り）" class="mt-4" />
+        </v-card-text>
+      </v-card>
+      <v-alert v-if="error" type="error" variant="tonal" class="mb-4">{{ error }}</v-alert>
+      <div class="d-flex justify-end"><v-btn color="primary" type="submit" :loading="saving" size="large" prepend-icon="mdi-check">マシンを登録</v-btn></div>
+    </v-form>
   </v-container>
 </template>
-
 <script setup>
-const required = (value) => !!value || 'Required';
-import { apiBaseUrl } from '@/apiConfig';
-
-const machine = ref({
-  hostname: '',
-  model_info: '',
-  usage_desc: '',
-  cpu_info: '',
-  cpu_arch: 'x86_64',
-  memory_size: '',
-  disk_info: '',
-  is_virtual: false,
-  parent_machine_id: '',
-  memo: '',
-  interfaces: [
-    {
-      name: '',
-      mac_address: '',
-      gateway: '',
-      dns_servers: '',
-      ips: [
-        { ip_address: '', subnet_mask: '255.255.255.0' }
-      ]
-    }
-  ]
-});
-
-const isSubmitting = ref(false);
-const submitError = ref('');
-
-// インターフェースを追加
-const addInterface = () => {
-  machine.value.interfaces.push({
-    name: '',
-    mac_address: '',
-    gateway: '',
-    dns_servers: '',
-    ips: [
-      { ip_address: '', subnet_mask: '255.255.255.0' }
-    ]
-  });
-};
-
-// インターフェースを削除
-const removeInterface = (index) => {
-  if (machine.value.interfaces.length > 1) {
-    machine.value.interfaces.splice(index, 1);
-  } else {
-    // 最後のインターフェースは削除できないようにする
-    submitError.value = 'At least one interface is required';
-    setTimeout(() => { submitError.value = ''; }, 3000);
-  }
-};
-
-// IPアドレスを追加
-const addIp = (interfaceIndex) => {
-  machine.value.interfaces[interfaceIndex].ips.push({
-    ip_address: '',
-    subnet_mask: '255.255.255.0'
-  });
-};
-
-// IPアドレスを削除
-const removeIp = (interfaceIndex, ipIndex) => {
-  if (machine.value.interfaces[interfaceIndex].ips.length > 1) {
-    machine.value.interfaces[interfaceIndex].ips.splice(ipIndex, 1);
-  } else {
-    // 最後のIPアドレスは削除できないようにする
-    submitError.value = 'At least one IP address is required per interface';
-    setTimeout(() => { submitError.value = ''; }, 3000);
-  }
-};
-
-// マシンを登録
+import { ref, onMounted } from 'vue';
+import { useApiBaseUrl } from '@/apiConfig';
+import { createIpEditRows, toIpPayload } from '@/utils/interfaceRows.js';
+const apiBaseUrl = useApiBaseUrl();
+const route = useRoute(), router = useRouter();
+let sequence = 0;
+const nextId = () => `draft-${++sequence}`;
+const blankInterface = () => ({ rowId: nextId(), name: '', mac_address: '', gateway: '', dns_servers: '', ips: createIpEditRows([], nextId) });
+const machine = ref({ hostname: '', os_name: '', cpu_info: '', cpu_arch: 'x86_64', memory_size: '', disk_info: '', purpose: '', is_virtual: false, parent_machine_id: '', memo: '', interfaces: [blankInterface()] });
+const gatewayNic = ref(null), saving = ref(false), error = ref('');
+const addInterface = () => { machine.value.interfaces.push(blankInterface()); };
 const submitMachine = async () => {
-  // バリデーション
-  if (!machine.value.hostname) {
-    submitError.value = 'Hostname is required';
-    return;
+  error.value = '';
+  if (!machine.value.hostname.trim()) { error.value = 'ホスト名を入力してください。'; return; }
+  const names = new Set();
+  for (const iface of machine.value.interfaces) {
+    if (!iface.name.trim() || names.has(iface.name.trim())) { error.value = 'NIC 名を入力し、重複しない名前にしてください。'; return; }
+    names.add(iface.name.trim());
+    if (iface.ips.some(ip => !ip.ip_address.trim())) { error.value = `${iface.name} のすべての IP アドレスを入力してください。`; return; }
+    if (gatewayNic.value === iface.rowId && (!iface.gateway.trim() || iface.gateway.trim() === '0.0.0.0')) { error.value = '使用するゲートウェイの IPv4 アドレスを入力してください。'; return; }
   }
-
-  for (const intf of machine.value.interfaces) {
-    if (!intf.name) {
-      submitError.value = `Interface name is required for all interfaces`;
-      return;
-    }
-
-    if (!intf.ips.some(ip => ip.ip_address)) {
-      submitError.value = `At least one IP address is required for interface ${intf.name || 'unnamed'}`;
-      return;
-    }
-  }
-
-  isSubmitting.value = true;
-  submitError.value = '';
-
+  saving.value = true;
   try {
-    // リクエストデータを整形
-    const requestData = {
-      hostname: machine.value.hostname,
-      model_info: machine.value.model_info,
-      usage_desc: machine.value.usage_desc,
-      cpu_info: machine.value.cpu_info,
-      cpu_arch: machine.value.cpu_arch,
-      memory_size: machine.value.memory_size,
-      disk_info: machine.value.disk_info,
-      is_virtual: machine.value.is_virtual,
-      parent_machine_id: machine.value.parent_machine_id || null,
-      purpose: machine.value.purpose,
-      memo: machine.value.memo,
-      interfaces: {}
-    };
-
-    // インターフェースデータを整形
-    for (const intf of machine.value.interfaces) {
-      requestData.interfaces[intf.name] = {
-        ips: intf.ips
-          .filter(ip => ip.ip_address)
-          .map(ip => ({
-            ip_address: ip.ip_address,
-            subnet_mask: ip.subnet_mask || '255.255.255.0',
-            dns_register: !!ip.dns_register
-          })),
-        gateway: intf.gateway || null,
-        dns_servers: intf.dns_servers
-          ? intf.dns_servers.split(',').map(s => s.trim()).filter(s => s)
-          : null,
-        mac_address: intf.mac_address || null
-      };
-    }
-
-    const response = await fetch(`${apiBaseUrl}/machines`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestData)
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to register machine');
-    }
-
-    // 登録成功後の処理
-    const result = await response.json();
-    alert('Machine registered successfully!');
-    // ここで適切なページにリダイレクトする
-    // router.push(`/machines/${result.id}`);
-  } catch (err) {
-    console.error('Failed to register machine:', err);
-    submitError.value = err.message;
-  } finally {
-    isSubmitting.value = false;
-  }
+    const { interfaces, ...basic } = machine.value;
+    const payload = { ...basic, hostname: basic.hostname.trim(), parent_machine_id: basic.is_virtual ? (basic.parent_machine_id || null) : null, interfaces: {} };
+    for (const iface of interfaces) payload.interfaces[iface.name.trim()] = { ips: toIpPayload(iface.ips), mac_address: iface.mac_address || null, gateway: gatewayNic.value === iface.rowId ? iface.gateway.trim() : '', dns_servers: iface.dns_servers.split(',').map(s => s.trim()).filter(Boolean) };
+    const response = await fetch(`${apiBaseUrl}/machines`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'マシンを登録できませんでした。');
+    await router.push(`/machines/${data.id}`);
+  } catch (err) { error.value = err.message; }
+  finally { saving.value = false; }
 };
-
-// 複製機能がある場合の初期化
 onMounted(() => {
-  const route = useRoute();
-  if (route.query.duplicate) {
-    const duplicateData = localStorage.getItem(route.query.duplicate);
-    if (duplicateData) {
-      try {
-        const parsedData = JSON.parse(duplicateData);
-        if (parsedData.data && parsedData.expires > Date.now()) {
-          // 複製データをロード
-          machine.value = {
-            ...parsedData.data,
-            hostname: `${parsedData.data.hostname}`,
-            id: '',
-            parent_machine_id: parsedData.data.is_virtual ? parsedData.data.parent_machine_id : ''
-          };
-        } else {
-          localStorage.removeItem(route.query.duplicate);
-        }
-      } catch (e) {
-        console.error('Failed to parse duplicate data', e);
-      }
-    }
-  }
+  if (!route.query.duplicate) return;
+  try {
+    const saved = JSON.parse(localStorage.getItem(route.query.duplicate) || 'null');
+    if (!saved?.data || saved.expires <= Date.now()) return;
+    const { id, interfaces, ...basic } = saved.data;
+    machine.value = { ...machine.value, ...basic, interfaces: interfaces.map(iface => ({ ...blankInterface(), name: iface.name, mac_address: iface.mac_address || '', gateway: iface.gateway || '', dns_servers: Array.isArray(iface.dns_servers) ? iface.dns_servers.join(', ') : (iface.dns_servers || ''), ips: createIpEditRows(iface.ips.map(({ id, ...ip }) => ip), nextId) })) };
+    const gatewayInterfaces = machine.value.interfaces.filter(iface => iface.gateway?.trim() && iface.gateway.trim() !== '0.0.0.0');
+    gatewayNic.value = gatewayInterfaces.length === 1 ? gatewayInterfaces[0].rowId : null;
+  } catch { error.value = '複製データを読み込めませんでした。'; }
 });
 </script>
 <style scoped>
-*{ text-transform: none !important; }
+.ip-row { display: grid; grid-template-columns: 1fr 1fr 140px 40px; align-items: center; gap: 12px; }
+@media(max-width: 600px) { .ip-row { grid-template-columns: 1fr 40px; border-bottom: 1px solid rgba(var(--v-border-color), var(--v-border-opacity)); padding-bottom: 12px; } .ip-row > :nth-child(1), .ip-row > :nth-child(2) { grid-column: 1 / -1; } }
 </style>

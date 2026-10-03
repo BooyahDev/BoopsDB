@@ -1,355 +1,80 @@
 <template>
-  <v-container style="margin-top: 50px;">
-    <h1>マシン検索結果</h1>
-
-    <!-- Search Form -->
-    <v-card class="mb-4" elevation="2">
-      <v-card-text>
-        <form @submit.prevent="reSearch">
-          <v-text-field
-            v-model="searchQuery"
-            label="検索クエリを入力..."
-            hint="ホスト名、IP、メモなど..."
-            persistent-hint
-            variant="outlined"
-            clearable
-            append-inner-icon="mdi-magnify"
-            @click:append-inner="reSearch"
-            @click:clear="clearSearch"
-          />
-          <v-btn type="submit" color="primary" block class="mt-2">
-            <v-icon start>mdi-magnify</v-icon>
-            検索
-          </v-btn>
-        </form>
-      </v-card-text>
-    </v-card>
-
-    <!-- Pagination Info -->
-    <v-card v-if="pagination" class="mb-4" elevation="1">
-      <v-card-text>
-        <v-row align="center">
-          <v-col>
-            {{ pagination.total }}件中 {{ Math.min(pagination.offset + 1, pagination.total) }}〜{{ Math.min(pagination.offset + currentResults.length, pagination.total) }}件を表示
-          </v-col>
-          <v-col cols="auto">
-            <v-btn-group>
-              <v-btn :disabled="pagination.offset === 0" @click="previousPage">
-                <v-icon>mdi-chevron-left</v-icon>
-                前へ
-              </v-btn>
-              <v-btn :disabled="!pagination.hasMore" @click="nextPage">
-                次へ
-                <v-icon>mdi-chevron-right</v-icon>
-              </v-btn>
-            </v-btn-group>
-          </v-col>
+  <v-container class="page-container">
+    <div class="page-heading"><div><h1>マシン一覧</h1><p class="page-subtitle">{{ pagination?.total || 0 }} 台のマシン</p></div><v-btn to="/machines/register" color="primary" prepend-icon="mdi-plus">マシン登録</v-btn></div>
+    <v-card class="console-card mb-5"><v-card-text>
+      <form @submit.prevent="search">
+        <v-text-field v-model="query" label="検索クエリ" placeholder="ホスト名、IP、メモなど" clearable append-inner-icon="mdi-magnify" @click:append-inner="search" />
+        <v-row dense>
+          <v-col cols="12" sm="4"><v-select v-model="sort" :items="sortOptions" label="並べ替え" hide-details /></v-col>
+          <v-col cols="6" sm="3"><v-select v-model="order" :items="[{ title: '昇順', value: 'asc' }, { title: '降順', value: 'desc' }]" label="順序" :disabled="!sort" hide-details /></v-col>
+          <v-col cols="6" sm="3"><v-select v-model="limit" :items="[25, 50, 100, 200]" label="表示件数" hide-details /></v-col>
+          <v-col cols="12" sm="2"><v-btn type="submit" color="primary" block height="40">検索</v-btn></v-col>
         </v-row>
-      </v-card-text>
+      </form>
+    </v-card-text></v-card>
+    <v-alert v-if="error" type="error" variant="tonal" class="mb-5">{{ error }}</v-alert>
+    <v-card class="console-card">
+      <v-progress-linear v-if="loading" indeterminate color="primary" aria-label="マシン一覧を読み込み中" />
+      <div class="d-flex align-center flex-wrap ga-2 px-5 py-3"><span class="text-body-2">{{ pagination?.total || 0 }} 件中 {{ pagination?.total ? offset + 1 : 0 }}〜{{ offset + machines.length }} 件</span><v-spacer /><v-btn variant="text" prepend-icon="mdi-chevron-left" :disabled="offset === 0 || loading" @click="page(-1)">前へ</v-btn><v-btn variant="text" append-icon="mdi-chevron-right" :disabled="!pagination?.hasMore || loading" @click="page(1)">次へ</v-btn></div>
+      <v-divider />
+      <v-table density="comfortable">
+        <thead><tr><th>ホスト名</th><th>IP アドレス</th><th>用途</th><th>種類</th><th>最終接続</th></tr></thead>
+        <tbody>
+          <tr v-for="machine in machines" :key="machine.id">
+            <td><NuxtLink :to="{ path: `/machines/${machine.id}`, query: { returnTo: route.fullPath } }" class="hostname-link">{{ machine.hostname }}</NuxtLink><div class="text-caption text-medium-emphasis mono">{{ machine.id }}</div></td>
+            <td><div v-for="iface in machine.interfaces" :key="iface.id"><span v-for="ip in iface.ips" :key="ip.id" class="d-block mono text-body-2">{{ ip.ip_address }}<span class="text-caption text-medium-emphasis ml-2">{{ iface.name }}</span></span></div></td>
+            <td>{{ machine.purpose || '—' }}</td><td><v-chip size="small" variant="tonal">{{ machine.is_virtual ? '仮想' : '物理' }}</v-chip></td><td>{{ formatDate(machine.last_alive) }}</td>
+          </tr>
+          <tr v-if="!loading && !machines.length"><td colspan="5" class="text-center pa-8 text-medium-emphasis">条件に一致するマシンはありません。</td></tr>
+        </tbody>
+      </v-table>
     </v-card>
-
-    <!-- Loading Indicator -->
-    <div v-if="isLoading" class="text-center">
-      <v-progress-circular indeterminate color="primary" size="64"></v-progress-circular>
-      <p>検索中...</p>
-    </div>
-    
-    <div v-else>
-      <div v-if="currentResults.length > 0">
-        <!-- Search Results Count -->
-        <v-chip class="mb-4" color="primary" label>
-          <v-icon start>mdi-database-search</v-icon>
-          {{ pagination ? pagination.total : currentResults.length }}件見つかりました
-        </v-chip>
-
-        <v-data-table
-          class="elevation-1"
-          density="compact"
-          :headers="headers"
-          :items="currentResults"
-          item-value="hostname"
-          :items-per-page="-1"
-          :sort-by="[{ key: sortBy, order: sortOrder }]"
-        >
-          <!-- Hostname をリンクに -->
-          <template #item.hostname="{ item }">
-            <a :href="`/machines/${item.id}`" class="hostname-link" target="_blank">
-              {{ item.hostname }}
-            </a>
-          </template>
-
-          <!-- IPAddr カスタム表示 -->
-          <template #item.ipaddr="{ item }">
-            <div class="ip-container">
-              <v-chip v-for="(ip, index) in item.ipaddr.slice(0, 3)" 
-                     :key="index" size="small" class="mr-1 mb-1">
-                {{ ip }}
-              </v-chip>
-              <v-chip v-if="item.ipaddr.length > 3" size="small" variant="outlined">
-                +{{ item.ipaddr.length - 3 }}
-              </v-chip>
-            </div>
-          </template>
-
-          <!-- VM Type display -->
-          <template #item.vm_type="{ item }">
-            <v-chip :color="item.vm_type === 'Virtual' ? 'green' : 'blue'" size="small">
-              <v-icon start>{{ item.vm_type === 'Virtual' ? 'mdi-cloud' : 'mdi-server' }}</v-icon>
-              {{ item.vm_type }}
-            </v-chip>
-          </template>
-
-          <!-- Status カスタム表示 -->
-          <template #item.status="{ item }">
-            <v-chip :color="item.status === 'online' ? 'green' : 'red'" size="small">
-              <v-icon start>{{ item.status === 'online' ? 'mdi-check-circle' : 'mdi-alert-circle' }}</v-icon>
-              {{ item.status === 'online' ? 'Online' : 'Offline' }}
-            </v-chip>
-          </template>
-
-          <!-- Last Alive display -->
-          <template #item.last_alive="{ item }">
-            <span :class="item.status === 'online' ? 'text-green' : 'text-red'">
-              {{ formatLastAlive(item.last_alive) }}
-            </span>
-          </template>
-        </v-data-table>
-      </div>
-      
-      <v-empty-state v-else
-        headline="検索結果が見つかりません"
-        title="検索条件を変更してお試しください"
-        text="異なるキーワードを使用するか、検索範囲を広げてみてください。"
-        icon="mdi-database-search-outline"
-      >
-        <template #actions>
-          <v-btn @click="clearSearch" color="primary">
-            すべてのマシンを表示
-          </v-btn>
-        </template>
-      </v-empty-state>
-    </div>
   </v-container>
 </template>
-
 <script setup>
-import { ref, onMounted, computed } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
-import { apiBaseUrl } from '@/apiConfig';
-
-const route = useRoute();
-const router = useRouter();
-const searchQuery = ref('');
-const searchResults = ref([]);
-const currentResults = ref([]);
-const isLoading = ref(false);
-const pagination = ref(null);
-
-// URL parameters
-const sortBy = ref(route.query.sort || 'hostname');
-const sortOrder = ref(route.query.order || 'asc');
-const limit = ref(parseInt(route.query.limit) || 50);
-const offset = ref(parseInt(route.query.offset) || 0);
-
-// テーブルのヘッダー定義
-const headers = ref([
-  { title: 'ホスト名', key: 'hostname', sortable: true },
-  { title: 'IPアドレス', key: 'ipaddr', sortable: false },
-  { title: '用途', key: 'purpose', sortable: true },
-  { title: 'タイプ', key: 'vm_type', sortable: false },
-  { title: 'ステータス', key: 'status', sortable: false },
-  { title: '最終接続', key: 'last_alive', sortable: true }
-]);
-
-onMounted(() => {
-  if (route.query.q) {
-    searchQuery.value = route.query.q;
-    performSearch(route.query.q);
-  } else {
-    fetchAllMachines();
-  }
-});
-
-function formatLastAlive(lastAlive) {
-  if (!lastAlive) return 'なし';
-  
-  const now = new Date();
-  const lastAliveDate = new Date(lastAlive);
-  const diffMinutes = Math.floor((now - lastAliveDate) / 1000 / 60);
-  
-  if (diffMinutes < 1) return 'たった今';
-  if (diffMinutes < 60) return `${diffMinutes}分前`;
-  if (diffMinutes < 1440) return `${Math.floor(diffMinutes / 60)}時間前`;
-  return `${Math.floor(diffMinutes / 1440)}日前`;
-}
-
-async function fetchAllMachines() {
-  isLoading.value = true;
+import { ref, watch, onMounted } from 'vue';
+import { useApiBaseUrl } from '@/apiConfig';
+import { useDateFormatter } from '@/composables/useDateFormatter';
+const apiBaseUrl = useApiBaseUrl();
+const route = useRoute(), router = useRouter();
+const { formatDate } = useDateFormatter();
+const query = ref(''), sort = ref(''), order = ref('asc'), limit = ref(50), offset = ref(0);
+const machines = ref([]), pagination = ref(null), loading = ref(false), error = ref('');
+const sortOptions = [{ title: '登録順（既定）', value: '' }, { title: 'ホスト名', value: 'hostname' }, { title: '登録日時', value: 'created_at' }, { title: '更新日時', value: 'updated_at' }, { title: '最終接続', value: 'last_alive' }, { title: 'OS', value: 'os_name' }, { title: '用途', value: 'purpose' }];
+let requestSequence = 0;
+const load = async () => {
+  const sequence = ++requestSequence;
+  query.value = typeof route.query.q === 'string' ? route.query.q : '';
+  sort.value = sortOptions.some(option => option.value === route.query.sort) ? route.query.sort : '';
+  order.value = route.query.order === 'desc' ? 'desc' : 'asc';
+  limit.value = [25, 50, 100, 200].includes(Number(route.query.limit)) ? Number(route.query.limit) : 50;
+  offset.value = Math.max(0, Number.parseInt(route.query.offset) || 0);
+  const params = new URLSearchParams({ q: query.value, limit: String(limit.value), offset: String(offset.value) });
+  if (sort.value) { params.set('sort', sort.value); params.set('order', order.value); }
+  loading.value = true; error.value = '';
   try {
-    const response = await fetch(`${apiBaseUrl}/machines`);
-    if (response.ok) {
-      searchResults.value = await response.json();
-      setTable(searchResults.value);
-      pagination.value = null; // 全件取得の場合はページネーション無し
-    } else {
-      alert('Failed to fetch machines');
-    }
-  } catch (error) {
-    console.error(error);
-    alert('Unexpected error while fetching all machines.');
-  } finally {
-    isLoading.value = false;
-  }
-}
-
-async function performSearch(query) {
-  isLoading.value = true;
-  try {
-    const params = new URLSearchParams();
-    params.append('q', query);
-    params.append('sort', sortBy.value);
-    params.append('order', sortOrder.value);
-    params.append('limit', limit.value.toString());
-    params.append('offset', offset.value.toString());
-
-    const response = await fetch(`${apiBaseUrl}/machines/search?${params.toString()}`);
-    if (response.ok) {
-      const data = await response.json();
-      
-      // Check if response has pagination structure
-      if (data.results && data.pagination) {
-        searchResults.value = data.results;
-        pagination.value = data.pagination;
-      } else {
-        // Fallback for old API response format
-        searchResults.value = data;
-        pagination.value = null;
-      }
-      
-      setTable(searchResults.value);
-    } else {
-      alert('Failed to search machines');
-    }
-  } catch (error) {
-    console.error('Search error:', error);
-    alert('An unexpected error occurred during the search.');
-  } finally {
-    isLoading.value = false;
-  }
-}
-
-function setTable(machines) {
-  currentResults.value = []; // 前回結果をクリア
-  const now = new Date();
-
-  machines.forEach(machine => {
-    const ipList = [];
-
-    if (Array.isArray(machine.interfaces)) {
-      machine.interfaces.forEach(iface => {
-        if (Array.isArray(iface.ips)) {
-          iface.ips.forEach(ipObj => {
-            ipList.push(`${ipObj.ip_address}/${ipObj.subnet_mask}`);
-          });
-        }
-      });
-    }
-
-    // last_alive の差分を計算
-    const lastAlive = new Date(machine.last_alive);
-    const diffMinutes = (now - lastAlive) / 1000 / 60;
-    const isOnline = diffMinutes <= 5;
-
-    const row = {
-      id: machine.id,
-      hostname: machine.hostname,
-      ipaddr: ipList,
-      purpose: machine.purpose || '-',
-      vm_type: machine.is_virtual ? 'Virtual' : 'Physical',
-      status: isOnline ? 'online' : 'offline',
-      last_alive: machine.last_alive
-    };
-
-    currentResults.value.push(row);
-  });
-}
-
-function reSearch() {
-  if (!searchQuery.value || !searchQuery.value.trim()) {
-    clearSearch();
-    return;
-  }
-  offset.value = 0;
-  const query = { ...route.query, q: searchQuery.value.trim(), offset: '0' };
-  router.replace({ path: route.path, query }).then(() => {
-    performSearch(searchQuery.value.trim());
-  });
-}
-
-function clearSearch() {
-  searchQuery.value = '';
-  offset.value = 0;
-  // URLのクエリパラメータをクリアしてからマシン一覧を取得
-  const newQuery = { ...route.query };
-  delete newQuery.q;
-  delete newQuery.offset;
-  
-  router.replace({ path: '/machines', query: newQuery }).then(() => {
-    fetchAllMachines();
-  });
-}
-
-function nextPage() {
-  if (pagination.value && pagination.value.hasMore) {
-    offset.value += limit.value;
-    updateURL();
-    performSearch(searchQuery.value);
-  }
-}
-
-function previousPage() {
-  if (offset.value > 0) {
-    offset.value = Math.max(0, offset.value - limit.value);
-    updateURL();
-    performSearch(searchQuery.value);
-  }
-}
-
-function updateURL() {
-  const query = { ...route.query };
-  query.offset = offset.value.toString();
-  query.limit = limit.value.toString();
-  query.sort = sortBy.value;
-  query.order = sortOrder.value;
-  
-  router.replace({ path: route.path, query });
-}
+    const response = await fetch(`${apiBaseUrl}/machines/search?${params}`);
+    if (!response.ok) throw new Error('マシン一覧を読み込めませんでした。');
+    const data = await response.json();
+    if (sequence !== requestSequence) return;
+    machines.value = data.results;
+    pagination.value = data.pagination;
+  } catch (err) { if (sequence === requestSequence) error.value = err.message; }
+  finally { if (sequence === requestSequence) loading.value = false; }
+};
+const navigate = nextOffset => {
+  const next = { limit: String(limit.value), offset: String(nextOffset) };
+  if (query.value?.trim()) next.q = query.value.trim();
+  if (sort.value) { next.sort = sort.value; next.order = order.value; }
+  if (router.resolve({ path: '/machines', query: next }).fullPath === route.fullPath) load();
+  else router.push({ path: '/machines', query: next });
+};
+const search = () => navigate(0);
+const page = direction => navigate(Math.max(0, offset.value + direction * limit.value));
+watch(() => route.fullPath, load);
+onMounted(load);
 </script>
-
 <style scoped>
-.hostname-link {
-  text-decoration: none;
-  color: #1976d2;
-  font-weight: 500;
-}
-
-.hostname-link:hover {
-  text-decoration: underline;
-}
-
-.ip-container {
-  max-width: 200px;
-}
-
-.text-green {
-  color: #4caf50;
-}
-
-.text-red {
-  color: #f44336;
-}
-
-.text-grey {
-  color: #9e9e9e;
-}
+.hostname-link { color: rgb(var(--v-theme-primary)); font-weight: 500; text-decoration: none; }
+.hostname-link:hover { text-decoration: underline; }
 </style>

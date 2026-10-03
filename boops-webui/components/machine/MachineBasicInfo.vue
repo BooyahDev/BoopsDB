@@ -1,25 +1,26 @@
 <template>
-  <v-sheet class="mb-8">
+  <v-card class="console-card mb-6 pa-5">
     <div>
       <v-btn color="primary" @click="$emit('duplicate')" class="mr-2">
         <v-icon start>mdi-content-copy</v-icon>
-        Machine Duplicate
+        マシンを複製
       </v-btn>
     </div>
-    <h2 class="text-h5 mb-4">Main Information</h2>
-    <div>LastAlive: {{ formatDate(machine.last_alive) }}</div>
-    <div>UpdateAt: {{ formatDate(machine.updated_at) }}</div>
-    <div>CreateAt: {{ formatDate(machine.created_at) }}</div>
+    <h2 class="text-h6 mb-4 mt-4">基本情報</h2>
+    <div>最終接続: {{ formatDate(machine.last_alive) }}</div>
+    <div>更新日時: {{ formatDate(machine.updated_at) }}</div>
+    <div>登録日時: {{ formatDate(machine.created_at) }}</div>
     <v-table class="elevation-1">
       <tbody>
         <tr>
           <th width="20%">ID:</th>
           <td width="80%">
             {{ machine.id }}
-            <v-btn 
-              icon 
-              variant="text" 
-              size="small" 
+            <v-btn
+              icon
+              variant="text"
+              size="small"
+              aria-label="値をコピー"
               @click="copyToClipboard(machine.id, 'machine-id')"
               class="ml-2"
             >
@@ -30,7 +31,7 @@
           </td>
         </tr>
         <tr>
-          <th>Hostname:</th>
+          <th>ホスト名:</th>
           <td>
             <template v-if="isEditingHostname">
               <div class="d-flex align-center">
@@ -45,18 +46,19 @@
             </template>
             <template v-else>
               {{ machine.hostname }}
-              <v-btn 
-                icon 
-                variant="text" 
-                size="small" 
-                @click="copyToClipboard(machine.hostname, 'hostname')"
+              <v-btn
+                icon
+                variant="text"
+                size="small"
+                aria-label="値をコピー"
+              @click="copyToClipboard(machine.hostname, 'hostname')"
                 class="ml-1 mr-1"
               >
                 <v-icon>
                   {{ copiedItems['hostname'] ? 'mdi-check' : 'mdi-content-copy' }}
                 </v-icon>
               </v-btn>
-              <v-btn icon variant="text" size="small" @click="enableEditHostname">
+              <v-btn icon variant="text" size="small" aria-label="項目を編集" @click="enableEditHostname">
                 <v-icon>mdi-pencil</v-icon>
               </v-btn>
             </template>
@@ -64,53 +66,53 @@
         </tr>
         <tr>
           <th>OS:</th>
-          <td>{{ machine.os_name || 'N/A' }}</td>
+          <td>{{ machine.os_name || '未設定' }}</td>
         </tr>
         <tr>
-          <th>CPU Info:</th>
-          <td>{{ machine.cpu_info || 'N/A' }}</td>
+          <th>CPU:</th>
+          <td>{{ machine.cpu_info || '未設定' }}</td>
         </tr>
         <tr>
-          <th>CPU Architecture:</th>
-          <td>{{ machine.cpu_arch || 'N/A' }}</td>
+          <th>CPU アーキテクチャ:</th>
+          <td>{{ machine.cpu_arch || '未設定' }}</td>
         </tr>
         <tr>
-          <th>Memory Size:</th>
-          <td>{{ machine.memory_size || 'N/A' }}</td>
+          <th>メモリー容量:</th>
+          <td>{{ machine.memory_size || '未設定' }}</td>
         </tr>
         <tr>
-          <th>Disk Info:</th>
-          <td>{{ machine.disk_info || 'N/A' }}</td>
+          <th>ディスク情報:</th>
+          <td>{{ machine.disk_info || '未設定' }}</td>
         </tr>
         <tr>
-          <th>Is Virtual Machine:</th>
+          <th>仮想マシン:</th>
           <td>
             <template v-if="isEditingVmStatus">
               <div>
-                <v-checkbox v-model="vmStatusEdit.is_virtual" label="Is Virtual Machine" hide-details density="compact" @change="handleVmStatusChange" />
+                <v-checkbox v-model="vmStatusEdit.is_virtual" label="仮想マシン" hide-details density="compact" @change="handleVmStatusChange" />
                 <div v-if="vmStatusEdit.is_virtual" class="mt-2">
-                  <v-text-field v-model="vmStatusEdit.parent_machine_id" label="Parent Machine ID" density="compact" hide-details />
+                  <v-text-field v-model="vmStatusEdit.parent_machine_id" label="親マシン UUID" density="compact" hide-details />
                 </div>
                 <div class="mt-2">
                   <v-btn color="success" size="small" @click="saveVmStatus" :loading="isUpdatingVmStatus" class="mr-2">
-                    Save
+                    保存
                   </v-btn>
                   <v-btn color="error" size="small" @click="cancelEditVmStatus">
-                    Cancel
+                    キャンセル
                   </v-btn>
                 </div>
               </div>
             </template>
             <template v-else>
               {{ machine.is_virtual ? 'Yes' : 'No' }}
-              <v-btn icon variant="text" size="small" @click="enableEditVmStatus" class="ml-1">
+              <v-btn icon variant="text" size="small" aria-label="項目を編集" @click="enableEditVmStatus" class="ml-1">
                 <v-icon>mdi-pencil</v-icon>
               </v-btn>
             </template>
           </td>
         </tr>
         <tr>
-          <th>Purpose:</th>
+          <th>用途:</th>
           <td>
             <template v-if="isEditingPurpose">
               <div class="d-flex align-center">
@@ -124,15 +126,15 @@
               </div>
             </template>
             <template v-else>
-              {{ machine.purpose || 'N/A' }}
-              <v-btn icon variant="text" size="small" @click="enableEditPurpose" class="ml-1">
+              {{ machine.purpose || '未設定' }}
+              <v-btn icon variant="text" size="small" aria-label="項目を編集" @click="enableEditPurpose" class="ml-1">
                 <v-icon>mdi-pencil</v-icon>
               </v-btn>
             </template>
           </td>
         </tr>
         <tr v-if="machine.is_virtual">
-          <th>Parent Machine ID:</th>
+          <th>親マシン UUID:</th>
           <td>
             <template v-if="isEditingParentId">
               <div class="d-flex align-center">
@@ -146,12 +148,13 @@
               </div>
             </template>
             <template v-else>
-              {{ machine.parent_machine_id || 'N/A' }}
-              <v-btn 
-                icon 
-                variant="text" 
-                size="small" 
-                @click="copyToClipboard(machine.parent_machine_id, 'parent_machine-id')"
+              {{ machine.parent_machine_id || '未設定' }}
+              <v-btn
+                icon
+                variant="text"
+                size="small"
+                aria-label="値をコピー"
+              @click="copyToClipboard(machine.parent_machine_id, 'parent_machine-id')"
                 class="ml-2"
               >
                 <v-icon>
@@ -162,7 +165,7 @@
           </td>
         </tr>
         <tr v-if="machine.is_virtual && machine.parent_machine_id">
-          <th>Parent Machine:</th>
+          <th>親マシン:</th>
           <td>
             <v-btn variant="text" :to="`/machines/${machine.parent_machine_id}`" color="primary">
               {{ machine.parentHostname || 'Unknown' }}
@@ -171,17 +174,17 @@
           </td>
         </tr>
         <tr>
-          <th>Memo:</th>
+          <th>メモ:</th>
           <td>
             <template v-if="isEditingMemo">
               <div>
                 <v-textarea v-model="editableMemo" rows="3" density="compact" hide-details />
                 <div class="mt-2">
                   <v-btn color="success" size="small" @click="updateMemo" :loading="isUpdatingMemo" class="mr-2">
-                    Save
+                    保存
                   </v-btn>
                   <v-btn color="error" size="small" @click="cancelEditMemo">
-                    Cancel
+                    キャンセル
                   </v-btn>
                 </div>
               </div>
@@ -189,7 +192,7 @@
             <template v-else>
               <div v-if="machine.memo" class="memo-markdown" v-html="renderedMemo"></div>
               <span v-else>N/A</span>
-              <v-btn icon variant="text" size="small" @click="enableEditMemo" class="ml-1">
+              <v-btn icon variant="text" size="small" aria-label="項目を編集" @click="enableEditMemo" class="ml-1">
                 <v-icon>mdi-pencil</v-icon>
               </v-btn>
             </template>
@@ -197,7 +200,7 @@
         </tr>
       </tbody>
     </v-table>
-  </v-sheet>
+  </v-card>
 </template>
 
 <script setup>
@@ -466,7 +469,7 @@ const escapeHtml = (source) => source
 }
 
 .memo-markdown :deep(code) {
-  background: rgba(0, 0, 0, 0.06);
+  background: rgba(var(--v-theme-on-surface), 0.08);
   border-radius: 4px;
   padding: 0.1rem 0.25rem;
 }

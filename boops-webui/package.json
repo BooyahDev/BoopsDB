@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "node --test test/uiState.test.js",
     "build": "nuxt build",
     "dev": "nuxt dev",
     "generate": "nuxt generate",

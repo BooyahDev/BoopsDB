@@ -1,18 +1,18 @@
 <template>
-  <v-container class="mt-6">
-    <v-card v-if="machine" class="pa-6">
-      <v-card-title class="d-flex justify-space-between align-center mb-6">
-        <h1 class="text-h4 mt-5">{{ machine.hostname }}</h1>
-      </v-card-title>
-
-      <v-card-text>
+  <v-container class="page-container">
+    <div class="page-heading"><div><v-btn :to="returnTo" variant="text" prepend-icon="mdi-arrow-left" size="small" class="mb-2">マシン一覧へ</v-btn><h1>{{ machine?.hostname || 'マシン詳細' }}</h1><p class="page-subtitle">基本情報とネットワーク設定</p></div></div>
+    <v-alert v-if="loadError" type="error" variant="tonal" class="mb-5">{{ loadError }}</v-alert>
+    <v-progress-linear v-if="loading" indeterminate color="primary" />
+    <div v-if="machine">
         <!-- Machine Basic Information -->
-        <MachineBasicInfo 
-          :machine="machine" 
+        <MachineBasicInfo
+          :machine="machine"
           @update:machine="handleMachineUpdate"
           @duplicate="handleDuplicate"
         />
 
+<div class="page-heading mt-8 mb-4"><h2 class="text-h5">ネットワークインターフェース</h2><v-chip size="small">{{ machine.interfaces.length }} NIC</v-chip></div>
+        <v-alert v-if="gatewayCount > 1" type="warning" variant="tonal" class="mb-5">複数の NIC にデフォルトゲートウェイが設定されています。利用する NIC の「この NIC を使用」で保存して、選択を 1 つに整理してください。</v-alert>
         <!-- Interface Cards -->
         <InterfaceCard
           v-for="interfaceData in machine.interfaces"
@@ -25,15 +25,14 @@
         />
 
         <!-- Add New Interface Form -->
-        <InterfaceAddForm 
+        <InterfaceAddForm
           :machine-id="machine.id"
           @added="loadMachine"
         />
 
         <!-- Machine Actions -->
         <MachineActions :machine-id="machine.id" />
-      </v-card-text>
-    </v-card>
+    </div>
 
     <!-- Interface Edit Modal -->
     <InterfaceEditModal
@@ -46,17 +45,17 @@
     <!-- Interface Delete Confirmation -->
     <v-dialog v-model="showDeleteModal" max-width="500">
       <v-card>
-        <v-card-title>Confirm Delete</v-card-title>
+        <v-card-title>NIC の削除</v-card-title>
         <v-card-text>
-          Are you sure you want to delete interface "{{ interfaceToDeleteName }}"?
+          NIC「{{ interfaceToDeleteName }}」を削除しますか？
         </v-card-text>
         <v-card-actions>
           <v-spacer></v-spacer>
           <v-btn color="error" @click="confirmDeleteInterface" :loading="isDeleting">
-            Delete
+            削除
           </v-btn>
           <v-btn color="secondary" @click="cancelDeleteInterface">
-            Cancel
+            キャンセル
           </v-btn>
         </v-card-actions>
         <v-alert v-if="deleteError" type="error" density="compact" class="mx-4 mb-4">
@@ -68,7 +67,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useMachineApi } from '@/composables/useMachineApi';
 import { useInterfaceApi } from '@/composables/useInterfaceApi';
@@ -86,6 +85,9 @@ const { deleteInterface } = useInterfaceApi();
 
 // Machine data
 const machine = ref(null);
+const loadError = ref(''), loading = ref(false);
+const returnTo = computed(() => typeof route.query.returnTo === 'string' && /^\/machines(?:\?|$)/.test(route.query.returnTo) ? route.query.returnTo : '/machines');
+const gatewayCount = computed(() => machine.value?.interfaces.filter(iface => iface.gateway?.trim() && iface.gateway.trim() !== '0.0.0.0').length || 0);
 
 // Interface editing modal
 const showEditModal = ref(false);
@@ -100,11 +102,13 @@ const deleteError = ref('');
 
 // Load machine data
 const loadMachine = async () => {
+  loading.value = true; loadError.value = '';
   try {
     machine.value = await getMachine(route.params.id);
+    if (selectedInterface.value) selectedInterface.value = machine.value.interfaces.find(iface => iface.id === selectedInterface.value.id) || null;
   } catch (error) {
-    alert('Failed to load machine details');
-  }
+    loadError.value = error.message;
+  } finally { loading.value = false; }
 };
 
 // Handle machine updates
@@ -157,6 +161,7 @@ const cancelDeleteInterface = () => {
   deleteError.value = '';
 };
 
+watch(() => route.params.id, loadMachine);
 // Initialize
 onMounted(() => {
   loadMachine();
