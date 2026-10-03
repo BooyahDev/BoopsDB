@@ -182,7 +182,7 @@ if !bytes.Equal(configAfterMigration, configBeforeMigration) { t.Fatal("existing
 
 **Interfaces:** publish script は `python3 scripts/publish.py --dir <release-dir> [--publish]`。既定は検証のみ。明示 publish では固定配布先へ multipart POST の `blob` field を使い、各ファイルの GET 読み戻しを行う。Task 3 の release tool が生成した `latest.json` を両 binary の再取得検証後に最後に公開する。
 
-- [ ] **Step 1: 失敗する公開順・読み戻し試験を書く。** `TestManifestIsLastAfterBothBinaryReadbacks`、`TestReadbackMismatchPreventsManifestPublish`、`TestExistingDifferentVersionArtifactIsNotOverwritten`。HTTP fixture に保存順を記録し、失敗しても latest を公開しないことを assertion する。
+- [x] **Step 1: 失敗する公開順・読み戻し試験を書く。** `TestManifestIsLastAfterBothBinaryReadbacks`、`TestReadbackMismatchPreventsManifestPublish`、`TestExistingDifferentVersionArtifactIsNotOverwritten`。HTTP fixture に保存順を記録し、失敗しても latest を公開しないことを assertion する。
 
 ```python
 self.assertEqual(uploads[-1], 'latest.json')
@@ -190,11 +190,11 @@ self.assertNotIn('latest.json', uploads_after_readback_mismatch)
 self.assertEqual(existing_release_bytes, original_release_bytes)
 ```
 
-- [ ] **Step 2: RED を確認して publish script を実装する。** `python3 -m unittest discover -s test -p 'publish_test.py'`。script はローカル signature と hash を確認してから送信し、HTTP status・読み戻しの size／hash を必須とする。アップロード先の既存 0.1／0.2 と無関係なファイルを削除しない。
-- [ ] **Step 3: 全体レビューと検証を実行する。** API unit／実 DB integration、Go 全 test、WebUI build／fixture 実画面、installer test を実施する。担当外の fresh reviewer に API／ネットワークと署名境界を含む branch 全体を確認させ、重要な指摘を修正して該当検証を再実行する。実 DB の未実施は明記し、保証済みとは報告しない。
-- [ ] **Step 4: 両 Linux artifact を生成する。** `go run ./cmd/release -version 0.3.0 -key /Volumes/DATAHDD1/BoopsDB-release-private/signing-key.pem -out /Volumes/DATAHDD1/BoopsDB-releases/0.3.0`。release tool 自体が両 arch を `CGO_ENABLED=0`、`-trimpath`、`-s -w -X main.version=0.3.0` で生成するため、出力先は未作成のディレクトリとし、手動の先行ビルドは行わない。version の埋込み設定・CPU・静的 ELF・hash・signature を確認し、インストーラーと検証文書を揃える。Linux バイナリの実行確認は、この macOS 上のクロスビルドとメタデータ検査から保証しない。
-- [ ] **Step 5: 指定先へ公開して読み戻す。** `python3 scripts/publish.py --dir <dir> --publish`。binary、installer、公開鍵、検証文書を配布し、最後の latest.json を GET して Go／OpenSSL で署名検証する。公開 version・両 arch の size／SHA-256 とローカル値が一致したことを記録する。通常 release と bootstrap の両リンクを確認する。
-- [ ] **Step 6: 文書・検証済み処理をコミットし、結果を報告する。** message: `release: boops-client 0.3.0の配布手順と検証を追加`。実装、WebUI／API 本番反映、既存端末の初回移行、実機未検証を分けて報告する。GitHub への push／PR 作成は今回の配布完了の前提にしない。
+- [x] **Step 2: RED を確認して publish script を実装する。** `python3 -m unittest discover -s test -p 'publish_test.py'`。script はローカル signature と hash を確認してから送信し、HTTP status・読み戻しの size／hash を必須とする。アップロード先の既存 0.1／0.2 と無関係なファイルを削除しない。
+- [x] **Step 3: 全体レビューと検証を実行する。** API unit／実 DB integration、Go 全 test、WebUI build／fixture 実画面、installer test を実施する。担当外の fresh reviewer に API／ネットワークと署名境界を含む branch 全体を確認させ、重要な指摘を修正して該当検証を再実行する。実 DB の未実施は明記し、保証済みとは報告しない。
+- [x] **Step 4: 両 Linux artifact を生成する。** `go run ./cmd/release -version 0.3.0 -key /Volumes/DATAHDD1/BoopsDB-release-private/signing-key.pem -out /Volumes/DATAHDD1/BoopsDB-releases/0.3.0`。release tool 自体が両 arch を `CGO_ENABLED=0`、`-trimpath`、`-s -w -X main.version=0.3.0` で生成するため、出力先は未作成のディレクトリとし、手動の先行ビルドは行わない。version の埋込み設定・CPU・静的 ELF・hash・signature を確認し、インストーラーと検証文書を揃える。Linux バイナリの実行確認は、この macOS 上のクロスビルドとメタデータ検査から保証しない。
+- [x] **Step 5: 指定先へ公開して読み戻す。** `python3 scripts/publish.py --dir <dir> --publish`。binary、installer、公開鍵、検証文書を配布し、最後の latest.json を GET して Go／OpenSSL で署名検証する。公開 version・両 arch の size／SHA-256 とローカル値が一致したことを記録する。通常 release と bootstrap の両リンクを確認する。
+- [x] **Step 6: 文書・検証済み処理をコミットし、結果を報告する。** message: `release: boops-client 0.3.0の配布手順と検証を追加`。実装、WebUI／API 本番反映、既存端末の初回移行、実機未検証を分けて報告する。GitHub への push／PR 作成は今回の配布完了の前提にしない。
 
 ## 計画のセルフレビュー
 
@@ -209,3 +209,5 @@ API の新フィールドは ID の追加に限定し、登録は既存 GET を�
 ## 実行時の検証範囲
 
 Tasks 1–5 は実装・単体／fixture 試験・個別レビューを実施した。API は Docker の代わりに loopback の隔離 MySQL 8.4.10 を使い、実 DB の 21 試験（skip 0）を確認した。WebUI は production build、SSR 16 要求、Chrome の PC／390×844、テーマの選択と保存、編集後の順序と検索条件を確認した。OS 自体の配色変更イベントは未実施である。ネットワーク処理は模擬コマンドと一時ファイルで確認し、実 NIC・systemd・Windows・arm64 の稼働確認を完了扱いにしていない。最終レビュー後の追加修正、生成、公開と読み戻しは Task 6 の記録に残す。
+
+公開・独立読戻しは0.3.0で成功し、両署名検証と8新ファイルの一致、既存9ファイルの保持を確認した。[最終検証記録](../../verification/2026-10-04-console-client-updates.md)を参照する。
