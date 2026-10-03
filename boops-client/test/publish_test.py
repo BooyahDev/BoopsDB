@@ -59,6 +59,7 @@ class PublishTests(unittest.TestCase):
         self.sign()
         self.files = {"boops_0.1_amd64.binary": b"old release", "install_0.2.sh": b"old installer"}
         self.events = []
+        self.post_paths = []
         self.corrupt = None
         self.corrupt_same_size = False
         self.redirect = None
@@ -136,12 +137,15 @@ class PublishTests(unittest.TestCase):
                     return
                 name = parts[0].get_filename()
                 owner.events.append(("POST", name))
+                owner.post_paths.append(self.path)
                 if owner.post_redirect:
                     self.send_response(307)
                     self.send_header("Location", "https://file.booyah.dev/BoopsDB-Client/")
                     self.end_headers()
                     return
-                if self.path != "/BoopsDB-Client/":
+                # Actual distribution frontend POSTs to the encoded file path,
+                # while the multipart field remains named "blob".
+                if self.path != "/BoopsDB-Client/" + name:
                     self.send_response(400)
                     self.end_headers()
                     return
@@ -202,6 +206,19 @@ class PublishTests(unittest.TestCase):
             self.assertEqual(self.files[name], expected)
         self.assertEqual(self.files["boops_0.1_amd64.binary"], b"old release")
         self.assertEqual(self.files["install_0.2.sh"], b"old installer")
+
+    def test_cli_uploads_to_each_fixed_child_filename(self):
+        self.assertEqual(self.publisher.main(["--dir", str(self.directory), "--publish"]), 0)
+        self.assertEqual(self.post_paths, ["/BoopsDB-Client/boops_0.3.0_amd64.binary",
+                                           "/BoopsDB-Client/boops_0.3.0_arm64.binary",
+                                           "/BoopsDB-Client/latest.json"])
+
+    def test_upload_rejects_unsafe_child_names_before_http(self):
+        for name in ("../private-key.pem", "https://evil.test/x", "install.sh?x=1", "", "別名.sh"):
+            with self.subTest(name=name):
+                with self.assertRaises(self.publisher.PublishError):
+                    self.publisher.HTTPTransport().upload(name, b"fixture", 15)
+                self.assertEqual(self.events, [])
 
     def test_readback_mismatch_prevents_manifest_publish(self):
         self.corrupt = "boops_0.3.0_arm64.binary"

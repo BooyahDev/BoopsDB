@@ -17,7 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import quote, urljoin, urlsplit
 
 
 BASE_URL = "https://file.booyah.dev/BoopsDB-Client/"
@@ -159,7 +159,7 @@ def validate_release(directory):
     return {"manifest": manifest, "manifest_bytes": data, "files": files}
 
 
-def _restricted_url(url, allow_base=False):
+def _restricted_url(url):
     parts = urlsplit(url)
     base = urlsplit(BASE_URL)
     if parts.scheme != "https" or parts.netloc != base.netloc or parts.query or parts.fragment:
@@ -167,7 +167,7 @@ def _restricted_url(url, allow_base=False):
     if not parts.path.startswith(base.path):
         raise PublishError("URL must stay in the fixed distribution directory")
     filename = parts.path[len(base.path):]
-    if not (allow_base and filename == "") and (not re.fullmatch(r"[A-Za-z0-9_.-]+", filename) or ".." in filename):
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+", filename) or ".." in filename:
         raise PublishError("unsafe distribution URL path")
     return parts
 
@@ -179,7 +179,7 @@ class HTTPTransport:
         # bound DNS, TLS, trickled status/headers and HTTP chunk framing as well.
         # Killing it also prevents a timed-out upload from continuing later.
         deadline = time.monotonic() + timeout
-        _restricted_url(url, allow_base=method == "POST")
+        _restricted_url(url)
         arguments = {"method": method, "url": url, "limit": limit, "timeout": timeout,
                      "headers": headers, "missing_ok": missing_ok, "body_size": len(body) if body else 0}
         request = json.dumps(arguments).encode("utf-8") + b"\n" + (body or b"")
@@ -217,7 +217,7 @@ class HTTPTransport:
     def _request(self, method, url, limit, timeout, body=None, headers=None, missing_ok=False):
         deadline = time.monotonic() + timeout
         for redirects in range(6):
-            parts = _restricted_url(url, allow_base=method == "POST")
+            parts = _restricted_url(url)
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise PublishError("HTTP deadline exceeded")
@@ -262,7 +262,8 @@ class HTTPTransport:
                         raise PublishError("HTTP response exceeds size limit")
                 return bytes(result)
             except (OSError, http.client.HTTPException) as error:
-                raise PublishError("HTTP transport failed: " + method + " " + parts.path) from error
+                raise PublishError("HTTP transport failed: " + method + " " + parts.path +
+                                   ": " + type(error).__name__ + ": " + str(error)) from error
             finally:
                 connection.close()
         raise PublishError("too many redirects")
@@ -283,11 +284,13 @@ class HTTPTransport:
         return self.request("GET", BASE_URL + name, limit, timeout, missing_ok=missing_ok)
 
     def upload(self, name, data, timeout):
+        url = BASE_URL + quote(name, safe="")
+        _restricted_url(url)
         boundary = "boops-" + secrets.token_hex(24)
         body = ("--" + boundary + '\r\nContent-Disposition: form-data; name="blob"; filename="' + name +
                 '"\r\nContent-Type: application/octet-stream\r\n\r\n').encode("ascii")
         body += data + ("\r\n--" + boundary + "--\r\n").encode("ascii")
-        self.request("POST", BASE_URL, MANIFEST_LIMIT, timeout, body=body,
+        self.request("POST", url, MANIFEST_LIMIT, timeout, body=body,
                      headers={"Content-Type": "multipart/form-data; boundary=" + boundary})
 
 
