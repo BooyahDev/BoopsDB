@@ -57,6 +57,9 @@ jobs:
   release:
     needs: verify
     if: startsWith(github.ref, 'refs/tags/boops-client/v') || (github.event_name == 'workflow_dispatch' && inputs.release)
+    concurrency:
+      group: boops-client-publish
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     defaults:
       run:
