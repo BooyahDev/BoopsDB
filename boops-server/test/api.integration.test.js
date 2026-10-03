@@ -114,6 +114,19 @@ test('network HTTP contracts against isolated MySQL', { skip: !enabled && 'set T
     const sorted = (await request('GET', '/api/machines/search?q=hostname:same&sort=hostname&order=desc&limit=2')).body;
     assert.deepEqual(sorted.results.map(row => row.id), [...ids, id].sort().slice(0, 2));
     assert.equal(sorted.pagination.hasMore, true);
+    const firstUnfiltered = (await request('GET', '/api/machines/search?all=1&limit=2')).body;
+    assert.equal(firstUnfiltered.pagination.total, 4);
+    assert.deepEqual(firstUnfiltered.results.map(row => row.id), expected.slice(0, 2));
+    assert.deepEqual(firstUnfiltered.results.map(row => row.interfaces), [[], []]);
+    assert.deepEqual(firstUnfiltered.pagination, { total: 4, limit: 2, offset: 0, hasMore: true });
+    const nextUnfiltered = (await request('GET', '/api/machines/search?q=%20%20&all=1&limit=2&offset=2')).body;
+    assert.deepEqual(nextUnfiltered.results.map(row => row.id), expected.slice(2));
+    assert.deepEqual(nextUnfiltered.pagination, { total: 4, limit: 2, offset: 2, hasMore: false });
+    const explicitUnfiltered = (await request('GET', '/api/machines/search?all=1&sort=hostname&order=desc&limit=2')).body;
+    assert.deepEqual(explicitUnfiltered.results.map(row => row.id), [...ids, id].sort().slice(0, 2));
+    for (const path of ['/api/machines/search?limit=2&offset=2', '/api/machines/search?q=%20%20&all=0&limit=2&offset=2']) {
+      assert.deepEqual((await request('GET', path)).body, { results: [], pagination: { total: 0, limit: 2, offset: 2, hasMore: false } });
+    }
   });
   await t.test('empty full replacement removes children and delete remains compatible', async () => {
     assert.equal((await request('PUT', `/api/machines/${id}`, { hostname: 'same', interfaces: {} })).status, 200);

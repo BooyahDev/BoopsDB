@@ -350,7 +350,7 @@ app.get('/api/machines/search', async (req, res) => {
   const limit = parseInt(req.query.limit) || 100;
   const offset = parseInt(req.query.offset) || 0;
 
-  if (!query.trim()) {
+  if (!query.trim() && req.query.all !== '1') {
     return res.json({
       results: [],
       pagination: {
@@ -363,7 +363,7 @@ app.get('/api/machines/search', async (req, res) => {
   }
 
   try {
-    const keywords = query.trim().split(/\s+/);
+    const keywords = query.trim() ? query.trim().split(/\s+/) : [];
     
     // デバッグ用ログ
     console.log('Search query:', query);

@@ -102,6 +102,8 @@ Boops server manages machine information, including network interfaces with mult
 
 一覧と並べ替えを指定しない検索は、登録日時の昇順、同じ日時ではマシン ID の昇順で返します。登録日時が NULL の行は最後です。検索で明示した並べ替え条件は維持し、同値の場合は ID の昇順にします。NIC と IP はそれぞれ DB の ID の昇順で返すため、名前や設定を編集しても表示順を維持できます。
 
+`GET /api/machines/search` は、従来どおり検索語 `q` が空欄なら空の `results` と `total: 0` を返します。任意の `all=1` を指定すると、空欄のまま全マシンを検索対象にできます。例: `/api/machines/search?all=1&limit=20&offset=20`。NIC がないマシンも含め、通常の `sort`、`order`、`limit`、`offset` と同じ並べ替え・ページ分割を使い、`results` / `pagination` の response 形は変わりません。`q` が非空の場合は `all=1` を指定してもその検索条件を使います。
+
 GET の `interfaces` は配列のままで、`ips` の各行にも `id` を返します。全マシン PUT の `interfaces` は従来の NIC 名をキーにした object です。NIC の value と IP の各要素に任意の `id` を送れます。ID 付きの NIC は名前を変更しても同じ行を更新し、IP も ID を維持して更新します。ID を送らない旧形式は NIC 名で対応付け、IP はアドレス・サブネットの一致と出現順で既存行に一度ずつ対応付けます。新しい行は最後に追加します。
 
 全マシン PUT は NIC と IP の集合を完全に置き換えます。`interfaces` は必須です。空 object `{}` は全 NIC の削除を意味し、含めた NIC には 1 個以上の IP が必要です。省いた NIC と IP は削除されます。未知の ID、別マシン・別 NIC の ID、重複 ID、重複する最終 NIC 名、形式不正な要求は 400 です。既存 DB で同名 NIC が複数ある場合、名前だけによる更新・削除は 409 を返します。明示 ID を付けた全マシン PUT で一意の名前へ整理できます。マシンや対象 NIC が存在しない場合は 404 です。
