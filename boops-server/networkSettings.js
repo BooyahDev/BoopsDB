@@ -102,7 +102,7 @@ export async function withMachineTransaction(database, machineId, callback) {
 }
 
 export async function findInterfaceByName(connection, machineId, name) {
-  const [interfaces] = await connection.query('SELECT * FROM interfaces WHERE machine_id = ? AND name = ? ORDER BY id ASC FOR UPDATE', [machineId, name]);
+  const [interfaces] = await connection.query('SELECT * FROM interfaces WHERE machine_id = ? AND CAST(name AS BINARY) = CAST(? AS BINARY) ORDER BY id ASC FOR UPDATE', [machineId, name]);
   if (!interfaces.length) throw apiError(404, 'Interface not found for this machine');
   if (interfaces.length > 1) throw apiError(409, 'Multiple interfaces have this name; use explicit IDs in the full machine PUT');
   return interfaces[0];

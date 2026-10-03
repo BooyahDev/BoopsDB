@@ -95,7 +95,7 @@ app.post('/api/machines/:id/interfaces', apiRoute(async req => {
   const [iface] = validateInterfacePayloads({ [name]: body });
   if (iface.id !== undefined || iface.ips.some(ip => ip.id !== undefined)) throw apiError(400, 'New interface and IP rows must not specify IDs');
   await withMachineTransaction(db, id, async connection => {
-    const [existing] = await connection.query('SELECT id FROM interfaces WHERE machine_id = ? AND name = ? ORDER BY id ASC FOR UPDATE', [id, name]);
+    const [existing] = await connection.query('SELECT id FROM interfaces WHERE machine_id = ? AND CAST(name AS BINARY) = CAST(? AS BINARY) ORDER BY id ASC FOR UPDATE', [id, name]);
     if (existing.length > 1) throw apiError(409, 'Multiple interfaces have this name');
     if (existing.length) throw apiError(400, 'Interface with this name already exists');
     if (iface.gateway) await connection.query("UPDATE interfaces SET gateway = '' WHERE machine_id = ?", [id]);
@@ -293,7 +293,7 @@ app.put('/api/interfaces/:machineId/:interfaceName/update-name', apiRoute(async 
   const name = validateInterfaceName(bodyObject(req.body).name);
   await withMachineTransaction(db, id, async connection => {
     const iface = await findInterfaceByName(connection, id, req.params.interfaceName);
-    const [duplicates] = await connection.query('SELECT id FROM interfaces WHERE machine_id = ? AND name = ? AND id <> ? ORDER BY id ASC FOR UPDATE', [id, name, iface.id]);
+    const [duplicates] = await connection.query('SELECT id FROM interfaces WHERE machine_id = ? AND CAST(name AS BINARY) = CAST(? AS BINARY) AND id <> ? ORDER BY id ASC FOR UPDATE', [id, name, iface.id]);
     if (duplicates.length) throw apiError(400, 'Interface with this name already exists');
     await connection.query('UPDATE interfaces SET name = ? WHERE id = ?', [name, iface.id]);
   });

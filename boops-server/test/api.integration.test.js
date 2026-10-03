@@ -170,6 +170,68 @@ test('network HTTP contracts against isolated MySQL', { skip: !enabled && 'set T
     assert.equal((await request('DELETE', `/api/machines/${fixtureId}`)).status, 200);
     assert.equal((await request('PUT', `/api/interfaces/${fixtureId}/eth1/update-gateway`, { gateway: '' })).status, 404);
   });
+  await t.test('case-distinct NIC names update independently and legacy replacement matches exact names', async () => {
+    const upperIp = { ...ip, ip_address: '10.0.1.2' };
+    const machine = await request('POST', '/api/machines', { hostname: 'case-fixture', interfaces: { eth0: { ips: [ip] }, ETH0: { ips: [upperIp] } } });
+    assert.equal(machine.status, 200);
+    const fixtureId = machine.body.id;
+    const getFixture = async () => (await request('GET', `/api/machines/${fixtureId}`)).body;
+    const old = await getFixture();
+    const [lower, upper] = old.interfaces;
+    assert.deepEqual(old.interfaces.map(row => row.name), ['eth0', 'ETH0']);
+
+    // The default MySQL collation folds these two names; the API must still select one exact Linux NIC name.
+    assert.equal((await request('PUT', `/api/interfaces/${fixtureId}/eth0/update-gateway`, { gateway: '10.0.0.1' })).status, 200);
+    let current = await getFixture();
+    assert.equal(current.interfaces[0].gateway, '10.0.0.1');
+    assert.deepEqual(current.interfaces[1], upper);
+    assert.equal((await request('PUT', `/api/interfaces/${fixtureId}/eth0/ips`, { ips: [{ ...ip, id: lower.ips[0].id, ip_address: '10.0.0.9' }] })).status, 200);
+    assert.equal((await request('PUT', `/api/interfaces/${fixtureId}/ETH0/update-dns`, { dns_servers: ['8.8.8.8'] })).status, 200);
+    assert.equal((await request('PUT', `/api/machines/${fixtureId}/interfaces/eth0/update-mac_address`, { mac_address: '00:11:22:33:44:55' })).status, 200);
+    assert.equal((await request('PUT', `/api/interfaces/${fixtureId}/eth0/update-name`, { name: 'eTh0' })).status, 200);
+    assert.equal((await request('PUT', `/api/interfaces/${fixtureId}/eTh0/update-name`, { name: 'eth0' })).status, 200);
+    current = await getFixture();
+    assert.equal(current.interfaces[0].id, lower.id);
+    assert.equal(current.interfaces[0].ips[0].id, lower.ips[0].id);
+    assert.equal(current.interfaces[0].dns_servers, '');
+    assert.equal(current.interfaces[0].mac_address, '00:11:22:33:44:55');
+    assert.equal(current.interfaces[1].id, upper.id);
+    assert.deepEqual(current.interfaces[1].ips, upper.ips);
+    assert.equal(current.interfaces[1].dns_servers, '8.8.8.8');
+    assert.equal(current.interfaces[1].mac_address, '');
+    assert.equal((await request('PUT', `/api/interfaces/${fixtureId}/ETH0/update-gateway`, { gateway: '10.0.1.1' })).status, 200);
+    current = await getFixture();
+    assert.equal(current.interfaces[0].gateway, '');
+    assert.equal(current.interfaces[1].gateway, '10.0.1.1');
+
+    const legacyInterfaces = Object.fromEntries(current.interfaces.map(row => [row.name, {
+      ips: row.ips.map(({ id: ignored, ...address }) => address),
+      gateway: row.gateway,
+      dns_servers: row.dns_servers ? row.dns_servers.split(',').map(value => value.trim()) : [],
+      mac_address: row.mac_address,
+    }]));
+    assert.equal((await request('PUT', `/api/machines/${fixtureId}`, { hostname: 'case-fixture', interfaces: legacyInterfaces })).status, 200);
+    assert.deepEqual((await getFixture()).interfaces, current.interfaces);
+    assert.equal((await request('PUT', `/api/machines/${fixtureId}`, { hostname: 'case-fixture', interfaces: { eth0: legacyInterfaces.eth0 } })).status, 200);
+    current = await getFixture();
+    assert.equal(current.interfaces.length, 1);
+    assert.equal(current.interfaces[0].id, lower.id);
+    assert.equal(current.interfaces[0].ips[0].id, lower.ips[0].id);
+
+    assert.equal((await request('POST', `/api/machines/${fixtureId}/interfaces`, { name: 'ETH0', ips: [upperIp] })).status, 200);
+    assert.equal((await request('PUT', `/api/interfaces/${fixtureId}/eth0/update-name`, { name: 'ETH0' })).status, 400);
+    assert.equal((await request('DELETE', `/api/machines/${fixtureId}/interfaces/ETH0`)).status, 200);
+    current = await getFixture();
+    assert.deepEqual(current.interfaces.map(row => row.id), [lower.id]);
+
+    const [duplicate] = await db.query('INSERT INTO interfaces (machine_id, name, gateway) VALUES (?, ?, ?)', [fixtureId, 'eth0', '']);
+    await db.query('INSERT INTO interface_ips (interface_id, ip_address, subnet_mask) VALUES (?, ?, ?)', [duplicate.insertId, '10.0.2.2', '']);
+    const ambiguous = await getFixture();
+    assert.equal((await request('PUT', `/api/interfaces/${fixtureId}/eth0/update-dns`, { dns_servers: [] })).status, 409);
+    assert.equal((await request('PUT', `/api/machines/${fixtureId}`, { hostname: 'case-fixture', interfaces: { eth0: legacyInterfaces.eth0 } })).status, 409);
+    assert.deepEqual(await getFixture(), ambiguous);
+    assert.equal((await request('DELETE', `/api/machines/${fixtureId}`)).status, 200);
+  });
   await t.test('every network mutation locks its machine before child SQL and releases its connection', () => {
     assert.ok(transactions.length > 20, 'all mutation paths must have exercised transactions');
     for (const trace of transactions) {
