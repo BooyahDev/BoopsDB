@@ -264,3 +264,86 @@ func TestHostnameCommandUsesSeparateArgumentsAfterFullValidation(t *testing.T) {
 		t.Fatal("hostname modified before validation")
 	}
 }
+
+func TestRegisterUppercaseUUIDAcceptsCanonicalAPIResponse(t *testing.T) {
+	upper := strings.ToUpper(testMachine().ID)
+	machine := testMachine()
+	saved := ""
+	err := registerMachine(upper, func(string) (client.Machine, error) { return machine, nil }, func(id string) error { saved = id; return nil })
+	if err != nil {
+		t.Fatalf("valid uppercase UUID rejected: %v", err)
+	}
+	if saved != upper {
+		t.Fatalf("registration ID rewritten: %s", saved)
+	}
+}
+
+func TestSyncUppercaseStoredUUIDAcceptsCanonicalAPIResponse(t *testing.T) {
+	upper := strings.ToUpper(testMachine().ID)
+	cfg := &client.Config{ID: upper}
+	machine := testMachine()
+	machine.Hostname = ""
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Error("sync verification performed remote write")
+			w.WriteHeader(405)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(machine)
+	}))
+	defer server.Close()
+	original := apiBase
+	apiBase = server.URL
+	defer func() { apiBase = original }()
+	applies := 0
+	err := syncWithUpdate(cfg, func(bool) (bool, error) { return false, nil }, func(id string) error {
+		return syncRegisteredMachine(id, fetchMachine, func(m client.Machine) error {
+			return syncMachineSettings(m, nil, "windows", func(string, ...string) ([]byte, error) { t.Fatal("unexpected hostname command"); return nil, nil }, func([]client.InterfaceInfo) error { applies++; return nil }, func(*client.MachineState) error { return nil })
+		})
+	})
+	if err != nil {
+		t.Fatalf("valid stored uppercase UUID rejected: %v", err)
+	}
+	if applies != 1 {
+		t.Fatalf("network synchronization was not reached: %d", applies)
+	}
+	if cfg.ID != upper {
+		t.Fatalf("existing config ID rewritten: %s", cfg.ID)
+	}
+}
+
+func TestMalformedUUIDRejectedBeforeFetchAndLocalWrites(t *testing.T) {
+	for _, id := range []string{"", "another-id", "70ae9891fc0745b983643ab159ee2048", "70ae9891-fc07-45b9-8364-3ab159ee204g", " 70ae9891-fc07-45b9-8364-3ab159ee2048", "70ae9891-fc07-45b9-8364-3ab159ee2048/extra"} {
+		t.Run(id, func(t *testing.T) {
+			fetches, writes := 0, 0
+			fetch := func(string) (client.Machine, error) { fetches++; return client.Machine{ID: id}, nil }
+			if err := registerMachine(id, fetch, func(string) error { writes++; return nil }); err == nil {
+				t.Error("malformed registration ID accepted")
+			}
+			if err := syncRegisteredMachine(id, fetch, func(client.Machine) error { writes++; return nil }); err == nil {
+				t.Error("malformed stored ID accepted")
+			}
+			if fetches != 0 || writes != 0 {
+				t.Fatalf("malformed UUID caused side effects: fetches=%d writes=%d", fetches, writes)
+			}
+		})
+	}
+}
+
+func TestDifferentOrMalformedAPIUUIDCannotBindOrSync(t *testing.T) {
+	for _, responseID := range []string{"70ae9891-fc07-45b9-8364-3ab159ee2049", "not-a-uuid", ""} {
+		t.Run(responseID, func(t *testing.T) {
+			calls := 0
+			fetch := func(string) (client.Machine, error) { return client.Machine{ID: responseID}, nil }
+			if err := registerMachine(testMachine().ID, fetch, func(string) error { calls++; return nil }); err == nil {
+				t.Error("different or malformed API ID bound")
+			}
+			if err := syncRegisteredMachine(testMachine().ID, fetch, func(client.Machine) error { calls++; return nil }); err == nil {
+				t.Error("different or malformed API ID synchronized")
+			}
+			if calls != 0 {
+				t.Fatal("API ID mismatch caused a local write")
+			}
+		})
+	}
+}

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -104,20 +105,47 @@ func syncWithUpdate(cfg *client.Config, check func(bool) (bool, error), synchron
 }
 
 func registerMachine(machineID string, fetch func(string) (client.Machine, error), saveID func(string) error) error {
-	if machineID == "" {
-		return fmt.Errorf("machine ID is required")
-	}
-	machine, err := fetch(machineID)
-	if err != nil {
-		return fmt.Errorf("verify existing machine: %w", err)
-	}
-	if machine.ID != machineID {
-		return fmt.Errorf("API returned a different machine ID")
+	if _, err := fetchVerifiedMachine(machineID, fetch); err != nil {
+		return err
 	}
 	if err := saveID(machineID); err != nil {
 		return fmt.Errorf("save registration: %w", err)
 	}
 	return nil
+}
+
+func fetchVerifiedMachine(machineID string, fetch func(string) (client.Machine, error)) (client.Machine, error) {
+	requestedID, err := canonicalMachineID(machineID)
+	if err != nil {
+		return client.Machine{}, fmt.Errorf("invalid machine ID: %w", err)
+	}
+	machine, err := fetch(requestedID)
+	if err != nil {
+		return client.Machine{}, fmt.Errorf("verify existing machine: %w", err)
+	}
+	responseID, err := canonicalMachineID(machine.ID)
+	if err != nil {
+		return client.Machine{}, fmt.Errorf("API returned an invalid machine ID: %w", err)
+	}
+	if responseID != requestedID {
+		return client.Machine{}, fmt.Errorf("API returned a different machine ID")
+	}
+	machine.ID = responseID
+	return machine, nil
+}
+
+func canonicalMachineID(id string) (string, error) {
+	if len(id) != 36 || id[8] != '-' || id[13] != '-' || id[18] != '-' || id[23] != '-' {
+		return "", fmt.Errorf("expected a hyphenated UUID")
+	}
+	digits := strings.ReplaceAll(id, "-", "")
+	if len(digits) != 32 {
+		return "", fmt.Errorf("expected 32 UUID hexadecimal digits")
+	}
+	if _, err := hex.DecodeString(digits); err != nil {
+		return "", fmt.Errorf("invalid UUID hexadecimal digits")
+	}
+	return strings.ToLower(id), nil
 }
 
 func machineURL(machineID string) string {
@@ -166,13 +194,18 @@ func syncNetworkState(machine client.Machine, previous *client.MachineState, app
 }
 
 func handleSync(machineID string) error {
-	machine, err := fetchMachine(machineID)
+	return syncRegisteredMachine(machineID, fetchMachine, handleMachineSync)
+}
+
+func syncRegisteredMachine(machineID string, fetch func(string) (client.Machine, error), synchronize func(client.Machine) error) error {
+	machine, err := fetchVerifiedMachine(machineID, fetch)
 	if err != nil {
 		return err
 	}
-	if machine.ID != machineID {
-		return fmt.Errorf("API returned a different machine ID")
-	}
+	return synchronize(machine)
+}
+
+func handleMachineSync(machine client.Machine) error {
 	previous, err := client.LoadMachineState()
 	if err != nil {
 		previous = nil
@@ -187,7 +220,7 @@ func handleSync(machineID string) error {
 	}, client.SaveMachineState); err != nil {
 		return err
 	}
-	updateInventory(machineID, machine)
+	updateInventory(machine.ID, machine)
 	PrintStyledMessage("success", "Sync completed successfully.")
 	return nil
 }
