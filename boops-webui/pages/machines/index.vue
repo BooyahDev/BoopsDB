@@ -35,6 +35,7 @@
 import { ref, watch, onMounted } from 'vue';
 import { useApiBaseUrl } from '@/apiConfig';
 import { useDateFormatter } from '@/composables/useDateFormatter';
+import { createMachineSearchParams } from '@/utils/machineSearchParams.js';
 const apiBaseUrl = useApiBaseUrl();
 const route = useRoute(), router = useRouter();
 const { formatDate } = useDateFormatter();
@@ -49,8 +50,7 @@ const load = async () => {
   order.value = route.query.order === 'desc' ? 'desc' : 'asc';
   limit.value = [25, 50, 100, 200].includes(Number(route.query.limit)) ? Number(route.query.limit) : 50;
   offset.value = Math.max(0, Number.parseInt(route.query.offset) || 0);
-  const params = new URLSearchParams({ q: query.value, limit: String(limit.value), offset: String(offset.value) });
-  if (sort.value) { params.set('sort', sort.value); params.set('order', order.value); }
+  const params = createMachineSearchParams({ query: query.value, sort: sort.value, order: order.value, limit: limit.value, offset: offset.value });
   loading.value = true; error.value = '';
   try {
     const response = await fetch(`${apiBaseUrl}/machines/search?${params}`);

@@ -71,6 +71,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { useRoute } from 'vue-router';
 import { useMachineApi } from '@/composables/useMachineApi';
 import { useInterfaceApi } from '@/composables/useInterfaceApi';
+import { createMachineLoader } from '@/utils/machineLoader.js';
 
 // Components
 import MachineBasicInfo from '@/components/machine/MachineBasicInfo.vue';
@@ -101,19 +102,23 @@ const isDeleting = ref(false);
 const deleteError = ref('');
 
 // Load machine data
-const loadMachine = async () => {
-  loading.value = true; loadError.value = '';
-  try {
-    machine.value = await getMachine(route.params.id);
-    if (selectedInterface.value) selectedInterface.value = machine.value.interfaces.find(iface => iface.id === selectedInterface.value.id) || null;
-  } catch (error) {
-    loadError.value = error.message;
-  } finally { loading.value = false; }
-};
+const loadMachine = createMachineLoader({
+  getMachine,
+  getMachineId: () => route.params.id,
+  onLoading: value => { loading.value = value; },
+  onError: message => { loadError.value = message; },
+  onMachine: updated => {
+    machine.value = updated;
+    if (selectedInterface.value) {
+      selectedInterface.value = updated.interfaces.find(iface => iface.id === selectedInterface.value.id) || null;
+      if (!selectedInterface.value) showEditModal.value = false;
+    }
+  },
+});
 
 // Handle machine updates
 const handleMachineUpdate = (updatedMachine) => {
-  machine.value = updatedMachine;
+  if (updatedMachine.id === route.params.id) loadMachine();
 };
 
 // Handle duplicate

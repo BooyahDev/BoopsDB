@@ -6,8 +6,8 @@
         <v-toolbar-title><AppBar /></v-toolbar-title>
         <v-select v-model="preference" :items="themeChoices" aria-label="表示テーマ" label="表示テーマ" hide-details class="theme-picker mr-4" />
       </v-app-bar>
-      <v-navigation-drawer ref="drawerElement" v-model="drawer" :temporary="mobile" :permanent="!mobile" width="240" @keydown.esc="closeDrawer">
-        <SideMenu @navigate="closeDrawer" />
+      <v-navigation-drawer v-model="drawer" :temporary="mobile" :permanent="!mobile" width="240" @keydown.esc="closeDrawer">
+        <SideMenu ref="sideMenu" @navigate="closeDrawer" />
         <template #append><div class="pa-4 text-caption text-medium-emphasis">BoopsDB · マシン管理</div></template>
       </v-navigation-drawer>
       <v-main><slot /></v-main>
@@ -29,7 +29,7 @@ const theme = useTheme();
 const { mobile } = useDisplay();
 const drawer = ref(false);
 const menuButton = ref(null);
-const drawerElement = ref(null);
+const sideMenu = ref(null);
 const themeChoices = [{ title: 'システム', value: 'system' }, { title: 'ライト', value: 'light' }, { title: 'ダーク', value: 'dark' }];
 let media;
 const applyTheme = () => { theme.global.name.value = resolveTheme(preference.value, media?.matches || false); };
@@ -38,7 +38,7 @@ watch(mobile, value => { drawer.value = !value; });
 watch(drawer, async (value, previous) => {
   if (mobile.value && value) {
     await nextTick();
-    drawerElement.value?.$el?.querySelector('a')?.focus();
+    sideMenu.value?.focusFirstLink();
   }
   if (mobile.value && previous && !value) {
     await nextTick();

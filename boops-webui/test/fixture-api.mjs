@@ -46,12 +46,14 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/__reset' && req.method === 'POST') { machines = structuredClone(seed); requests.length = 0; nextNicId = 20; nextIpId = 200; return reply(res, 200, { reset: true }); }
     if (url.pathname === '/api/search/suggestions') return reply(res, 200, { suggestions: { hostnames: ['console-fixture', 'legacy-no-date'], osNames: ['Ubuntu 24.04', 'Debian 12'], purposes: ['WebUI 検証'] }, statistics: { total_machines: machines.length, virtual_machines: 1, physical_machines: machines.length - 1, alive_last_day: 0 } });
     if (url.pathname === '/api/machines/search') {
-      const q = url.searchParams.get('q') || '';
+      const q = (url.searchParams.get('q') || '').trim();
       const sort = url.searchParams.get('sort');
       const direction = url.searchParams.get('order') === 'desc' ? -1 : 1;
       const limit = Number(url.searchParams.get('limit')) || 50;
       const offset = Number(url.searchParams.get('offset')) || 0;
-      let result = machines.filter(machine => !q || JSON.stringify(machine).toLowerCase().includes(q.replace(/^hostname:/, '').toLowerCase()));
+      let result = !q && url.searchParams.get('all') !== '1'
+        ? []
+        : machines.filter(machine => !q || JSON.stringify(machine).toLowerCase().includes(q.replace(/^hostname:/, '').toLowerCase()));
       result = [...result].sort((a, b) => {
         if (sort) return String(a[sort] ?? '').localeCompare(String(b[sort] ?? '')) * direction || a.id.localeCompare(b.id);
         if (a.created_at == null !== (b.created_at == null)) return a.created_at == null ? 1 : -1;

@@ -20,21 +20,21 @@
   </v-dialog>
 </template>
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, reactive, toRefs, computed, watch } from 'vue';
 import { useInterfaceApi } from '@/composables/useInterfaceApi';
 import { createIpEditRows, toIpPayload } from '@/utils/interfaceRows.js';
+import { syncInterfaceDraft } from '@/utils/interfaceDraft.js';
 const props = defineProps({ modelValue: Boolean, selectedInterface: { type: Object, default: null }, machineId: { type: String, default: '' } });
 const emit = defineEmits(['update:modelValue', 'saved']);
 const { updateInterfaceIps, updateInterfaceName } = useInterfaceApi();
 const show = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) });
-const ips = ref([]), name = ref(''), saving = ref(false), error = ref('');
+const draft = reactive({ wasOpen: false, interfaceId: null, ips: [], name: '' });
+const { ips, name } = toRefs(draft);
+const saving = ref(false), error = ref('');
 let sequence = 0;
 const nextId = () => `draft-${++sequence}`;
 watch(() => [props.modelValue, props.selectedInterface], () => {
-  if (!props.modelValue || !props.selectedInterface) return;
-  ips.value = createIpEditRows(props.selectedInterface.ips, nextId);
-  name.value = props.selectedInterface.name;
-  error.value = '';
+  if (syncInterfaceDraft(draft, props.modelValue, props.selectedInterface, nextId)) error.value = '';
 }, { immediate: true });
 const addIp = () => { ips.value.push(...createIpEditRows([], nextId)); };
 const saveName = async () => {
