@@ -17,6 +17,12 @@ sudo bash install.sh
 
 配布先は [BoopsDB-Client](https://file.booyah.dev/BoopsDB-Client/) です。[install_0.3.sh](https://file.booyah.dev/BoopsDB-Client/install_0.3.sh) と `install.sh` は同一内容です。旧インストーラーと 0.1／0.2 バイナリは履歴として保持します。
 
+## ゲートウェイとネットワーク反映
+
+デフォルトゲートウェイを使う NIC はマシン全体で最大 1 つです。WebUI の「この NIC を使用」で選択し、不要な場合は「解除」で空にできます。既存の複数ゲートウェイは画面で通知し、選択した NIC を保存すると他の NIC の値を解除します。
+
+クライアントは全 NIC の入力と既存のネットワーク定義を確認してから反映します。Netplan の別ファイルとの競合、複数 NIC に作用する `match.name` のパターン、ifupdown の物理名と異なる論理名（例: `eth0=home`）など、安全な変更・復元を保証できない構成は変更前にエラーとします。対象外の NIC、既存 IPv6、経路やフックを黙って削除しません。Netplan の MAC 照合にはローカル NIC の実値を使い、API の MAC が未登録でも識別できます。MAC 値そのものは書き換えません。
+
 ## 同期と更新
 
 ```bash

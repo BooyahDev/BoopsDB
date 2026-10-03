@@ -364,11 +364,11 @@ app.get('/api/machines/search', async (req, res) => {
 
   try {
     const keywords = query.trim() ? query.trim().split(/\s+/) : [];
-    
+
     // デバッグ用ログ
     console.log('Search query:', query);
     console.log('Keywords:', keywords);
-    
+
     // 検索に含めるキーワードと除外するキーワードに分類
     const includeKeywords = keywords.filter(k => !k.startsWith('-'));
     const excludeKeywords = keywords.filter(k => k.startsWith('-')).map(k => k.substring(1));
@@ -389,15 +389,15 @@ app.get('/api/machines/search', async (req, res) => {
     if (includeKeywords.length > 0) {
       for (const keyword of includeKeywords) {
         console.log('Processing keyword:', keyword);
-        
+
         const fieldMatch = keyword.match(fieldSearchRegex);
-        
+
         if (fieldMatch) {
           // フィールド指定検索 (例: hostname:server01, os:ubuntu)
           const [, field, value] = fieldMatch;
-          const validFields = ['hostname', 'model_info', 'usage_desc', 'memo', 'purpose', 
+          const validFields = ['hostname', 'model_info', 'usage_desc', 'memo', 'purpose',
                              'cpu_info', 'cpu_arch', 'memory_size', 'disk_info', 'os_name'];
-          
+
           if (validFields.includes(field)) {
             console.log('Field search:', field, value);
             conditions.push(`m.${field} LIKE ?`);
@@ -409,7 +409,7 @@ app.get('/api/machines/search', async (req, res) => {
           const [network, prefixLength] = keyword.split('/');
           const networkParts = network.split('.').map(Number);
           const prefixLengthNum = parseInt(prefixLength);
-          
+
           // CIDR検索のロジックを改善
           if (prefixLengthNum >= 8 && prefixLengthNum <= 32) {
             if (prefixLengthNum === 24) {
@@ -455,12 +455,12 @@ app.get('/api/machines/search', async (req, res) => {
           console.log('Partial IP search:', keyword);
           // 部分的IPアドレス検索 (例: 192.168.1)
           let searchPattern = keyword.replace(/\.$/, '');
-          
+
           // IPアドレスの部分検索をより正確に
           if (searchPattern.endsWith('.')) {
             searchPattern = searchPattern.slice(0, -1);
           }
-          
+
           // ドットで終わる場合とそうでない場合の両方に対応
           const octets = searchPattern.split('.');
           if (octets.length < 4) {
@@ -531,10 +531,10 @@ app.get('/api/machines/search', async (req, res) => {
     if (excludeKeywords.length > 0) {
       for (const keyword of excludeKeywords) {
         const notLikeClause = `(
-          m.hostname NOT LIKE ? AND m.model_info NOT LIKE ? AND 
-          m.usage_desc NOT LIKE ? AND m.memo NOT LIKE ? AND 
-          m.purpose NOT LIKE ? AND m.cpu_info NOT LIKE ? AND 
-          m.cpu_arch NOT LIKE ? AND m.memory_size NOT LIKE ? AND 
+          m.hostname NOT LIKE ? AND m.model_info NOT LIKE ? AND
+          m.usage_desc NOT LIKE ? AND m.memo NOT LIKE ? AND
+          m.purpose NOT LIKE ? AND m.cpu_info NOT LIKE ? AND
+          m.cpu_arch NOT LIKE ? AND m.memory_size NOT LIKE ? AND
           m.disk_info NOT LIKE ? AND m.os_name NOT LIKE ?
         )`;
         conditions.push(notLikeClause);
@@ -550,7 +550,7 @@ app.get('/api/machines/search', async (req, res) => {
       SELECT DISTINCT m.*
       FROM machines m
     `;
-    
+
     if (hasIpKeyword) {
       baseQuery += `
         JOIN interfaces i ON m.id = i.machine_id
@@ -569,7 +569,7 @@ app.get('/api/machines/search', async (req, res) => {
     // ソート機能の追加
     const validSortFields = ['hostname', 'last_alive', 'created_at', 'updated_at', 'os_name', 'purpose'];
     const validSortOrders = ['asc', 'desc'];
-    
+
     if (validSortFields.includes(sortBy) && validSortOrders.includes(sortOrder.toLowerCase())) {
       baseQuery += ` ORDER BY m.${sortBy} ${sortOrder.toUpperCase()}, m.id ASC`;
     } else {
@@ -579,21 +579,21 @@ app.get('/api/machines/search', async (req, res) => {
     // ページネーション
     baseQuery += ' LIMIT ? OFFSET ?';
     params.push(limit, offset);
-    
+
     // デバッグ用ログ
     console.log('Generated SQL:', baseQuery);
     console.log('Parameters:', params);
-    
+
     const [machines] = await db.query(baseQuery, params);
-    
+
     let results = [];
-    
+
     for (const machine of machines) {
       const [interfaces] = await db.query(
         'SELECT id, name, gateway, dns_servers, mac_address FROM interfaces WHERE machine_id = ? ORDER BY id ASC',
         [machine.id]
       );
-    
+
       for (const iface of interfaces) {
         const [ips] = await db.query(
           'SELECT id, ip_address, subnet_mask, dns_register FROM interface_ips WHERE interface_id = ? ORDER BY id ASC',
@@ -602,7 +602,7 @@ app.get('/api/machines/search', async (req, res) => {
         iface.gateway = normalizeGateway(iface.gateway);
         iface.ips = ips;
       }
-    
+
       results.push({ ...machine, interfaces });
     }
 
@@ -611,7 +611,7 @@ app.get('/api/machines/search', async (req, res) => {
       SELECT COUNT(DISTINCT m.id) as total
       FROM machines m
     `;
-    
+
     if (hasIpKeyword) {
       countQuery += `
         JOIN interfaces i ON m.id = i.machine_id
@@ -670,7 +670,7 @@ app.get('/api/search/suggestions', async (req, res) => {
 
     // 統計情報を取得
     const [stats] = await db.query(`
-      SELECT 
+      SELECT
         COUNT(*) as total_machines,
         COUNT(CASE WHEN is_virtual = 1 THEN 1 END) as virtual_machines,
         COUNT(CASE WHEN is_virtual = 0 OR is_virtual IS FALSE THEN 1 END) as physical_machines,
@@ -708,7 +708,7 @@ app.get('/api/search/history', async (req, res) => {
     // For now, we'll return some common useful searches
     const commonSearches = [
       'virtual',
-      'physical', 
+      'physical',
       'ubuntu',
       'windows',
       'alive:1d',
@@ -748,12 +748,12 @@ app.get('/api/search/filters', async (req, res) => {
 
     // Get IP network ranges
     const [ipRanges] = await db.query(`
-      SELECT 
+      SELECT
         SUBSTRING_INDEX(ip_address, '.', 3) as network_prefix,
         COUNT(*) as count
-      FROM interface_ips 
+      FROM interface_ips
       WHERE ip_address LIKE '%.%.%.%'
-      GROUP BY network_prefix 
+      GROUP BY network_prefix
       HAVING count >= 2
       ORDER BY count DESC, network_prefix
       LIMIT 20
