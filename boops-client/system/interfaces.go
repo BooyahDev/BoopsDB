@@ -2,6 +2,7 @@ package system
 
 import (
 	"boops/client"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -13,6 +14,30 @@ const interfacesPath = "/etc/network/interfaces"
 type interfaceStanza struct {
 	start, end   int
 	name, family string
+}
+
+// Keep physical indexes so generation can preserve unrelated original bytes.
+func interfaceLogicalLines(lines []string) ([]string, []int, error) {
+	logical := make([]string, len(lines))
+	ends := make([]int, len(lines))
+	for i := 0; i < len(lines); i++ {
+		start := i
+		text := lines[i]
+		if !strings.HasPrefix(strings.TrimSpace(text), "#") {
+			for strings.HasSuffix(strings.TrimRight(text, " \t\r"), "\\") {
+				trimmed := strings.TrimRight(text, " \t\r")
+				text = trimmed[:len(trimmed)-1]
+				i++
+				if i >= len(lines) {
+					return nil, nil, fmt.Errorf("unterminated ifupdown continuation at line %d", start+1)
+				}
+				text += " " + strings.TrimSpace(lines[i])
+			}
+		}
+		logical[start] = text
+		ends[start] = i + 1
+	}
+	return logical, ends, nil
 }
 
 func interfaceStanzas(lines []string) []interfaceStanza {
@@ -57,7 +82,10 @@ func checkInterfacesIncludes(ops Ops, path string, data []byte, targets map[stri
 		return nil
 	}
 	visited[path] = true
-	lines := strings.Split(string(data), "\n")
+	lines, _, err := interfaceLogicalLines(strings.Split(string(data), "\n"))
+	if err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
 	for _, line := range lines {
 		fields := strings.Fields(line)
 		if len(fields) > 1 && fields[0] == "mapping" {
@@ -140,11 +168,15 @@ func checkInterfacesIncludes(ops Ops, path string, data []byte, targets map[stri
 
 func generateInterfaces(data []byte, ifaces []client.InterfaceInfo) ([]byte, error) {
 	lines := strings.Split(string(data), "\n")
+	logical, ends, err := interfaceLogicalLines(lines)
+	if err != nil {
+		return nil, err
+	}
 	targets := map[string]client.InterfaceInfo{}
 	for _, info := range ifaces {
 		targets[info.Name] = info
 	}
-	stanzas := interfaceStanzas(lines)
+	stanzas := interfaceStanzas(logical)
 	byStart := map[int]interfaceStanza{}
 	seen := map[string]bool{}
 	for _, stanza := range stanzas {
@@ -156,7 +188,18 @@ func generateInterfaces(data []byte, ifaces []client.InterfaceInfo) ([]byte, err
 		}
 		seen[stanza.name] = true
 		byStart[stanza.start] = stanza
-		for _, line := range lines[stanza.start+1 : stanza.end] {
+		for _, field := range strings.Fields(logical[stanza.start])[4:] {
+			if strings.HasPrefix(field, "#") {
+				break
+			}
+			if field == "inherits" {
+				return nil, fmt.Errorf("NIC %s has inherited ifupdown configuration", stanza.name)
+			}
+		}
+		for _, line := range logical[stanza.start+1 : stanza.end] {
+			if fields := strings.Fields(line); len(fields) > 0 && fields[0] == "inherits" {
+				return nil, fmt.Errorf("NIC %s has inherited ifupdown configuration", stanza.name)
+			}
 			if hasDefaultRouteHook(line) {
 				return nil, fmt.Errorf("NIC %s has a custom default-route hook", stanza.name)
 			}
@@ -185,15 +228,16 @@ func generateInterfaces(data []byte, ifaces []client.InterfaceInfo) ([]byte, err
 		info := targets[stanza.name]
 		out = append(out, "iface "+info.Name+" inet static")
 		out = append(out, settings(info)...)
-		for _, line := range lines[i+1 : stanza.end] {
-			fields := strings.Fields(line)
+		for j := ends[i]; j < stanza.end; j++ {
+			fields := strings.Fields(logical[j])
 			if len(fields) > 0 {
 				switch fields[0] {
 				case "address", "netmask", "gateway", "dns-nameservers":
+					j = ends[j] - 1
 					continue
 				}
 			}
-			out = append(out, line)
+			out = append(out, lines[j])
 		}
 		i = stanza.end - 1
 	}
@@ -230,10 +274,34 @@ func applyInterfaces(ifaces []client.InterfaceInfo, ops Ops) error {
 	if err != nil {
 		return err
 	}
-	return applyFile(ops, s, data, func() error {
-		if err := runChecked(ops, "ifdown", append([]string{"--force", "--"}, names...)...); err != nil {
-			return err
+	down := func() error { return runChecked(ops, "ifdown", append([]string{"--force", "--"}, names...)...) }
+	up := func() error { return runChecked(ops, "ifup", append([]string{"--force", "--"}, names...)...) }
+	reactivateOriginal := func(cause error) error {
+		if err := up(); err != nil {
+			return errors.Join(cause, fmt.Errorf("reactivate original ifupdown configuration: %w", err))
 		}
-		return runChecked(ops, "ifup", append([]string{"--force", "--"}, names...)...)
-	})
+		return cause
+	}
+	// ifdown needs the original method/options to release the old configuration.
+	if err := down(); err != nil {
+		return reactivateOriginal(err)
+	}
+	if err := replaceFile(ops, s.path, data, s.mode); err != nil {
+		return reactivateOriginal(err)
+	}
+	if err := up(); err != nil {
+		errs := []error{err}
+		// Remove any partly activated new settings while their file is present.
+		if stopErr := down(); stopErr != nil {
+			errs = append(errs, fmt.Errorf("stop failed replacement configuration: %w", stopErr))
+		}
+		if restoreErr := replaceFile(ops, s.path, s.data, s.mode); restoreErr != nil {
+			return errors.Join(append(errs, fmt.Errorf("restore %s: %w", s.path, restoreErr))...)
+		}
+		if restoreErr := up(); restoreErr != nil {
+			errs = append(errs, fmt.Errorf("reactivate restored ifupdown configuration: %w", restoreErr))
+		}
+		return errors.Join(errs...)
+	}
+	return nil
 }

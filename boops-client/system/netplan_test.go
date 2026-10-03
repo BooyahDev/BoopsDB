@@ -202,3 +202,53 @@ func TestNetplanAmbiguousDeviceAndInheritedNICPreventWrites(t *testing.T) {
 		})
 	}
 }
+
+func TestNetplanForeignManagedIDOverridePreventsWrites(t *testing.T) {
+	o := newFixtureOps(t, "netplan")
+	o.put(netplanPath, "network:\n  version: 2\n  ethernets:\n    lan:\n      match: {name: eth0}\n      dhcp4: true\n", 0600)
+	o.put("/etc/netplan/90-foreign.yaml", "network:\n  ethernets:\n    lan:\n      dhcp4: true\n", 0600)
+	if err := ApplyNetworkSettingsWithOps(twoNICs()[:1], o); err == nil {
+		t.Fatal("foreign definition sharing managed ID accepted")
+	}
+	if o.writes != 0 || o.count("netplan", "apply") != 0 {
+		t.Fatal("merged ID conflict changed host")
+	}
+}
+
+func TestNetplanSharedTargetAnchorPreventsUnmanagedMutation(t *testing.T) {
+	for _, content := range []string{
+		"network:\n  version: 2\n  ethernets:\n    eth0: &shared\n      dhcp4: true\n    spare: *shared\n",
+		"network:\n  version: 2\n  ethernets:\n    eth0:\n      nameservers: &shared\n        addresses: [8.8.8.8]\n    spare:\n      nameservers: *shared\n",
+	} {
+		t.Run(content, func(t *testing.T) {
+			o := newFixtureOps(t, "netplan")
+			o.put(netplanPath, content, 0600)
+			if err := ApplyNetworkSettingsWithOps(twoNICs()[:1], o); err == nil {
+				t.Fatal("shared mutable node accepted")
+			}
+			got, _ := o.ReadFile(netplanPath)
+			if o.writes != 0 || o.count("netplan", "apply") != 0 || string(got) != content {
+				t.Fatal("unmanaged alias changed")
+			}
+		})
+	}
+}
+
+func TestNetplanMatchRequiresNameAndMAC(t *testing.T) {
+	o := newFixtureOps(t, "netplan")
+	o.put(netplanPath, "network:\n  version: 2\n  ethernets:\n    other:\n      match: {name: 'eth*', macaddress: '02:00:00:00:00:02'}\n      dhcp4: true\n", 0600)
+	in := twoNICs()[:1]
+	in[0].MacAddress = "02:00:00:00:00:01"
+	if err := ApplyNetworkSettingsWithOps(in, o); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := o.ReadFile(netplanPath)
+	doc, err := parseNetplan(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := nodeValue(nodeValue(nodeValue(doc.Content[0], "network"), "ethernets"), "other")
+	if nodeValue(other, "dhcp4").Value != "true" || nodeValue(other, "addresses") != nil {
+		t.Fatalf("unmatched MAC NIC changed:\n%s", data)
+	}
+}

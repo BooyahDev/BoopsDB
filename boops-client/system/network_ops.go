@@ -35,7 +35,15 @@ func (hostOps) Run(name string, args ...string) ([]byte, error) {
 }
 func (hostOps) ReadFile(path string) ([]byte, error) { return os.ReadFile(path) }
 func (hostOps) WriteFile(path string, data []byte, mode fs.FileMode) error {
-	return os.WriteFile(path, data, mode)
+	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	if err := file.Chmod(mode); err != nil {
+		return errors.Join(err, file.Close())
+	}
+	_, err = file.Write(data)
+	return errors.Join(err, file.Close())
 }
 func (hostOps) Rename(a, b string) error              { return os.Rename(a, b) }
 func (hostOps) Remove(path string) error              { return os.Remove(path) }

@@ -43,6 +43,9 @@ func (o *fixtureOps) put(path, data string, mode fs.FileMode) {
 	if err := os.WriteFile(p, []byte(data), mode); err != nil {
 		o.t.Fatal(err)
 	}
+	if err := os.Chmod(p, mode); err != nil {
+		o.t.Fatal(err)
+	}
 }
 func (o *fixtureOps) OS() string { return o.osName }
 func (o *fixtureOps) Run(name string, args ...string) ([]byte, error) {
@@ -70,7 +73,7 @@ func (o *fixtureOps) Run(name string, args ...string) ([]byte, error) {
 func (o *fixtureOps) ReadFile(p string) ([]byte, error) { return os.ReadFile(o.local(p)) }
 func (o *fixtureOps) WriteFile(p string, b []byte, m fs.FileMode) error {
 	o.writes++
-	return os.WriteFile(o.local(p), b, m)
+	return RealOps().WriteFile(o.local(p), b, m)
 }
 func (o *fixtureOps) Rename(a, b string) error { return os.Rename(o.local(a), o.local(b)) }
 func (o *fixtureOps) Remove(p string) error    { return os.Remove(o.local(p)) }
