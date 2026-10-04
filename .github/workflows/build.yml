@@ -1,41 +1,116 @@
-name: Build and Upload Boops Client
+name: Test, Build and Release Boops Client
 
 on:
   push:
-    branches:
-    - main
+    branches: [main]
+    tags: ['boops-client/v*']
   pull_request:
-    branches:
-    - main
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      release:
+        description: Publish a signed client release
+        type: boolean
+        default: false
+      version:
+        description: Three-part version (required for release dispatch)
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: boops-client-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        arch: [ amd64, arm64 ]
-
+  verify:
     runs-on: ubuntu-latest
-
+    defaults:
+      run:
+        working-directory: boops-client
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: boops-client/go.mod
+          cache-dependency-path: boops-client/go.sum
+      - name: Test client and migration fixtures
+        run: |
+          go test ./...
+          bash -n install_0.3.sh
+          bash test/install-test.sh
+          python3 -m unittest discover -s test -p '*_test.py'
+          cmp install_0.3.sh install.sh
+      - name: Build both supported architectures
+        run: |
+          mkdir -p build
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath -o "build/boops-$arch" .
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: boops-client-build
+          path: boops-client/build/
 
-    - name: Set up Go
-      uses: actions/setup-go@v2
-      with:
-        go-version: '^1.18'
-
-    - name: Install build dependencies
-      run: sudo apt-get update && sudo apt-get install -y rpm build-essential dpkg-dev qemu-user-static
-
-    - name: Build Go binary for ${{ matrix.arch }}
-      env:
-        GOARCH: ${{ matrix.arch }}
-      run: |
-        go build -o boops-${{ matrix.arch }} main.go
-      working-directory: ./boops-client
-
-    - name: Upload built binary to server
-      run: |
-        curl -F "file=@boops-${{ matrix.arch }}" https://file.booyah.dev/BoopsDB-Client/boops_0.2_${{ matrix.arch }}.binary
-      working-directory: ./boops-client
+  release:
+    needs: verify
+    if: startsWith(github.ref, 'refs/tags/boops-client/v') || (github.event_name == 'workflow_dispatch' && inputs.release)
+    concurrency:
+      group: boops-client-publish
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: boops-client
+    env:
+      RELEASE_DIR: ${{ runner.temp }}/boops-client-release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: boops-client/go.mod
+          cache-dependency-path: boops-client/go.sum
+      - name: Resolve release version
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          python3 - <<'PY'
+          import os, re
+          ref = os.environ['GITHUB_REF']
+          version = ref.removeprefix('refs/tags/boops-client/v') if ref.startswith('refs/tags/boops-client/v') else os.environ['REQUESTED_VERSION']
+          if not re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version):
+              raise SystemExit('Release version must use canonical N.N.N form')
+          with open(os.environ['GITHUB_ENV'], 'a') as env:
+              env.write('RELEASE_VERSION=' + version + '\n')
+          PY
+      - name: Build and sign both release binaries
+        env:
+          BOOPS_CLIENT_SIGNING_KEY: ${{ secrets.BOOPS_CLIENT_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$BOOPS_CLIENT_SIGNING_KEY" || { echo 'BOOPS_CLIENT_SIGNING_KEY secret is required for publishing.' >&2; exit 1; }
+          key_file=$(mktemp "$RUNNER_TEMP/boops-signing-key.XXXXXX")
+          trap 'rm -f "$key_file"' EXIT
+          chmod 0600 "$key_file"
+          printf '%s\n' "$BOOPS_CLIENT_SIGNING_KEY" > "$key_file"
+          unset BOOPS_CLIENT_SIGNING_KEY
+          go run ./cmd/release -version "$RELEASE_VERSION" -key "$key_file" -out "$RELEASE_DIR"
+          "$RELEASE_DIR/boops_${RELEASE_VERSION}_amd64.binary" version
+          cp install_0.3.sh "$RELEASE_DIR/install_0.3.sh"
+          cp install_0.3.sh "$RELEASE_DIR/install.sh"
+          cp update/public-key.pem "$RELEASE_DIR/public-key.pem"
+          {
+            printf '# Boops Client %s の CI 検証記録\n\n' "$RELEASE_VERSION"
+            printf 'Source: %s\n\n' "$GITHUB_SHA"
+            printf 'Go・移行 fixture・配布 fixture の試験を verify job で実行しました。Linux amd64／arm64 は CGO_ENABLED=0 で生成しました。amd64 の version 起動を確認しました。arm64 の実行、実 NIC、systemd、Windows は未検証です。\n\n'
+            sha256sum "$RELEASE_DIR/"*.binary
+          } > "$RELEASE_DIR/verification-ja.md"
+          python3 scripts/publish.py --dir "$RELEASE_DIR"
+      - name: Publish verified binaries and bootstrap files, then manifest
+        run: python3 scripts/publish.py --dir "$RELEASE_DIR" --publish
+      - uses: actions/upload-artifact@v4
+        with:
+          name: boops-client-release-${{ env.RELEASE_VERSION }}
+          path: ${{ env.RELEASE_DIR }}/

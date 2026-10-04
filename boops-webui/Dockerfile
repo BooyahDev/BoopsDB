@@ -1,6 +1,6 @@
-FROM node:20.2.0
+FROM node:22
 WORKDIR /app
 COPY . .
-RUN npm install
+RUN npm ci
 RUN npm run build
 ENTRYPOINT [ "npm", "run", "preview" ]

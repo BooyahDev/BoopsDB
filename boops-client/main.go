@@ -1,316 +1,307 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 
 	"boops/client"
 	"boops/system"
+	"boops/update"
 )
 
+var version = "dev"
 var apiBase = "https://boopsdb-api.booyah.dev/api/machines"
+var apiClient = &http.Client{Timeout: 30 * time.Second}
 
-// var apiBase = "http://10.0.1.1:3001/api/machines"
-
-// Store current network settings
-var currentSettings map[string]client.InterfaceInfo
-
-// ANSI color codes
-const (
-	Reset       = "\033[0m"
-	Bold        = "\033[1m"
-	Dim         = "\033[2m"
-	Italic      = "\033[3m"
-	Underline   = "\033[4m"
-	Red         = "\033[31m"
-	Green       = "\033[32m"
-	Yellow      = "\033[33m"
-	Cyan        = "\033[36m"
-	White       = "\033[37m"
-	BlackOnCyan = "\033[46;30m" // Black text on cyan background
-)
-
-// PrintStyledMessage prints a styled message with optional type and border
-func PrintStyledMessage(msgType string, msg string) {
-	var colorCode string
-
-	switch strings.ToLower(msgType) {
-	case "info":
-		colorCode = Cyan + Bold
-	case "success":
-		colorCode = Green + Bold
-	case "warning":
-		colorCode = Yellow + Bold
-	case "error":
-		colorCode = Red + Bold
-	default:
-		colorCode = White + Bold
-	}
-
-	// Border and padding for the message box
-	fmt.Println()
-	fmt.Printf("%s%s%s\n", BlackOnCyan, strings.ToUpper(msgType)+":", Reset)
-	fmt.Printf("%s %s %s\n", colorCode, msg, Reset)
-	fmt.Println()
+func PrintStyledMessage(kind, message string) {
+	fmt.Printf("%s: %s\n", strings.ToUpper(kind), message)
 }
 
 func main() {
 	if len(os.Args) < 2 {
-		log.Fatal("Usage: boops <regist|sync> [machine-id]")
+		log.Fatal("Usage: boops <regist|sync|version|update> [machine-id]")
 	}
-
+	var err error
 	switch os.Args[1] {
+	case "version":
+		if len(os.Args) != 2 {
+			log.Fatal("Usage: boops version")
+		}
+		fmt.Println(version)
 	case "regist":
 		if len(os.Args) != 3 {
 			log.Fatal("Usage: boops regist <machine-id>")
 		}
-		handleRegist(os.Args[2])
-	case "sync":
-		cfg, err := client.LoadConfig()
-		if err != nil {
-			log.Fatal("Not registered. Run: boops regist <machine-id>")
+		err = registerMachine(os.Args[2], fetchMachine, client.SaveConfig)
+		if err == nil {
+			PrintStyledMessage("success", "Registered existing machine successfully.")
 		}
-		handleSync(cfg.ID)
+	case "sync":
+		if len(os.Args) != 2 {
+			log.Fatal("Usage: boops sync")
+		}
+		var cfg *client.Config
+		cfg, err = client.LoadConfig()
+		if err == nil {
+			err = syncWithUpdate(cfg, checkUpdate, handleSync)
+		}
+	case "update":
+		if len(os.Args) != 2 {
+			log.Fatal("Usage: boops update")
+		}
+		_, err = checkUpdate(true)
 	default:
-		log.Fatal("Unknown command")
+		err = fmt.Errorf("unknown command: %s", os.Args[1])
 	}
-}
-
-func handleRegist(machineID string) {
-	sysInfo := system.GatherSystemInfo()
-	sysInfo.ID = machineID
-
-	if err := client.SaveConfig(machineID); err != nil {
-		log.Fatalf("Failed to save config: %v", err)
-	}
-
-	postJSON(sysInfo)
-}
-
-func handleSync(machineID string) {
-
-	PrintStyledMessage("info", fmt.Sprintf("Operating system: %s", runtime.GOOS))
-
-	resp, err := http.Get(fmt.Sprintf("%s/%s", apiBase, machineID))
 	if err != nil {
-		log.Fatalf("Failed to fetch machine info: %v", err)
+		log.Fatal(err)
+	}
+}
+
+func checkUpdate(force bool) (bool, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return false, err
+	}
+	result, err := update.Check(context.Background(), update.Options{
+		CurrentVersion: version, ExecutablePath: executable, StateDir: "/etc/boops", GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, Force: force,
+	})
+	if result.Updated {
+		PrintStyledMessage("success", "Installed client version "+result.Version+". The next sync uses the new executable.")
+	} else if force && err == nil {
+		PrintStyledMessage("info", "Update check completed. "+result.SkippedReason)
+	}
+	return result.Updated, err
+}
+
+// The updater runs before API access so an unavailable API cannot prevent updates.
+func syncWithUpdate(cfg *client.Config, check func(bool) (bool, error), synchronize func(string) error) error {
+	if cfg.AutoUpdateEnabled() {
+		replaced, err := check(false)
+		if err != nil {
+			if replaced {
+				PrintStyledMessage("warning", "Client was replaced; update bookkeeping reported an error: "+err.Error())
+			} else {
+				PrintStyledMessage("warning", "Update check failed: "+err.Error())
+			}
+		}
+		if replaced {
+			return nil
+		}
+	}
+	return synchronize(cfg.ID)
+}
+
+func registerMachine(machineID string, fetch func(string) (client.Machine, error), saveID func(string) error) error {
+	if _, err := fetchVerifiedMachine(machineID, fetch); err != nil {
+		return err
+	}
+	if err := saveID(machineID); err != nil {
+		return fmt.Errorf("save registration: %w", err)
+	}
+	return nil
+}
+
+func fetchVerifiedMachine(machineID string, fetch func(string) (client.Machine, error)) (client.Machine, error) {
+	requestedID, err := canonicalMachineID(machineID)
+	if err != nil {
+		return client.Machine{}, fmt.Errorf("invalid machine ID: %w", err)
+	}
+	machine, err := fetch(requestedID)
+	if err != nil {
+		return client.Machine{}, fmt.Errorf("verify existing machine: %w", err)
+	}
+	responseID, err := canonicalMachineID(machine.ID)
+	if err != nil {
+		return client.Machine{}, fmt.Errorf("API returned an invalid machine ID: %w", err)
+	}
+	if responseID != requestedID {
+		return client.Machine{}, fmt.Errorf("API returned a different machine ID")
+	}
+	machine.ID = responseID
+	return machine, nil
+}
+
+func canonicalMachineID(id string) (string, error) {
+	if len(id) != 36 || id[8] != '-' || id[13] != '-' || id[18] != '-' || id[23] != '-' {
+		return "", fmt.Errorf("expected a hyphenated UUID")
+	}
+	digits := strings.ReplaceAll(id, "-", "")
+	if len(digits) != 32 {
+		return "", fmt.Errorf("expected 32 UUID hexadecimal digits")
+	}
+	if _, err := hex.DecodeString(digits); err != nil {
+		return "", fmt.Errorf("invalid UUID hexadecimal digits")
+	}
+	return strings.ToLower(id), nil
+}
+
+func machineURL(machineID string) string {
+	return strings.TrimRight(apiBase, "/") + "/" + url.PathEscape(machineID)
+}
+
+func fetchMachine(machineID string) (client.Machine, error) {
+	var machine client.Machine
+	resp, err := apiClient.Get(machineURL(machineID))
+	if err != nil {
+		return machine, err
 	}
 	defer resp.Body.Close()
-	body, _ := ioutil.ReadAll(resp.Body)
-
-	var m client.Machine
-	if err := json.Unmarshal(body, &m); err != nil {
-		log.Fatalf("Invalid JSON from API: %v", err)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return machine, fmt.Errorf("GET machine returned HTTP %d", resp.StatusCode)
 	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 4*1024*1024+1))
+	if err != nil {
+		return machine, fmt.Errorf("read machine response: %w", err)
+	}
+	if len(data) > 4*1024*1024 {
+		return machine, fmt.Errorf("machine response exceeds size limit")
+	}
+	if err = json.Unmarshal(data, &machine); err != nil {
+		return machine, fmt.Errorf("invalid machine JSON: %w", err)
+	}
+	return machine, nil
+}
 
-	// Load previous machine state
-	prevState, _ := client.LoadMachineState()
-	stateChanged := prevState == nil || !client.InterfacesEqual(prevState.Interfaces, m.Interfaces)
-
-	// Set hostname if changed
-	if m.Hostname != "" && (prevState == nil || prevState.Hostname != m.Hostname) {
-		cmd := fmt.Sprintf("hostnamectl set-hostname %s", m.Hostname)
-		PrintStyledMessage("info", fmt.Sprintf("Setting hostname to: %s", m.Hostname))
-		cmdResult := exec.Command("sh", "-c", cmd)
-		output, err := cmdResult.CombinedOutput()
-		if err != nil {
-			PrintStyledMessage("error", fmt.Sprintf("Failed to set hostname with error: %v, output: %s", err, string(output)))
-		} else {
-			PrintStyledMessage("success", "Hostname set successfully")
+// Applying all NICs and saving their comparison state form one success boundary.
+func syncNetworkState(machine client.Machine, previous *client.MachineState, apply func([]client.InterfaceInfo) error, save func(*client.MachineState) error) error {
+	interfaces, err := client.NormalizeInterfaces(machine.Interfaces)
+	if err != nil {
+		return err
+	}
+	changed := previous == nil || !client.InterfacesEqual(previous.Interfaces, interfaces)
+	if changed && len(interfaces) > 0 {
+		if err := apply(interfaces); err != nil {
+			return fmt.Errorf("apply network settings: %w", err)
 		}
 	}
+	if changed || previous.Hostname != machine.Hostname {
+		return save(&client.MachineState{Interfaces: interfaces, Hostname: machine.Hostname})
+	}
+	return nil
+}
 
-	// Get current OS name and update it in the server
-	sysInfo := system.GatherSystemInfo()
-	updateOsName := fmt.Sprintf(`{"os_name": "%s"}`, sysInfo.OsName)
-	PrintStyledMessage("info", fmt.Sprintf("Current OS name: %s", updateOsName))
-	req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-os_name", apiBase, machineID), strings.NewReader(updateOsName))
-	if err != nil {
-		log.Fatalf("Failed to create OS name update request: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	respUpdate, err := http.DefaultClient.Do(req)
-	if err != nil {
-		PrintStyledMessage("error", fmt.Sprintf("Failed to send OS name update request: %v", err))
-	} else if respUpdate.StatusCode >= 300 {
-		PrintStyledMessage("warning", fmt.Sprintf("OS name update failed with status code: %d", respUpdate.StatusCode))
-	} else {
-		PrintStyledMessage("success", fmt.Sprintf("Successfully updated OS name to: %s", sysInfo.OsName))
-	}
+func handleSync(machineID string) error {
+	return syncRegisteredMachine(machineID, fetchMachine, handleMachineSync)
+}
 
-	// Update memory size
-	sysInfo = system.GatherSystemInfo()
-	updateMemoryPayload := fmt.Sprintf(`{"memory_size": "%s"}`, sysInfo.MemorySize)
-	PrintStyledMessage("info", fmt.Sprintf("Updating memory size to: %s", sysInfo.MemorySize))
-	req, err = http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-memory_size", apiBase, machineID), strings.NewReader(updateMemoryPayload))
+func syncRegisteredMachine(machineID string, fetch func(string) (client.Machine, error), synchronize func(client.Machine) error) error {
+	machine, err := fetchVerifiedMachine(machineID, fetch)
 	if err != nil {
-		log.Fatalf("Failed to create memory size update request: %v", err)
+		return err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	respMemUpdate, err := http.DefaultClient.Do(req)
-	if err != nil {
-		PrintStyledMessage("error", fmt.Sprintf("Failed to send memory size update request: %v", err))
-	} else if respMemUpdate.StatusCode >= 300 {
-		PrintStyledMessage("warning", fmt.Sprintf("Memory size update failed with status code: %d", respMemUpdate.StatusCode))
-	} else {
-		PrintStyledMessage("success", fmt.Sprintf("Successfully updated memory size to: %s", sysInfo.MemorySize))
-	}
+	return synchronize(machine)
+}
 
-	// Update CPU architecture
-	sysInfo = system.GatherSystemInfo()
-	cpuArchPayload := fmt.Sprintf(`{"cpu_arch": "%s"}`, sysInfo.CpuArch)
-	PrintStyledMessage("info", fmt.Sprintf("Updating CPU architecture to: %s", sysInfo.CpuArch))
-	req, err = http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-cpu_arch", apiBase, machineID), strings.NewReader(cpuArchPayload))
+func handleMachineSync(machine client.Machine) error {
+	previous, err := client.LoadMachineState()
 	if err != nil {
-		log.Fatalf("Failed to create CPU architecture update request: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	respCpuUpdate, err := http.DefaultClient.Do(req)
-	if err != nil {
-		PrintStyledMessage("error", fmt.Sprintf("Failed to send CPU architecture update request: %v", err))
-	} else if respCpuUpdate.StatusCode >= 300 {
-		PrintStyledMessage("warning", fmt.Sprintf("CPU architecture update failed with status code: %d", respCpuUpdate.StatusCode))
-	} else {
-		PrintStyledMessage("success", fmt.Sprintf("Successfully updated CPU architecture to: %s", sysInfo.CpuArch))
-	}
-
-	// Update CPU model info
-	sysInfo = system.GatherSystemInfo()
-	// Replace newlines with spaces to avoid JSON parsing issues
-	cpuInfo := strings.ReplaceAll(sysInfo.CpuInfo, "\n", " ")
-	cpuInfoPayload := fmt.Sprintf(`{"cpu_info": "%s"}`, cpuInfo)
-	PrintStyledMessage("info", fmt.Sprintf("Updating CPU model info to: %s", cpuInfo))
-	req, err = http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-cpu_info", apiBase, machineID), strings.NewReader(cpuInfoPayload))
-	if err != nil {
-		log.Fatalf("Failed to create CPU info update request: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	respCpuModelUpdate, err := http.DefaultClient.Do(req)
-	if err != nil {
-		PrintStyledMessage("error", fmt.Sprintf("Failed to send CPU info update request: %v", err))
-	} else if respCpuModelUpdate.StatusCode >= 300 {
-		PrintStyledMessage("warning", fmt.Sprintf("CPU info update failed with status code: %d", respCpuModelUpdate.StatusCode))
-	} else {
-		PrintStyledMessage("success", fmt.Sprintf("Successfully updated CPU model info to: %s", cpuInfo))
-	}
-
-	// Update disk info
-	sysInfo = system.GatherSystemInfo()
-	diskInfo := strings.ReplaceAll(sysInfo.DiskInfo, "\n", " ")
-	diskInfoPayload := fmt.Sprintf(`{"disk_info": "%s"}`, diskInfo)
-	PrintStyledMessage("info", fmt.Sprintf("Updating disk info to: %s", diskInfoPayload))
-	req, err = http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-disk_info", apiBase, machineID), strings.NewReader(diskInfoPayload))
-	if err != nil {
-		log.Fatalf("Failed to create disk info update request: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	respDiskUpdate, err := http.DefaultClient.Do(req)
-	if err != nil {
-		PrintStyledMessage("error", fmt.Sprintf("Failed to send disk info update request: %v", err))
-	} else if respDiskUpdate.StatusCode >= 300 {
-		PrintStyledMessage("warning", fmt.Sprintf("Disk info update failed with status code: %d", respDiskUpdate.StatusCode))
-	} else {
-		PrintStyledMessage("success", "Successfully updated disk info")
-	}
-
-	req, err = http.NewRequest(http.MethodPut, fmt.Sprintf("%s/%s/update-last-alive", apiBase, machineID), nil)
-	if err != nil {
-		log.Fatalf("Failed to create request: %v", err)
-	}
-	_, err = http.DefaultClient.Do(req)
-	if err != nil {
-		log.Fatalf("Failed to send update-last-alive request: %v", err)
-	}
-
-	// Update MAC addresses for all interfaces
-	for _, ifaceInfo := range m.Interfaces {
-		if len(ifaceInfo.IPs) == 0 {
-			continue // Skip interfaces without IPs
+		previous = nil
+		if !os.IsNotExist(err) {
+			PrintStyledMessage("warning", "Previous network state is unreadable; retrying settings: "+err.Error())
 		}
+	}
+	if err := syncMachineSettings(machine, previous, runtime.GOOS, func(name string, args ...string) ([]byte, error) {
+		return exec.Command(name, args...).CombinedOutput()
+	}, func(interfaces []client.InterfaceInfo) error {
+		return system.ApplyNetworkSettingsWithOps(interfaces, system.RealOps())
+	}, client.SaveMachineState); err != nil {
+		return err
+	}
+	updateInventory(machine.ID, machine)
+	PrintStyledMessage("success", "Sync completed successfully.")
+	return nil
+}
 
-		ifName := ifaceInfo.Name
-		macAddr, err := system.GetMacAddress(ifName)
+func syncMachineSettings(machine client.Machine, previous *client.MachineState, platform string, run func(string, ...string) ([]byte, error), apply func([]client.InterfaceInfo) error, save func(*client.MachineState) error) error {
+	// Validate the entire request before changing the hostname or network.
+	if _, err := client.NormalizeInterfaces(machine.Interfaces); err != nil {
+		return err
+	}
+	if machine.Hostname != "" && (previous == nil || previous.Hostname != machine.Hostname) {
+		applied := false
+		if platform == "linux" {
+			output, err := run("hostnamectl", "set-hostname", "--", machine.Hostname)
+			if err != nil {
+				PrintStyledMessage("warning", fmt.Sprintf("Set hostname failed; continuing network sync: %v: %s", err, strings.TrimSpace(string(output))))
+			} else {
+				applied = true
+			}
+		}
+		if !applied {
+			machine.Hostname = ""
+			if previous != nil {
+				machine.Hostname = previous.Hostname
+			}
+		}
+	}
+	return syncNetworkState(machine, previous, apply, save)
+}
+
+func putMachineField(path string, payload any) error {
+	var body io.Reader
+	if payload != nil {
+		data, err := json.Marshal(payload)
 		if err != nil {
-			PrintStyledMessage("warning", fmt.Sprintf("Failed to get MAC address for interface %s: %v", ifName, err))
+			return err
+		}
+		body = bytes.NewReader(data)
+	}
+	req, err := http.NewRequest(http.MethodPut, path, body)
+	if err != nil {
+		return err
+	}
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := apiClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if _, err = io.Copy(io.Discard, io.LimitReader(resp.Body, 64*1024)); err != nil {
+		return err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
+func updateInventory(machineID string, machine client.Machine) {
+	info := system.GatherSystemInfo()
+	for _, field := range []struct{ name, value string }{
+		{"os_name", info.OsName}, {"memory_size", info.MemorySize}, {"cpu_arch", info.CpuArch}, {"cpu_info", info.CpuInfo}, {"disk_info", info.DiskInfo},
+	} {
+		if err := putMachineField(machineURL(machineID)+"/update-"+field.name, map[string]string{field.name: field.value}); err != nil {
+			PrintStyledMessage("warning", "Update "+field.name+": "+err.Error())
+		}
+	}
+	if err := putMachineField(machineURL(machineID)+"/update-last-alive", nil); err != nil {
+		PrintStyledMessage("warning", "Update last_alive: "+err.Error())
+	}
+	for _, iface := range machine.Interfaces {
+		mac, err := system.GetMacAddress(iface.Name)
+		if err != nil {
+			PrintStyledMessage("warning", "Read MAC "+iface.Name+": "+err.Error())
 			continue
 		}
-
-		// Only update if the MAC address is different or empty in the server data
-		currentMac := ifaceInfo.MacAddress
-		if currentMac == "" || currentMac != macAddr {
-			updatePayload := fmt.Sprintf(`{"mac_address": "%s"}`, macAddr)
-			req, err = http.NewRequest(
-				http.MethodPut,
-				fmt.Sprintf("%s/%s/interfaces/%s/update-mac_address", apiBase, machineID, ifName),
-				strings.NewReader(updatePayload),
-			)
-			if err != nil {
-				PrintStyledMessage("error", fmt.Sprintf("Failed to create MAC address update request for interface %s: %v", ifName, err))
-				continue
-			}
-			req.Header.Set("Content-Type", "application/json")
-
-			respMacUpdate, err := http.DefaultClient.Do(req)
-			if err != nil {
-				PrintStyledMessage("error", fmt.Sprintf("Failed to send MAC address update request for interface %s: %v", ifName, err))
-			} else if respMacUpdate.StatusCode >= 300 {
-				PrintStyledMessage("warning", fmt.Sprintf("MAC address update failed for interface %s with status code: %d", ifName, respMacUpdate.StatusCode))
-			} else {
-				PrintStyledMessage("success", fmt.Sprintf("Successfully updated MAC address for interface %s to %s", ifName, macAddr))
+		if mac != iface.MacAddress {
+			if err := putMachineField(machineURL(machineID)+"/interfaces/"+url.PathEscape(iface.Name)+"/update-mac_address", map[string]string{"mac_address": mac}); err != nil {
+				PrintStyledMessage("warning", "Update MAC "+iface.Name+": "+err.Error())
 			}
 		}
 	}
-
-	PrintStyledMessage("info", fmt.Sprintf("Applying network settings for interfaces: %v", m.Interfaces))
-
-	if len(m.Interfaces) > 0 && stateChanged {
-		// Use the actual interface names from the API response
-		ifaceMap := make(map[string]client.InterfaceInfo)
-		for _, ifaceInfo := range m.Interfaces {
-			if len(ifaceInfo.IPs) > 0 {
-				ifaceMap[ifaceInfo.Name] = ifaceInfo // Use the actual interface name from struct
-			}
-		}
-
-		if err := system.ApplyNetworkSettings(ifaceMap); err != nil {
-			PrintStyledMessage("error", fmt.Sprintf("Failed to apply network settings: %v", err))
-		}
-
-		// Save new state
-		state := &client.MachineState{
-			Interfaces: m.Interfaces,
-			Hostname:   m.Hostname,
-		}
-		if err := client.SaveMachineState(state); err != nil {
-			PrintStyledMessage("error", fmt.Sprintf("Failed to save machine state: %v", err))
-		} else {
-			PrintStyledMessage("success", "Successfully saved new machine state")
-		}
-	}
-
-	PrintStyledMessage("success", "Sync completed successfully.")
-}
-
-func postJSON(data any) {
-	b, _ := json.Marshal(data)
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/%s", apiBase, data.(client.Machine).ID), strings.NewReader(string(b)))
-	if err != nil {
-		log.Fatalf("Failed to create request: %v", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Fatalf("POST failed: %v", err)
-	}
-	defer resp.Body.Close()
-	log.Println("Registered successfully.")
 }

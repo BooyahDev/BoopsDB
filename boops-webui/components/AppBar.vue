@@ -1,18 +1,8 @@
 <template>
-    <div style="display: inline-block; vertical-align: middle;">
-        <ul>
-            <div style="display: inline-block;vertical-align: middle;">
-                <a href="https://www.booyah.dev">
-                    <!-- <img class="mr-2" src="/logo_white.png" style="display: inline-block;vertical-align: middle; height: 40px;" /> -->
-                </a>
-            </div>
-            <slot name="title">BoopsDB
-            </slot>
-            <a href="/" style="color: white; text-decoration: none;" class="ml-1 mr-1">検索</a> | 
-            <a href="/machines/register" style="color: white; text-decoration: none">マシン登録</a>
-        </ul>
-    </div>
+  <NuxtLink to="/" class="brand-link"><v-icon color="primary" class="mr-2">mdi-server-network</v-icon>BoopsDB <span class="brand-caption">Console</span></NuxtLink>
 </template>
-
-<script setup>
-</script>
+<style scoped>
+.brand-link { color: rgb(var(--v-theme-on-surface)); text-decoration: none; font-size: 1.2rem; font-weight: 600; display: inline-flex; align-items: center; }
+.brand-caption { margin-left: 12px; font-size: .85rem; font-weight: 400; opacity: .7; }
+@media (max-width: 450px) { .brand-caption { display: none; } }
+</style>

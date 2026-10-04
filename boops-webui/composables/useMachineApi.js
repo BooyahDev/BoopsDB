@@ -1,6 +1,7 @@
-import { apiBaseUrl } from '@/apiConfig';
+import { useApiBaseUrl } from '@/apiConfig';
 
 export function useMachineApi() {
+  const apiBaseUrl = useApiBaseUrl();
   const updateMachineField = async (machineId, fieldName, value) => {
     let endpoint = '';
     let body = {};
@@ -44,30 +45,7 @@ export function useMachineApi() {
       throw new Error(errorData.error || 'Failed to update machine');
     }
 
-    // Return updated machine data
-    const updatedResponse = await fetch(`${apiBaseUrl}/machines/${machineId}`);
-    if (!updatedResponse.ok) {
-      throw new Error('Failed to fetch updated machine data');
-    }
-
-    const updatedMachine = await updatedResponse.json();
-
-    // Handle parent machine hostname if needed
-    if (updatedMachine.is_virtual && updatedMachine.parent_machine_id) {
-      try {
-        const parentResponse = await fetch(`${apiBaseUrl}/machines/${updatedMachine.parent_machine_id}`);
-        if (parentResponse.ok) {
-          const parentMachine = await parentResponse.json();
-          updatedMachine.parentHostname = parentMachine.hostname;
-        }
-      } catch (err) {
-        console.warn('Failed to fetch parent machine hostname:', err);
-      }
-    } else {
-      updatedMachine.parentHostname = null;
-    }
-
-    return updatedMachine;
+    return getMachine(machineId);
   };
 
   const deleteMachine = async (machineId) => {
@@ -83,7 +61,7 @@ export function useMachineApi() {
 
   const getMachine = async (machineId) => {
     const response = await fetch(`${apiBaseUrl}/machines/${machineId}`);
-    
+
     if (!response.ok) {
       throw new Error('Failed to load machine details');
     }

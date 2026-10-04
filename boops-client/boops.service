@@ -1,11 +1,11 @@
 [Unit]
 Description=Boops Client Service
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
+Type=oneshot
 ExecStart=/usr/local/bin/boops sync
-#Restart=always
-Restart=no
 User=root
 Group=root
 WorkingDirectory=/etc/boops

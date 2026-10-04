@@ -1,6 +1,6 @@
 # BoopsDB
 
-BoopsDBは、マシン情報とそのネットワークインターフェースを管理するためのWebアプリケーションです。Node.jsとExpressを使ったサーバー（boops-server）とNuxt.jsで構築されたフロントエンド（boops-ui）から成ります。
+BoopsDB は、マシン情報とネットワークインターフェースを管理する Web アプリケーションです。Node.js／Express の API（boops-server）、Nuxt／Vuetify の管理画面（boops-webui）、端末の設定を同期する Go クライアント（boops-client）を使います。
 
 ## プロジェクト構造
 
@@ -13,6 +13,8 @@ BoopsDB/
 │   ├── models/        # データベースモデル
 │   └── sql/           # SQLスキーマとマイグレーション
 ├── boops-ui/          # フロントエンドのコード（Nuxt.js）
+├── boops-webui/       # 現行の管理画面（Nuxt.js／Vuetify）
+├── boops-client/      # 端末の同期と署名付き更新（Go）
 ├── boops-cli/         # BoopsDB APIを操作するCLIツール（Go）
 └── README.md          # このREADMEファイル
 ```
@@ -97,6 +99,21 @@ git pull
 git tag -a boops-cli/v0.1.0 -m "boops-cli v0.1.0"
 git push origin boops-cli/v0.1.0
 ```
+
+## 端末同期クライアント（boops-client）
+
+0.3.0 から Linux amd64・arm64 の署名付き自動更新に対応します。既存の 0.1／0.2 クライアントは、[クライアントの導入手順](boops-client/README.md)で一度だけ入れ替えてください。既存の UUID・config・ネットワーク state と timer の enabled／active 状態を保持します。新規導入では WebUI に作成済みのマシン ID を確認して登録してから、同期タイマーを有効にします。
+
+```bash
+curl -fsS --proto '=https' https://file.booyah.dev/BoopsDB-Client/install.sh -o install.sh
+sudo bash install.sh
+boops version
+sudo boops update
+```
+
+`sync` は API の取得前に最新版を確認します。`config.json` に `"auto_update": false` を指定すると定期更新を無効にでき、キーがない場合は有効です。通常の PR／main CI は試験とビルドだけを行い、タグまたは明示した release dispatch で署名・公開します。将来の CI 公開には、管理者による `BOOPS_CLIENT_SIGNING_KEY` secret の設定が必要です。
+
+署名鍵の保管、リリース生成、`boops.previous` を使う手動復旧は [クライアント README](boops-client/README.md) を参照してください。実 NIC・systemd・Windows・arm64 の実行は未検証です。WebUI／API の本番反映と既存端末の移行は、成果物の配布とは別作業です。
 
 ## データベーススキーマ
 

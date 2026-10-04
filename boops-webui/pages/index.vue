@@ -1,9 +1,9 @@
 <template>
-    <v-container style="margin-top: 50px;">
-        <h1>BoopsDB マシン検索</h1>
+    <v-container class="page-container">
+        <div class="page-heading"><div><h1>マシン検索</h1><p class="page-subtitle">ホスト名、IP アドレス、用途からマシンを探す</p></div><v-btn to="/machines/register" color="primary" prepend-icon="mdi-plus">マシン登録</v-btn></div>
 
         <!-- Link to Register a New Machine -->
-        <nuxt-link to="/machines/register" class="register-link">マシン登録</nuxt-link>
+
 
         <!-- Search Statistics -->
         <v-card v-if="searchStats" class="mb-4" elevation="2">
@@ -55,7 +55,7 @@
                         <v-col cols="12" md="6">
                             <h4>検索例</h4>
                             <v-chip-group column>
-                                <v-chip v-for="example in searchExamples" :key="example" 
+                                <v-chip v-for="example in searchExamples" :key="example"
                                        @click="setSearchExample(example)" size="small">
                                     {{ example }}
                                 </v-chip>
@@ -73,7 +73,7 @@
                 <div v-if="suggestions.hostnames.length > 0" class="mb-3">
                     <h6>ホスト名:</h6>
                     <v-chip-group>
-                        <v-chip v-for="hostname in suggestions.hostnames.slice(0, 10)" 
+                        <v-chip v-for="hostname in suggestions.hostnames.slice(0, 10)"
                                :key="hostname" size="small"
                                @click="setSearchQuery('hostname:' + hostname)">
                             {{ hostname }}
@@ -83,7 +83,7 @@
                 <div v-if="suggestions.osNames.length > 0" class="mb-3">
                     <h6>OS:</h6>
                     <v-chip-group>
-                        <v-chip v-for="os in suggestions.osNames" 
+                        <v-chip v-for="os in suggestions.osNames"
                                :key="os" size="small"
                                @click="setSearchQuery('os:' + os)">
                             {{ os }}
@@ -93,7 +93,7 @@
                 <div v-if="suggestions.purposes.length > 0" class="mb-3">
                     <h6>用途:</h6>
                     <v-chip-group>
-                        <v-chip v-for="purpose in suggestions.purposes" 
+                        <v-chip v-for="purpose in suggestions.purposes"
                                :key="purpose" size="small"
                                @click="setSearchQuery('purpose:' + purpose)">
                             {{ purpose }}
@@ -116,7 +116,7 @@
                     append-inner-icon="mdi-magnify"
                     @click:append-inner="searchMachines"
                 />
-                
+
                 <!-- Sort and Pagination Controls -->
                 <v-row class="mt-2">
                     <v-col cols="12" md="4">
@@ -160,20 +160,23 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
-import { apiBaseUrl } from '@/apiConfig';
+import { useApiBaseUrl } from '@/apiConfig';
+const apiBaseUrl = useApiBaseUrl();
 
 const router = useRouter();
-const searchQuery = ref('');
+const route = useRoute();
+const searchQuery = ref(route.query.q || '');
 const searchStats = ref(null);
 const suggestions = ref(null);
 const helpPanel = ref([]);
 
 // Search configuration
-const sortBy = ref('hostname');
-const sortOrder = ref('asc');
-const pageSize = ref(50);
+const sortBy = ref(route.query.sort || '');
+const sortOrder = ref(route.query.order || 'asc');
+const pageSize = ref(Number(route.query.limit) || 50);
 
 const sortOptions = [
+    { title: '登録順（既定）', value: '' },
     { title: 'ホスト名', value: 'hostname' },
     { title: '最終接続', value: 'last_alive' },
     { title: '作成日', value: 'created_at' },
@@ -227,38 +230,19 @@ function setSearchExample(example) {
 
 async function searchMachines() {
     const query = new URLSearchParams();
-    
-    if (searchQuery.value.trim()) {
+
+    if (searchQuery.value?.trim()) {
         query.append('q', searchQuery.value);
     }
-    
-    query.append('sort', sortBy.value);
-    query.append('order', sortOrder.value);
+
+    if (sortBy.value) query.append('sort', sortBy.value);
+    if (sortBy.value) query.append('order', sortOrder.value);
     query.append('limit', pageSize.value.toString());
-    
-    // Redirect to the machines page with query
-    router.push({ path: '/machines', query: Object.fromEntries(query) });
+
+    const state = Object.fromEntries(query);
+    await router.replace({ path: '/', query: state });
+    await router.push({ path: '/machines', query: state });
 }
 </script>
 
-<style scoped>
-.register-link {
-    display: inline-block;
-    background-color: #28a745;
-    color: white;
-    padding: 0.5rem 1rem;
-    border-radius: 4px;
-    text-decoration: none;
-    margin-bottom: 1rem;
-}
-
-.register-link:hover {
-    background-color: #218838;
-}
-
-h6 {
-    font-weight: bold;
-    color: #666;
-    margin-bottom: 8px;
-}
-</style>
+<style scoped>h6 { font-size: .85rem; font-weight: 500; }</style>
