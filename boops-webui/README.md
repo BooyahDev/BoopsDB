@@ -81,6 +81,8 @@ BOOPS_OIDC_CLIENT_SECRET=<Authentik client secret>
 BOOPS_COOKIE_SECRET=<oauth2-proxy cookie secret>
 ```
 
+運用中の `BOOPS_COOKIE_SECRET` は既存値を維持し、再生成しません。
+
 ```bash
 docker compose --env-file /path/to/boops-proxy.env \
   up -d --no-deps --pull never --no-build --force-recreate oauth2-proxy1
