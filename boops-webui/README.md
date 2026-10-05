@@ -72,4 +72,20 @@ yarn preview
 bun run preview
 ```
 
+## OAuth2 Proxy configuration
+
+The Compose `oauth2-proxy1` service reads its Authentik client and cookie secrets from a private env file. Keep that file outside the repository and provide it explicitly when starting the proxy:
+
+```dotenv
+BOOPS_OIDC_CLIENT_SECRET=<Authentik client secret>
+BOOPS_COOKIE_SECRET=<oauth2-proxy cookie secret>
+```
+
+```bash
+docker compose --env-file /path/to/boops-proxy.env \
+  up -d --no-deps --pull never --no-build --force-recreate oauth2-proxy1
+```
+
+Do not commit the env file or inline either secret in Compose.
+
 Check out the [deployment documentation](https://nuxt.com/docs/getting-started/deployment) for more information.

@@ -1,28 +1,32 @@
 services:
   oauth2-proxy1:
-    image: quay.io/oauth2-proxy/oauth2-proxy:latest
+    image: quay.io/oauth2-proxy/oauth2-proxy@sha256:aa0bd8dd5ab0c78e4c91c92755ad573a5f92241f88138b4141b8ec803463b4fd
     ports:
       - 8180:4180
     environment:
       OAUTH2_PROXY_PROVIDER: "oidc"
+      OAUTH2_PROXY_TRUSTED_PROXY_IPS: "10.0.10.1,10.0.10.2,10.0.10.3,10.1.10.1,10.1.10.2"
+      OAUTH2_PROXY_REVERSE_PROXY: "true"
+      OAUTH2_PROXY_INSECURE_OIDC_SKIP_NONCE: "false"
+      OAUTH2_PROXY_CODE_CHALLENGE_METHOD: "S256"
       OAUTH2_PROXY_OIDC_EMAIL_CLAIM: "sub"
       OAUTH2_PROXY_SCOPE: "openid"
-      OAUTH2_PROXY_CLIENT_ID: "oauth2-proxy"
-      OAUTH2_PROXY_CLIENT_SECRET: "cA4eUmM37i9V1M2X6UXGuTSdKMb7tLhN"
-      OAUTH2_PROXY_OIDC_ISSUER_URL: "https://auth.booyah.dev/realms/Booyah"
-      OAUTH2_PROXY_COOKIE_SECRET: "5JEx-EnDmjnlN-1wd2EQDMrLLEly5NOUUSYsZCiy3Tc="
-      OAUTH2_PROXY_COOKIE_NAME: "auth_demo"
+      OAUTH2_PROXY_CLIENT_ID: "boopsdb"
+      OAUTH2_PROXY_CLIENT_SECRET: "${BOOPS_OIDC_CLIENT_SECRET:?set private client secret}"
+      OAUTH2_PROXY_OIDC_ISSUER_URL: "https://authentik.booyah.dev/application/o/boopsdb/"
+      OAUTH2_PROXY_COOKIE_SECRET: "${BOOPS_COOKIE_SECRET:?set private cookie secret}"
+      OAUTH2_PROXY_COOKIE_NAME: "boopsdb_authentik"
       OAUTH2_PROXY_EMAIL_DOMAINS: "*"
       OAUTH2_PROXY_HTTP_ADDRESS: "0.0.0.0:4180"
       OAUTH2_PROXY_PASS_AUTHORIZATION_HEADER: "true"
       OAUTH2_PROXY_PASS_ACCESS_TOKEN: "true"
       OAUTH2_PROXY_PASS_USER_HEADERS: "true"
-      OAUTH2_PROXY_SSL_INSECURE_SKIP_VERIFY: "true"
+      OAUTH2_PROXY_SSL_INSECURE_SKIP_VERIFY: "false"
       OAUTH2_PROXY_INSECURE_OIDC_ALLOW_UNVERIFIED_EMAIL: "true"
-      OAUTH2_PROXY_REDIRECT_URL: ""
-      OAUTH2_PROXY_COOKIE_SECURE: "false"
+      OAUTH2_PROXY_REDIRECT_URL: "https://boopsdb.booyah.dev/oauth2/callback"
+      OAUTH2_PROXY_COOKIE_SECURE: "true"
       OAUTH2_PROXY_SKIP_PROVIDER_BUTTON: "true"
-      OAUTH2_PROXY_UPSTREAMS: http://10.0.0.4:3100/
+      OAUTH2_PROXY_UPSTREAMS: "http://10.0.50.17:3100/"
 
   boops-webui:
     image: docker-registry.booyah.dev/boops-webui
