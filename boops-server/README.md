@@ -184,3 +184,30 @@ docker compose up -d boops-server
 ```
 
 `dotenv` の `injecting env (0)` は、Compose がすでに変数を渡していて `.env` から追加で注入した変数が 0 件の場合にも表示されます。この表示だけではトークン不足とは判断できません。
+
+## Notion への退避
+
+GitHub に加え、Notion API でも同じ構成情報をアーカイブできます。GitHub と独立した設定・再試行ワーカーを使用します。片方の障害で他方の同期を停止しません。起動時、構成変更が成功した後、24 時間ごとの比較、SIGUSR2 と `npm run archive:sync` による明示同期は、すべて有効な退避先に適用されます。Heartbeat・日時情報の除外、同一内容の送信省略、ローカル保存と長時間障害時の再試行も共通です。
+
+```dotenv
+NOTION_ARCHIVE_ENABLED=true
+NOTION_ARCHIVE_TOKEN=ntn_...
+NOTION_ARCHIVE_PAGE_ID=3f1f663606fc8061a287f4838ff648c3
+NOTION_ARCHIVE_DIR=.boops-archive/notion
+```
+
+Notion インテグレーションにコンテンツの読み取り・挿入・更新権限を付与し、指定ページにその接続を追加してください。`NOTION_ARCHIVE_PAGE_ID` はページ URL の `/p/` の ID です。`?v=` はビュー ID なので使用しません。通常ページかデータベースかを API で自動判定します。データベースの場合は、その中に `BoopsDB Archive [managed]` という 1 件のページを作成・再利用し、その本文へ統合表を保存します。既存の DB プロパティ・他のレコードは変更しません。複数データソースを持つデータベースは対象を自動選択せず失敗します。その場合は退避用の通常ページを作り、その ID を設定してください。
+
+指定ページ内の `BoopsDB Archive [managed]` トグルに、GitHub と同じ列・行を持つ **1 つのネイティブ表**を作成します。トグルを開いて閲覧してください。既存の他の本文・ブロックは変更しません。この名前と `BoopsDB Archive [managed] [updating]` は退避処理専用です。管理対象の表を手動編集しても、日次確認で DB の内容へ戻します。
+
+新しい表を別のトグルで完成させてから前回の表を削除します。更新中の障害では前回の完成済み表を維持し、次回同期で未完成トグルや重複を整理します。更新中は一時的に前回と新規のトグルが並びます。Notion には GitHub のコミット履歴に相当する独自世代管理は追加していません。
+
+100 行・リクエストサイズの制限に合わせて送信を分割し、長いセルもテキスト要素に分割します。通常はリクエストを約 350 ms ごとに送り、HTTP 429 / 529 などの `Retry-After` を再試行時に尊重します。セルが 100 テキスト要素または 1 行が安全な送信サイズを超える場合は切り捨てずに同期を失敗させ、前回の完成済み表を保持します。失敗ログの `notion-sync` と HTTP ステータスを確認してください。
+
+複数台運用では Notion も 1 台だけ `NOTION_ARCHIVE_ENABLED=true` にします。他のインスタンスは `false`（未設定も無効）にしてください。既存の `.env` に設定を追加し、再ビルド・再作成します。
+
+```sh
+docker compose up -d --build --force-recreate boops-server
+```
+
+仕様: [Notion ブロック・表](https://developers.notion.com/reference/block)、[Notion API の制限](https://developers.notion.com/reference/request-limits)。トークンや実データはソースリポジトリへコミットしないでください。

@@ -7,8 +7,8 @@ const app = createApp(db, { archive });
 archive?.schedule();
 // A signal queues an explicit remote comparison through the same serialized worker.
 process.on('SIGUSR2', () => {
-  if (!archive) { console.error('GitHub archive manual sync ignored: archive is disabled'); return; }
-  console.info('GitHub archive manual sync requested');
+  if (!archive) { console.error('Archive manual sync ignored: archive is disabled'); return; }
+  console.info('Archive manual sync requested');
   archive.schedule({ verify: true });
 });
 

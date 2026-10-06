@@ -6,7 +6,7 @@ let archive;
 try {
   // Validate configuration before importing the production database module.
   archive = archiveFromEnv({ query() { throw new Error('Database not initialized'); } });
-  if (!archive) throw new Error('Archive disabled; check GITHUB_ARCHIVE_ENABLED and GITHUB_ARCHIVE_TOKEN');
+  if (!archive) throw new Error('Archive disabled; check GITHUB_ARCHIVE_* / NOTION_ARCHIVE_* configuration');
   archive.stop();
   const { default: db } = await import('../models/db.js');
   archive = archiveFromEnv(db);

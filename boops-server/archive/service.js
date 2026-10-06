@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
 import { readMarkdown } from './markdown.js';
 import { createGithubPublisher } from './github.js';
+import { createNotionPublisher, NOTION_ARCHIVE_PAGE_ID } from './notion.js';
 
 export function archiveMiddleware(archive) {
   return (req, res, next) => {
@@ -11,7 +12,7 @@ export function archiveMiddleware(archive) {
       res.once('finish', () => {
         if (res.statusCode >= 200 && res.statusCode < 300) {
           // Backup failures must never affect the API response or process.
-          try { archive.schedule(); } catch { console.error('Failed to schedule GitHub archive'); }
+          try { archive.schedule(); } catch { console.error('Failed to schedule archive'); }
         }
       });
     }
@@ -19,7 +20,7 @@ export function archiveMiddleware(archive) {
   };
 }
 
-export function createArchiveService({ db, publish, directory, debounceMs = 2000, retryMs = 60000, intervalMs = 24 * 60 * 60 * 1000, logger = console }) {
+export function createArchiveService({ db, publish, directory, debounceMs = 2000, retryMs = 60000, intervalMs = 24 * 60 * 60 * 1000, logger = console, name = 'GitHub' }) {
   const file = path.join(directory, 'README.md');
   let timer, running = false, dirty = false, stopped = false, lastPublished, failures = 0, verifyRemote = false;
   function arm(delay) {
@@ -47,7 +48,7 @@ export function createArchiveService({ db, publish, directory, debounceMs = 2000
       let markdown;
       try { markdown = await readMarkdown(db); }
       catch {
-        logger.warn?.('GitHub archive: MySQL unavailable; using local snapshot');
+        logger.warn?.(`${name} archive: MySQL unavailable; using local snapshot`);
         dbUnavailable = true;
         stage = 'local-snapshot-read';
         markdown = await readFile(file, 'utf8');
@@ -59,10 +60,10 @@ export function createArchiveService({ db, publish, directory, debounceMs = 2000
         await rename(file + '.tmp', file);
       }
       if (verify || markdown !== lastPublished) {
-        stage = 'github-sync';
+        stage = `${name.toLowerCase()}-sync`;
         const result = await publish(markdown);
         lastPublished = markdown;
-        logger.info?.('GitHub archive sync completed', { updated: result?.updated ?? true, source: dbUnavailable ? 'local' : 'database' });
+        logger.info?.(`${name} archive sync completed`, { updated: result?.updated ?? true, source: dbUnavailable ? 'local' : 'database' });
       }
       failures = 0;
       if (dbUnavailable) { dirty = true; verifyRemote ||= verify; arm(retryMs); }
@@ -71,7 +72,7 @@ export function createArchiveService({ db, publish, directory, debounceMs = 2000
       verifyRemote ||= verify;
       failures++;
       // Avoid echoing arbitrary errors that could contain credentials or machine data.
-      logger.error('GitHub archive failed; retry scheduled', { attempt: failures, stage, ...(error.status ? { httpStatus: error.status } : {}), ...(error.code && /^[A-Z0-9_]+$/.test(error.code) ? { code: error.code } : {}) });
+      logger.error(`${name} archive failed; retry scheduled`, { attempt: failures, stage, ...(error.status ? { httpStatus: error.status } : {}), ...(error.code && /^[A-Z0-9_]+$/.test(error.code) ? { code: error.code } : {}) });
       clearTimeout(timer); timer = undefined;
       arm(Math.max(Math.min(retryMs * 2 ** Math.min(failures - 1, 6), 3600000), error.retryMs || 0));
       if (throwOnError) throw new Error(`Archive synchronization failed at ${stage}${error.status ? ` (HTTP ${error.status})` : ''}`);
@@ -83,24 +84,39 @@ export function createArchiveService({ db, publish, directory, debounceMs = 2000
   return { schedule, run, stop() { stopped = true; clearInterval(dailyTimer); clearTimeout(timer); timer = undefined; } };
 }
 
+// Each destination has its own worker, snapshot directory and retry state.
+// A Notion outage must not block GitHub (or vice versa).
 export function archiveFromEnv(db, env = process.env) {
-  if (env.GITHUB_ARCHIVE_ENABLED?.trim().toLowerCase() !== 'true') {
-    console.info('GitHub archive disabled: set GITHUB_ARCHIVE_ENABLED=true to enable');
-    return null;
+  const archives = [];
+  for (const name of ['GitHub', 'Notion']) {
+    const prefix = name === 'GitHub' ? 'GITHUB' : 'NOTION';
+    if (env[`${prefix}_ARCHIVE_ENABLED`]?.trim().toLowerCase() !== 'true') {
+      console.info(`${name} archive disabled: set ${prefix}_ARCHIVE_ENABLED=true to enable`);
+      continue;
+    }
+    const token = env[`${prefix}_ARCHIVE_TOKEN`];
+    if (!token) { console.error(`${name} archive disabled: ${prefix}_ARCHIVE_TOKEN is missing`); continue; }
+    try {
+      const publish = name === 'GitHub'
+        ? createGithubPublisher({ token, repository: env.GITHUB_ARCHIVE_REPOSITORY || 'BooyahDev/BoopsDB-Archive', branch: env.GITHUB_ARCHIVE_BRANCH || '' })
+        : createNotionPublisher({ token, pageId: env.NOTION_ARCHIVE_PAGE_ID || NOTION_ARCHIVE_PAGE_ID });
+      archives.push(createArchiveService({ db, publish, name,
+        directory: env[`${prefix}_ARCHIVE_DIR`] || path.resolve(name === 'GitHub' ? '.boops-archive' : '.boops-archive/notion'),
+      }));
+      console.info(`${name} archive enabled: startup sync and verification every 24 hours`);
+    } catch { console.error(`Invalid ${name} archive configuration; archive disabled`); }
   }
-  if (!env.GITHUB_ARCHIVE_TOKEN) {
-    console.error('GitHub archive disabled: GITHUB_ARCHIVE_TOKEN is missing');
-    return null;
-  }
-  console.info('GitHub archive enabled: startup sync and verification every 24 hours');
-  try {
-    return createArchiveService({ db,
-    publish: createGithubPublisher({ token: env.GITHUB_ARCHIVE_TOKEN,
-      repository: env.GITHUB_ARCHIVE_REPOSITORY || 'BooyahDev/BoopsDB-Archive', branch: env.GITHUB_ARCHIVE_BRANCH || '' }),
-      directory: env.GITHUB_ARCHIVE_DIR || path.resolve('.boops-archive'),
-    });
-  } catch {
-    console.error('Invalid GitHub archive configuration; archive disabled');
-    return null;
-  }
+  return archives.length ? combineArchives(archives) : null;
+}
+
+export function combineArchives(archives) {
+  return {
+    schedule(options) { for (const archive of archives) archive.schedule(options); },
+    async run(options) {
+      const results = await Promise.allSettled(archives.map(archive => archive.run(options)));
+      const errors = results.filter(result => result.status === 'rejected').map(result => result.reason);
+      if (errors.length) throw new AggregateError(errors, errors.map(error => error.message).join('; '));
+    },
+    stop() { for (const archive of archives) archive.stop(); },
+  };
 }
