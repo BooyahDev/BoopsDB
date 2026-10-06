@@ -28,7 +28,34 @@ OS の名前や版ではなく、既存設定と利用可能なコマンドで�
 
 インストーラーの旧 CLI 試験は、この Mac の実 libcrypto を使った署名検証と、旧 CLI の模擬環境を組み合わせている。実 OpenSSL 1.1.1 を導入した OS 上での試験は未実施。
 
-署名付き Linux 成果物の生成と配布先の読み戻しは、公開後に追記する。
+## 公開結果
+
+[BoopsDB-Client](https://file.booyah.dev/BoopsDB-Client/) に 0.3.1 を公開した。生成元は `ba37ca57a4c0aa5aca75a0f0440a6287c2058854`。Linux amd64／arm64 を Go 1.26.5、CGO_ENABLED=0、trimpath でビルドした。静的 ELF の CPU 種別、共有ライブラリ依存なし、ソース commit と `vcs.modified=false` を確認した。別途 macOS で生成したバイナリの `version` 出力は `0.3.1`。
+
+公開処理で補助ファイルと両バイナリを読み戻し、最後に `latest.json` を切り替えた。独立した読み戻しは 2026-10-06T15:30:59.598026+09:00 に成功した。新しい 8 ファイルはローカル成果物とサイズ・SHA-256 が一致し、旧 0.1／0.2／0.3.0 のバイナリ・旧インストーラーなど 11 ファイルは公開前と同一だった。読み戻した manifest の署名を固定公開鍵で Go と OpenSSL の両方から検証した。読み戻したバイナリの静的検査も成功した。
+
+| ファイル | サイズ（byte） | SHA-256 |
+| --- | ---: | --- |
+| `boops_0.3.1_amd64.binary` | 7200930 | `b2e35e645672ab35e0b498b17c57e6c3d5750cb3546f955b987097bf2e1bdd96` |
+| `boops_0.3.1_arm64.binary` | 6684834 | `aa4f06c1c7102837589b84f56fac2c564093007263ca035062f60cc89dd4ecf9` |
+| `latest.json` | 554 | `3f2b6fb3853a1b1517b8ed3e0e6829edd2a6d4e9194b304a0d98793655364d99` |
+| `install.sh` | 14553 | `de470bf4da87bce7a27e17a75767d07a8755bf4dcfe7cc8dbeb0117a050d4e45` |
+| `install_0.3.sh` | 14553 | `de470bf4da87bce7a27e17a75767d07a8755bf4dcfe7cc8dbeb0117a050d4e45` |
+| `public-key.pem` | 113 | `2255abd88677575c8ec94344979eaa97875c01b58711c6971b7e3da8354e8529` |
+| `SHA256SUMS` | 182 | `21c0e8afcf009372dca46111505a5f540c533d08f5734fb80fd86034596f6366` |
+| `verification-ja.md` | 4198 | `a1be38661ccfea0b38232959121f4869e47f1c6a4c28ea3b7b784f4489ba7346` |
+
+公開用の [検証記録](https://file.booyah.dev/BoopsDB-Client/verification-ja.md) も配布した。
+
+0.3.0 の既存端末では即時更新できる。
+
+```bash
+sudo /usr/local/bin/boops update
+/usr/local/bin/boops version
+sudo /usr/local/bin/boops sync
+```
+
+定期同期でも最新版を確認する。0.1／0.2 には更新機能がないため、初回だけ `install.sh` で移行する。
 
 実 Debian／Ubuntu／Rocky Linux／Proxmox の NIC、疎通、systemd、再起動後の設定保持は未実施。Mac 上の一時ファイルと模擬コマンドによる試験、クロスビルド、成果物の静的検査を実機検証と区別する。
 
