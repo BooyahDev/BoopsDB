@@ -2,7 +2,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 
 export const NOTION_ARCHIVE_PAGE_ID = '3f1f663606fc8061a287f4838ff648c3';
 const TITLE = 'BoopsDB Archive [managed]';
-const STAGING = TITLE + ' [updating]';
+export const NOTION_ARCHIVE_KEY = 'BoopsDB同期キー';
 const text = parts => (parts || []).map(part => part.plain_text ?? part.text?.content ?? '').join('');
 function richText(value) {
   const parts = [];
@@ -36,101 +36,133 @@ export function createNotionPublisher({ token, pageId = NOTION_ARCHIVE_PAGE_ID, 
     if (!response.ok) {
       const error = new Error(`Notion archive request failed (HTTP ${response.status})`);
       error.status = response.status;
+      const detail = await response.json().catch(() => ({}));
       error.retryMs = Math.max(0, Number(response.headers.get('retry-after')) * 1000 || 0);
       throw error;
     }
     return response.json();
   }
-  async function destinationPage() {
-    try {
-      const page = await request('GET', `pages/${pageId}`);
-      if (page.archived || page.in_trash) throw new Error('Notion destination page is archived');
-      return page.id;
-    } catch (error) {
-      if (error.status !== 404) throw error;
-    }
-    // Database links carry a view ID, but archives belong in an entry page's body.
-    const database = await request('GET', `databases/${pageId}`);
-    if (database.data_sources?.length !== 1) {
-      const error = new Error('Notion archive requires a database with one data source or a page ID');
-      error.code = 'NOTION_MULTIPLE_DATA_SOURCES';
-      throw error;
-    }
-    const sourceId = database.data_sources[0].id;
-    const source = await request('GET', `data_sources/${sourceId}`);
-    const title = Object.values(source.properties).find(property => property.type === 'title');
-    if (!title) throw new Error('Notion database title property missing');
-    const existing = await request('POST', `data_sources/${sourceId}/query`, {
-      filter: { property: title.id, title: { equals: TITLE } }, page_size: 2,
-    });
-    if (existing.results.length > 1 || existing.has_more) {
-      const error = new Error('Multiple managed Notion archive pages found');
-      error.code = 'NOTION_DUPLICATE_ARCHIVE_PAGES';
-      throw error;
-    }
-    if (existing.results.length) return existing.results[0].id;
-    const created = await request('POST', 'pages', {
-      parent: { type: 'data_source_id', data_source_id: sourceId },
-      properties: { [title.id]: { type: 'title', title: richText(TITLE) } },
-    });
-    return created.id;
-  }
-  async function children(id) {
-    const blocks = [];
+  async function queryAll(sourceId, filter) {
+    const pages = [];
     let cursor;
     do {
-      const result = await request('GET', `blocks/${id}/children?page_size=100${cursor ? `&start_cursor=${encodeURIComponent(cursor)}` : ''}`);
-      blocks.push(...result.results);
+      const result = await request('POST', `data_sources/${sourceId}/query`, {
+        filter, page_size: 100, ...(cursor ? { start_cursor: cursor } : {}),
+      });
+      pages.push(...result.results);
       cursor = result.has_more ? result.next_cursor : null;
     } while (cursor);
-    return blocks;
+    return pages;
   }
-  async function same(container, desired) {
-    const contents = await children(container.id);
-    if (contents.length !== 1 || contents[0].type !== 'table') return false;
-    const table = contents[0];
-    if (table.table.table_width !== desired[0].length || !table.table.has_column_header || table.table.has_row_header) return false;
-    const rows = await children(table.id);
-    return JSON.stringify(rows.map(row => row.type === 'table_row' ? row.table_row.cells.map(text) : null)) === JSON.stringify(desired);
+  async function propertyText(page, property) {
+    const value = page.properties[property.name] || Object.values(page.properties).find(value => value.id === property.id);
+    const parts = value?.[property.type] || [];
+    if (parts.length < 25) return text(parts);
+    // Notion can truncate inline property values. Read long properties with pagination.
+    const result = [];
+    let cursor;
+    do {
+      const body = await request('GET', `pages/${page.id}/properties/${encodeURIComponent(property.id)}?page_size=100${cursor ? `&start_cursor=${encodeURIComponent(cursor)}` : ''}`);
+      if (body.object !== 'list') return text([body[property.type]]);
+      result.push(...body.results.map(item => item[property.type]));
+      cursor = body.has_more ? body.next_cursor : null;
+    } while (cursor);
+    return text(result);
   }
-  async function cleanup(blocks, keepId) {
-    for (const block of blocks) if (block.id !== keepId) await request('DELETE', `blocks/${block.id}`);
+  function expectedType(field) {
+    if (['is_virtual', 'dns_register'].includes(field)) return 'checkbox';
+    if (['interface_id', 'ip_id'].includes(field)) return 'number';
+    return 'rich_text';
+  }
+  function valueFor(type, value) {
+    if (type === 'checkbox') return value === '1' || value === 'true';
+    if (type === 'number') return value === '' ? null : Number(value);
+    return richText(value);
   }
   return async markdown => {
-    const desired = markdownCells(markdown);
-    const rowBlocks = desired.map(cells => ({ object: 'block', type: 'table_row', table_row: { cells: cells.map(richText) } }));
-    const destination = await destinationPage();
-    const managed = (await children(destination)).filter(block => block.type === 'toggle' && [TITLE, STAGING].includes(text(block.toggle.rich_text)));
-    // Compare actual remote rows; a digest alone would miss manual edits.
-    for (const block of managed.filter(block => text(block.toggle.rich_text) === TITLE).reverse()) {
-      if (await same(block, desired)) { await cleanup(managed, block.id); return { updated: false }; }
-    }
-    // Build a replacement separately. Failed/ambiguous writes are rediscovered on retry.
-    // Do not remove the last complete snapshot until the new table is fully populated.
-    await cleanup(managed.filter(block => text(block.toggle.rich_text) === STAGING));
-    const created = await request('PATCH', `blocks/${destination}/children`, {
-      children: [{ object: 'block', type: 'toggle', toggle: { rich_text: richText(STAGING) } }],
+    const [headers, ...rows] = markdownCells(markdown);
+    if (!['id', 'hostname', 'interface_id', 'ip_id'].every(field => headers.includes(field))) throw new Error('Archive identity columns missing');
+    // Validate all values before any remote mutation; never silently truncate content.
+    const desired = rows.map(row => {
+      const values = Object.fromEntries(headers.map((field, index) => [field, row[index]]));
+      const key = 'boopsdb:' + JSON.stringify([values.id, values.interface_id, values.ip_id]);
+      const fields = Object.fromEntries(headers.map(field => [field, valueFor(field === 'hostname' ? 'title' : expectedType(field), values[field])]));
+      return { key, fields };
     });
-    const containerId = created.results[0].id;
-    const tableResult = await request('PATCH', `blocks/${containerId}/children`, {
-      children: [{ object: 'block', type: 'table', table: {
-        table_width: desired[0].length, has_column_header: true, has_row_header: false, children: [rowBlocks[0]],
-      } }],
-    });
-    const tableId = tableResult.results[0].id;
-    let batch = [];
-    async function flush() {
-      if (batch.length) await request('PATCH', `blocks/${tableId}/children`, { children: batch });
-      batch = [];
+    if (new Set(desired.map(row => row.key)).size !== desired.length) throw new Error('Duplicate archive row identities');
+    const database = await request('GET', `databases/${pageId}`);
+    if (database.data_sources?.length !== 1) {
+      const error = new Error('Notion archive requires a database with one data source');
+      error.code = 'NOTION_MULTIPLE_DATA_SOURCES'; throw error;
     }
-    for (const row of rowBlocks.slice(1)) {
-      if (batch.length === 100 || Buffer.byteLength(JSON.stringify({ children: [...batch, row] })) > 450000) await flush();
-      if (Buffer.byteLength(JSON.stringify({ children: [row] })) > 450000) throw new Error('Notion row exceeds request size limit');
-      batch.push(row);
+    const sourceId = database.data_sources[0].id;
+    let source = await request('GET', `data_sources/${sourceId}`);
+    const title = Object.values(source.properties).find(property => property.type === 'title');
+    if (!title) throw new Error('Notion database title property missing');
+    const additions = {};
+    for (const field of [...headers.filter(field => field !== 'hostname'), NOTION_ARCHIVE_KEY]) {
+      const type = expectedType(field);
+      const existing = source.properties[field];
+      if (existing && existing.type !== type) {
+        const error = new Error('Notion property type mismatch');
+        error.code = 'NOTION_PROPERTY_TYPE_MISMATCH'; throw error;
+      }
+      if (!existing) additions[field] = { [type]: {} };
     }
-    await flush();
-    await request('PATCH', `blocks/${containerId}`, { toggle: { rich_text: richText(TITLE) } });
-    await cleanup(managed.filter(block => text(block.toggle.rich_text) === TITLE));
-    return { updated: true };
+    let updated = false;
+    if (Object.keys(additions).length) {
+      source = await request('PATCH', `data_sources/${sourceId}`, { properties: additions });
+      updated = true;
+    }
+    const schema = Object.fromEntries(headers.map(field => [field, field === 'hostname'
+      ? { ...title, name: title.name || Object.keys(source.properties).find(name => source.properties[name].id === title.id) }
+      : { ...source.properties[field], name: field }]));
+    const keyProperty = source.properties[NOTION_ARCHIVE_KEY];
+    const existing = await queryAll(sourceId, { property: keyProperty.id, rich_text: { starts_with: 'boopsdb:' } });
+    const groups = new Map();
+    for (const page of existing) {
+      const key = await propertyText(page, { ...keyProperty, name: NOTION_ARCHIVE_KEY });
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(page);
+    }
+    const obsolete = [];
+    for (const row of desired) {
+      const candidates = groups.get(row.key) || [];
+      const page = candidates[0];
+      groups.delete(row.key);
+      obsolete.push(...candidates.slice(1));
+      const properties = { [keyProperty.id]: { rich_text: richText(row.key) } };
+      let changed = !page;
+      for (const field of headers) {
+        const property = schema[field];
+        properties[property.id] = { [property.type]: row.fields[field] };
+        if (page) {
+          const actual = page.properties[property.name] || Object.values(page.properties).find(value => value.id === property.id);
+          if (['title', 'rich_text'].includes(property.type)) {
+            if (await propertyText(page, property) !== text(row.fields[field])) changed = true;
+          } else if (actual?.[property.type] !== row.fields[field]) changed = true;
+        }
+      }
+      if (Buffer.byteLength(JSON.stringify({ properties })) > 450000) throw new Error('Notion record exceeds request size limit');
+      if (changed) {
+        await request(page ? 'PATCH' : 'POST', page ? `pages/${page.id}` : 'pages', {
+          ...(!page ? { parent: { type: 'data_source_id', data_source_id: sourceId } } : {}), properties,
+        });
+        updated = true;
+      }
+    }
+    obsolete.push(...[...groups.values()].flat());
+    // Only remove obsolete managed records after every desired row has been saved.
+    for (const page of obsolete) { await request('PATCH', `pages/${page.id}`, { in_trash: true }); updated = true; }
+    // Migrate only the old generated body-table entry, leaving user-created rows alone.
+    const legacy = await queryAll(sourceId, { property: title.id, title: { equals: TITLE } });
+    for (const page of legacy) {
+      if (await propertyText(page, { ...keyProperty, name: NOTION_ARCHIVE_KEY })) continue;
+      const body = await request('GET', `blocks/${page.id}/children?page_size=100`);
+      if (!body.results.some(block => block.type === 'toggle' && text(block.toggle.rich_text) === TITLE)) continue;
+      await request('PATCH', `pages/${page.id}`, { in_trash: true });
+      updated = true;
+    }
+    return { updated };
   };
 }

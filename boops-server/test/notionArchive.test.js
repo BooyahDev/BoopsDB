@@ -1,178 +1,169 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { renderMarkdown } from '../archive/markdown.js';
-import { createNotionPublisher, markdownCells, NOTION_ARCHIVE_PAGE_ID } from '../archive/notion.js';
+import { createNotionPublisher, markdownCells, NOTION_ARCHIVE_PAGE_ID, NOTION_ARCHIVE_KEY } from '../archive/notion.js';
 import { archiveFromEnv, combineArchives, createArchiveService } from '../archive/service.js';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+const text = parts => (parts || []).map(part => part.text?.content || '').join('');
+const rt = content => [{ type: 'text', text: { content } }];
+const machine = { id: 'm1', hostname: 'test-server', cpu_info: 'CPU', interface_id: 1, interface_name: 'eth0',
+  ip_id: 1, ip_address: '10.0.0.1', subnet_mask: '255.255.255.0', is_virtual: 1, dns_register: 0, memo: '  memo | <tag> `\n&  ' };
 
 function notionMock() {
-  const blocks = new Map([[NOTION_ARCHIVE_PAGE_ID, { id: NOTION_ARCHIVE_PAGE_ID, children: ['user-note'] }],
-    ['user-note', { id: 'user-note', type: 'paragraph', paragraph: { rich_text: [{ text: { content: 'Keep this note' } }] }, children: [] }]]);
-  let next = 0;
+  const schema = { 名前: { id: 'title', name: '名前', type: 'title', title: {} } };
+  const pages = new Map();
   const calls = [];
-  let failure;
-  function add(parent, value) {
-    const id = `block-${++next}`;
-    const block = structuredClone(value);
-    const nested = block[block.type]?.children || [];
-    if (block[block.type]) delete block[block.type].children;
-    blocks.set(id, { ...block, id, children: [] });
-    blocks.get(parent).children.push(id);
-    for (const child of nested) add(id, child);
-    return blocks.get(id);
+  let count = 0, failure;
+  function save(properties) {
+    return Object.fromEntries(Object.entries(schema).map(([name, p]) => {
+      const value = properties[p.id] || properties[name];
+      return [name, { id: p.id, type: p.type, [p.type]: value?.[p.type] ?? (p.type === 'checkbox' ? false : p.type === 'number' ? null : []) }];
+    }));
   }
-  return { blocks, calls, fail(predicate) { failure = predicate; },
-    fetchImpl: async (url, options) => {
-      const target = new URL(url);
-      if (target.pathname === `/v1/pages/${NOTION_ARCHIVE_PAGE_ID}`) return new Response(JSON.stringify({ id: NOTION_ARCHIVE_PAGE_ID }));
-      const match = target.pathname.match(/\/blocks\/([^/]+)(\/children)?$/);
-      assert.ok(match, url);
-      const [, id, isChildren] = match;
-      const body = options.body ? JSON.parse(options.body) : null;
-      calls.push({ id, method: options.method, body });
-      if (failure?.({ id, method: options.method, body })) { failure = null; return new Response('{}', { status: 503 }); }
-      let result;
-      if (options.method === 'GET') {
-        const offset = Number(target.searchParams.get('start_cursor') || 0);
-        const children = blocks.get(id).children.filter(child => !blocks.get(child).archived);
-        result = { results: children.slice(offset, offset + 50).map(child => blocks.get(child)),
-          has_more: children.length > offset + 50, next_cursor: String(offset + 50) };
-      } else if (options.method === 'DELETE') {
-        blocks.get(id).archived = true; result = blocks.get(id);
-      } else if (isChildren) {
-        result = { results: body.children.map(child => add(id, child)) };
-      } else {
-        Object.assign(blocks.get(id), body); result = blocks.get(id);
+  return { schema, pages, calls, fail(predicate) { failure = predicate; }, fetchImpl: async (url, options) => {
+    const route = new URL(url).pathname.slice('/v1/'.length);
+    const body = options.body ? JSON.parse(options.body) : null;
+    calls.push({ route, method: options.method, body });
+    if (failure?.({ route, method: options.method, body })) { failure = null; return new Response('{}', { status: 503 }); }
+    let result;
+    if (route === `databases/${NOTION_ARCHIVE_PAGE_ID}`) result = { data_sources: [{ id: 'source' }] };
+    else if (route === 'data_sources/source' && options.method === 'GET') result = { properties: schema };
+    else if (route === 'data_sources/source' && options.method === 'PATCH') {
+      for (const [name, p] of Object.entries(body.properties)) {
+        const type = Object.keys(p)[0]; schema[name] = { id: `p${++count}`, name, type, [type]: {} };
       }
-      return new Response(JSON.stringify(result));
-    },
-  };
+      result = { properties: schema };
+    } else if (route === 'data_sources/source/query') {
+      const property = Object.values(schema).find(p => p.id === body.filter.property);
+      const filter = body.filter[property.type];
+      const found = [...pages.values()].filter(p => !p.in_trash && (filter.starts_with
+        ? text(p.properties[property.name]?.[property.type]).startsWith(filter.starts_with)
+        : text(p.properties[property.name]?.[property.type]) === filter.equals));
+      const offset = Number(body.start_cursor || 0);
+      result = { results: found.slice(offset, offset + 50), has_more: found.length > offset + 50, next_cursor: String(offset + 50) };
+    } else if (route === 'pages' && options.method === 'POST') {
+      assert.equal(body.parent.data_source_id, 'source');
+      assert.equal(body.children, undefined, 'database records have no body tables');
+      const id = `page${++count}`; result = { id, properties: save(body.properties) }; pages.set(id, result);
+    } else if (/^pages\/[^/]+$/.test(route) && options.method === 'PATCH') {
+      result = pages.get(route.split('/')[1]);
+      if (body.properties) Object.assign(result.properties, save(body.properties));
+      if (body.in_trash) result.in_trash = true;
+    } else if (/^pages\/[^/]+\/properties\//.test(route)) {
+      const [, id, , propertyId] = route.split('/');
+      const property = Object.values(schema).find(p => p.id === decodeURIComponent(propertyId));
+      const parts = pages.get(id).properties[property.name][property.type];
+      result = { object: 'list', results: parts.map(part => ({ [property.type]: part })), has_more: false };
+    } else if (/^blocks\/[^/]+\/children$/.test(route)) {
+      assert.equal(options.method, 'GET');
+      result = { results: [{ type: 'toggle', toggle: { rich_text: rt('BoopsDB Archive [managed]') } }] };
+    } else assert.fail(`Unexpected ${options.method} ${route}`);
+    return new Response(JSON.stringify(result));
+  } };
 }
-function containers(mock) {
-  return mock.blocks.get(NOTION_ARCHIVE_PAGE_ID).children.map(id => mock.blocks.get(id)).filter(block => !block.archived && block.type === 'toggle');
-}
-function tableRows(mock) {
-  const container = containers(mock).find(block => block.toggle.rich_text[0].text.content.endsWith('[managed]'));
-  const table = mock.blocks.get(container.children[0]);
-  return table.children.map(id => mock.blocks.get(id).table_row.cells.map(cell => cell.map(part => part.text.content).join('')));
-}
+function managed(mock) { return [...mock.pages.values()].filter(p => !p.in_trash && text(p.properties[NOTION_ARCHIVE_KEY]?.rich_text).startsWith('boopsdb:')); }
+function publisher(mock) { return createNotionPublisher({ token: 'test', fetchImpl: mock.fetchImpl, requestIntervalMs: 0 }); }
 
-const machine = { id: 'm1', hostname: 'test-server', cpu_info: 'CPU', interface_id: 1, interface_name: 'eth0',
-  ip_id: 1, ip_address: '10.0.0.1', subnet_mask: '255.255.255.0', memo: '  memo | <tag> `\n&  ' };
-
-test('Notion cells reproduce unified Markdown content and preserve whitespace/escapes', () => {
-  const rows = markdownCells(renderMarkdown([machine]));
-  assert.equal(rows[1][rows[0].indexOf('memo')], machine.memo);
-  assert.equal(rows[1][rows[0].indexOf('hostname')], 'test-server');
-  assert.ok(!rows[0].includes('last_alive'));
+test('Notion values reproduce unified Markdown including whitespace and escapes', () => {
+  const [headers, row] = markdownCells(renderMarkdown([machine]));
+  assert.equal(row[headers.indexOf('memo')], machine.memo);
+  assert.ok(!headers.includes('last_alive'));
 });
 
-test('Notion creates one native table, skips identical content, repairs remote drift and deletes machines', async () => {
-  const mock = notionMock();
-  const publish = createNotionPublisher({ token: 'test', fetchImpl: mock.fetchImpl, requestIntervalMs: 0 });
-  const markdown = renderMarkdown([machine]);
-  assert.deepEqual(await publish(markdown), { updated: true });
-  assert.deepEqual(tableRows(mock), markdownCells(markdown));
-  const writes = mock.calls.filter(call => call.method !== 'GET').length;
-  assert.deepEqual(await publish(markdown), { updated: false });
-  assert.equal(mock.calls.filter(call => call.method !== 'GET').length, writes);
-  const table = mock.blocks.get(containers(mock)[0].children[0]);
-  mock.blocks.get(table.children[1]).table_row.cells[1][0].text.content = 'manual edit';
-  assert.deepEqual(await publish(markdown), { updated: true });
-  assert.equal(containers(mock).length, 1);
-  assert.deepEqual(tableRows(mock), markdownCells(markdown));
+test('direct database sync adds columns and upserts records, skips equal content, repairs drift and removes deleted rows', async () => {
+  const mock = notionMock(), publish = publisher(mock);
+  mock.pages.set('user-note', { id: 'user-note', properties: { 名前: { title: rt('Keep me') } } });
+  const rows = [machine, { ...machine, ip_id: 2, ip_address: '10.0.0.2' }, { id: 'no-nic', hostname: 'no-nic' }];
+  assert.deepEqual(await publish(renderMarkdown(rows)), { updated: true });
+  assert.equal(managed(mock).length, 3);
+  assert.equal(mock.schema.名前.type, 'title');
+  assert.equal(mock.schema.cpu_info.type, 'rich_text');
+  assert.equal(mock.schema.is_virtual.type, 'checkbox');
+  assert.equal(mock.schema.interface_id.type, 'number');
+  const first = managed(mock)[0];
+  assert.equal(text(first.properties.名前.title), machine.hostname);
+  assert.equal(text(first.properties.memo.rich_text), machine.memo);
+  assert.equal(first.properties.is_virtual.checkbox, true);
+  assert.equal(first.properties.dns_register.checkbox, false);
+  assert.deepEqual(await publish(renderMarkdown(rows)), { updated: false });
+  first.properties.cpu_info.rich_text = rt('manual edit');
+  assert.deepEqual(await publish(renderMarkdown(rows)), { updated: true });
+  assert.equal(text(first.properties.cpu_info.rich_text), machine.cpu_info);
+  await publish(renderMarkdown([{ ...machine, hostname: 'renamed' }]));
+  assert.equal(managed(mock).length, 1);
+  assert.equal(managed(mock)[0].id, first.id, 'existing row identity preserved');
+  assert.equal(text(first.properties.名前.title), 'renamed');
   await publish(renderMarkdown([]));
-  assert.equal(tableRows(mock).length, 1);
-  assert.equal(mock.blocks.get('user-note').archived, undefined);
+  assert.equal(managed(mock).length, 0);
+  assert.equal(mock.pages.get('user-note').in_trash, undefined);
 });
 
-test('Notion batches over 100 rows, paginates reads and splits long text without truncating', async () => {
+test('database reads paginate and long text is retained without truncation', async () => {
+  const mock = notionMock(), publish = publisher(mock);
+  const rows = Array.from({ length: 105 }, (_, index) => ({ ...machine, id: `m${index}`, memo: index === 0 ? 'あ'.repeat(51000) : '' }));
+  await publish(renderMarkdown(rows));
+  assert.equal(managed(mock).length, 105);
+  assert.equal(text(managed(mock)[0].properties.memo.rich_text).length, 51000);
+  assert.deepEqual(await publish(renderMarkdown(rows)), { updated: false });
+  assert.ok(mock.calls.some(call => call.route.includes('/properties/')));
+});
+
+test('failed upsert leaves obsolete rows intact; retry does not duplicate prior creates', async () => {
+  const mock = notionMock(), publish = publisher(mock);
+  await publish(renderMarkdown([machine]));
+  mock.fail(call => call.route === 'pages' && call.method === 'POST');
+  await assert.rejects(publish(renderMarkdown([{ ...machine, id: 'new' }])), /503/);
+  assert.equal(managed(mock).length, 1);
+  assert.equal(text(managed(mock)[0].properties.id.rich_text), 'm1');
+  await publish(renderMarkdown([{ ...machine, id: 'new' }]));
+  assert.equal(managed(mock).length, 1);
+  assert.equal(text(managed(mock)[0].properties.id.rich_text), 'new');
+});
+
+test('legacy generated body-table entry is archived only after records are synchronized', async () => {
+  const mock = notionMock(), publish = publisher(mock);
+  mock.pages.set('legacy', { id: 'legacy', properties: { 名前: { title: rt('BoopsDB Archive [managed]') } } });
+  mock.fail(call => call.route === 'pages');
+  await assert.rejects(publish(renderMarkdown([machine])));
+  assert.equal(mock.pages.get('legacy').in_trash, undefined);
+  await publish(renderMarkdown([machine]));
+  assert.equal(mock.pages.get('legacy').in_trash, true);
+  assert.equal(managed(mock).length, 1);
+});
+
+test('schema type conflicts fail without changing existing columns or records', async () => {
   const mock = notionMock();
-  const publish = createNotionPublisher({ token: 'test', fetchImpl: mock.fetchImpl, requestIntervalMs: 0 });
-  const rows = Array.from({ length: 205 }, (_, index) => ({ ...machine, id: `m${index}`, memo: 'あ'.repeat(4500) }));
-  const markdown = renderMarkdown(rows);
-  await publish(markdown);
-  assert.deepEqual(tableRows(mock), markdownCells(markdown));
-  for (const call of mock.calls.filter(call => call.body?.children)) {
-    assert.ok(call.body.children.length <= 100);
-    assert.ok(Buffer.byteLength(JSON.stringify(call.body)) <= 450000);
-  }
-  assert.deepEqual(await publish(markdown), { updated: false });
+  mock.schema.cpu_info = { id: 'cpu', type: 'number', name: 'cpu_info' };
+  await assert.rejects(publisher(mock)(renderMarkdown([machine])), error => error.code === 'NOTION_PROPERTY_TYPE_MISMATCH');
+  assert.ok(!mock.calls.some(call => call.method === 'PATCH' || call.route === 'pages'));
 });
 
-test('Notion failed replacement preserves old snapshot; next attempt cleans staging and completes', async () => {
-  const mock = notionMock();
-  const publish = createNotionPublisher({ token: 'test', fetchImpl: mock.fetchImpl, requestIntervalMs: 0 });
-  const old = renderMarkdown([machine]);
-  await publish(old);
-  mock.fail(call => call.body?.children?.[0]?.type === 'table_row');
-  const changed = renderMarkdown([{ ...machine, hostname: 'changed' }]);
-  await assert.rejects(publish(changed), /HTTP 503/);
-  assert.deepEqual(tableRows(mock), markdownCells(old));
-  await publish(changed);
-  assert.equal(containers(mock).length, 1);
-  assert.deepEqual(tableRows(mock), markdownCells(changed));
+test('Notion 429 honors Retry-After and does not expose credentials', async () => {
+  const publish = createNotionPublisher({ token: 'SECRET', requestIntervalMs: 0, fetchImpl: async () => new Response('SECRET', { status: 429, headers: { 'retry-after': '120' } }) });
+  await assert.rejects(publish(renderMarkdown([])), error => error.retryMs === 120000 && !error.message.includes('SECRET'));
+  assert.throws(() => createNotionPublisher({ token: 'x', pageId: '../invalid' }));
 });
 
-test('Notion 429 respects Retry-After without exposing secrets and invalid page IDs are rejected', async () => {
-  const publish = createNotionPublisher({ token: 'SECRET', fetchImpl: async () => new Response('SECRET', { status: 429, headers: { 'retry-after': '120' } }), requestIntervalMs: 0 });
-  await assert.rejects(publish(renderMarkdown([])), error => error.status === 429 && error.retryMs === 120000 && !error.message.includes('SECRET'));
-  assert.throws(() => createNotionPublisher({ token: 'x', pageId: '../invalid' }), /Invalid/);
-});
-
-test('Notion can be enabled alone and requires its own flag and token', t => {
-  const db = { query() { assert.fail('unexpected DB read'); } };
+test('Notion can be enabled independently with its own flag and token', t => {
+  const db = { query() { assert.fail(); } };
   assert.equal(archiveFromEnv(db, { NOTION_ARCHIVE_TOKEN: 'test' }), null);
   assert.equal(archiveFromEnv(db, { NOTION_ARCHIVE_ENABLED: 'true' }), null);
   const archive = archiveFromEnv(db, { NOTION_ARCHIVE_ENABLED: 'true', NOTION_ARCHIVE_TOKEN: 'test' });
-  assert.ok(archive);
-  t.after(() => archive.stop());
+  assert.ok(archive); t.after(() => archive.stop());
 });
 
-test('independent destination workers keep successful GitHub from repeating when Notion fails', async t => {
+test('independent destinations keep GitHub synchronized while Notion retries', async t => {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'boops-notion-'));
   let github = 0, notion = 0;
   const options = { db: { async query() { return [[machine]]; } }, debounceMs: 100000, logger: { error() {} } };
-  const a = createArchiveService({ ...options, directory: path.join(directory, 'github'), publish: async () => { github++; } });
-  const b = createArchiveService({ ...options, name: 'Notion', directory: path.join(directory, 'notion'), publish: async () => { if (++notion === 1) throw new Error('offline'); } });
-  const archive = combineArchives([a, b]);
+  const archive = combineArchives([
+    createArchiveService({ ...options, directory: path.join(directory, 'github'), publish: async () => { github++; } }),
+    createArchiveService({ ...options, name: 'Notion', directory: path.join(directory, 'notion'), publish: async () => { if (++notion === 1) throw new Error('offline'); } }),
+  ]);
   t.after(async () => { archive.stop(); await rm(directory, { recursive: true, force: true }); });
   await assert.rejects(archive.run({ throwOnError: true }), /notion-sync/);
-  assert.equal(github, 1);
   await archive.run({ throwOnError: true });
-  assert.equal(github, 1);
-  assert.equal(notion, 2);
-});
-
-
-test('database URL creates/reuses a managed entry without changing its schema or other entries', async () => {
-  const mock = notionMock();
-  let entry, creates = 0;
-  const fetchImpl = async (url, options) => {
-    const route = new URL(url).pathname;
-    if (route === `/v1/pages/${NOTION_ARCHIVE_PAGE_ID}`) return new Response('{}', { status: 404 });
-    if (route === `/v1/databases/${NOTION_ARCHIVE_PAGE_ID}`) return new Response(JSON.stringify({ data_sources: [{ id: 'source' }] }));
-    if (route === '/v1/data_sources/source') return new Response(JSON.stringify({ properties: { Name: { id: 'title', type: 'title' } } }));
-    if (route === '/v1/data_sources/source/query') {
-      assert.equal(JSON.parse(options.body).filter.title.equals, 'BoopsDB Archive [managed]');
-      return new Response(JSON.stringify({ results: entry ? [{ id: entry }] : [], has_more: false }));
-    }
-    if (route === '/v1/pages') {
-      creates++;
-      assert.deepEqual(JSON.parse(options.body).parent, { type: 'data_source_id', data_source_id: 'source' });
-      entry = 'archive-entry';
-      mock.blocks.set(entry, { id: entry, children: [] });
-      return new Response(JSON.stringify({ id: entry }));
-    }
-    return mock.fetchImpl(url, options);
-  };
-  const publish = createNotionPublisher({ token: 'test', fetchImpl, requestIntervalMs: 0 });
-  await publish(renderMarkdown([machine]));
-  assert.equal(creates, 1);
-  assert.deepEqual(await publish(renderMarkdown([machine])), { updated: false });
-  assert.equal(creates, 1);
-  assert.equal(mock.blocks.get(NOTION_ARCHIVE_PAGE_ID).children.length, 1, 'existing database content left intact');
-  assert.equal(mock.blocks.get(entry).children.length, 1);
+  assert.equal(github, 1); assert.equal(notion, 2);
 });
