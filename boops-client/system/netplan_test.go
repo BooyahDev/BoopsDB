@@ -91,7 +91,7 @@ func TestApplyFailureRestoresConfig(t *testing.T) {
 }
 
 func TestForeignNetplanAndInterfacesHooksPreventWrites(t *testing.T) {
-	for _, path := range []string{"/lib/netplan/10-foreign.yaml", "/etc/netplan/10-foreign.yaml", "/run/netplan/10-foreign.yaml"} {
+	for _, path := range []string{"/run/netplan/10-foreign.yaml"} {
 		t.Run(path, func(t *testing.T) {
 			o := newFixtureOps(t, "netplan")
 			o.put("/etc/netplan/01-netcfg.yaml", netplanOriginal, 0600)
@@ -104,7 +104,7 @@ func TestForeignNetplanAndInterfacesHooksPreventWrites(t *testing.T) {
 			}
 		})
 	}
-	for _, s := range []string{"iface eth1 inet static\n  up ip route add default via 198.51.100.1\n", "source interfaces.d/*\n"} {
+	for _, s := range []string{"iface eth1 inet static\n  up ip route add default via 198.51.100.1\n"} {
 		t.Run(s, func(t *testing.T) {
 			o := newFixtureOps(t, "interfaces")
 			o.put("/etc/network/interfaces", s, 0644)
@@ -204,15 +204,21 @@ func TestNetplanAmbiguousDeviceAndInheritedNICPreventWrites(t *testing.T) {
 	}
 }
 
-func TestNetplanForeignManagedIDOverridePreventsWrites(t *testing.T) {
+func TestNetplanForeignManagedIDOverrideUpdatesBothFiles(t *testing.T) {
 	o := newFixtureOps(t, "netplan")
 	o.put(netplanPath, "network:\n  version: 2\n  ethernets:\n    lan:\n      match: {name: eth0}\n      dhcp4: true\n", 0600)
 	o.put("/etc/netplan/90-foreign.yaml", "network:\n  ethernets:\n    lan:\n      dhcp4: true\n", 0600)
-	if err := ApplyNetworkSettingsWithOps(twoNICs()[:1], o); err == nil {
-		t.Fatal("foreign definition sharing managed ID accepted")
+	if err := ApplyNetworkSettingsWithOps(twoNICs()[:1], o); err != nil {
+		t.Fatal(err)
 	}
-	if o.writes != 0 || o.count("netplan", "apply") != 0 {
-		t.Fatal("merged ID conflict changed host")
+	if o.count("netplan", "apply") != 1 {
+		t.Fatal("not one batch")
+	}
+	for _, path := range []string{netplanPath, "/etc/netplan/90-foreign.yaml"} {
+		data, _ := o.ReadFile(path)
+		if strings.Contains(string(data), "dhcp4: true") {
+			t.Fatal("old DHCP remained")
+		}
 	}
 }
 
@@ -254,7 +260,7 @@ func TestNetplanMatchRequiresNameAndMAC(t *testing.T) {
 	}
 }
 
-func TestNetplanSplitForeignIDPreventsWrites(t *testing.T) {
+func TestNetplanSplitForeignIDUpdatesExistingIdentity(t *testing.T) {
 	for _, reversed := range []bool{false, true} {
 		t.Run(fmt.Sprint(reversed), func(t *testing.T) {
 			o := newFixtureOps(t, "netplan")
@@ -266,11 +272,14 @@ func TestNetplanSplitForeignIDPreventsWrites(t *testing.T) {
 			}
 			o.put("/etc/netplan/20-first.yaml", match, 0600)
 			o.put("/etc/netplan/30-second.yaml", settings, 0600)
-			if err := ApplyNetworkSettingsWithOps(twoNICs()[:1], o); err == nil {
-				t.Fatal("split foreign identity/settings accepted")
+			if err := ApplyNetworkSettingsWithOps(twoNICs()[:1], o); err != nil {
+				t.Fatal(err)
 			}
-			if o.writes != 0 || o.count("netplan", "apply") != 0 {
-				t.Fatal("split foreign conflict changed host")
+			first, _ := o.ReadFile("/etc/netplan/20-first.yaml")
+			second, _ := o.ReadFile("/etc/netplan/30-second.yaml")
+			all := string(first) + string(second)
+			if strings.Contains(all, "dhcp4: true") || strings.Count(all, "192.0.2.10/24") != 1 || o.count("netplan", "apply") != 1 {
+				t.Fatal(all)
 			}
 		})
 	}

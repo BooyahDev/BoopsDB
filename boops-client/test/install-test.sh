@@ -5,7 +5,8 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 real_openssl=$(command -v openssl)
 real_mv=$(command -v mv)
-export REAL_OPENSSL="$real_openssl" REAL_MV="$real_mv"
+real_python3=$(command -v python3)
+export REAL_OPENSSL="$real_openssl" REAL_MV="$real_mv" REAL_PYTHON3="$real_python3"
 mkdir -p "$work/bin" "$work/downloads"
 "$real_openssl" genpkey -algorithm ED25519 -out "$work/key.pem" >/dev/null 2>&1
 "$real_openssl" pkey -in "$work/key.pem" -pubout -out "$work/pub.pem" >/dev/null 2>&1
@@ -13,8 +14,10 @@ mkdir -p "$work/bin" "$work/downloads"
 python3 - "$script_dir/install_0.3.sh" "$work/installer.sh" "$work/pub.pem" <<'PY'
 import pathlib,re,sys
 text=pathlib.Path(sys.argv[1]).read_text()
-text,n=re.subn(r'-----BEGIN PUBLIC KEY-----\n.*?\n-----END PUBLIC KEY-----',pathlib.Path(sys.argv[3]).read_text().strip(),text,flags=re.S)
-assert n==1
+matches=list(re.finditer(r'-----BEGIN PUBLIC KEY-----\n.*?\n-----END PUBLIC KEY-----',text,flags=re.S))
+assert matches
+match=matches[-1]
+text=text[:match.start()]+pathlib.Path(sys.argv[3]).read_text().strip()+text[match.end():]
 pathlib.Path(sys.argv[2]).write_text(text)
 PY
 cat > "$work/bin/id" <<'SH'
@@ -32,7 +35,32 @@ SH
 cat > "$work/bin/openssl" <<'SH'
 #!/bin/sh
 if [ "$1" = version ] && [ "${OLD_OPENSSL:-0}" = 1 ]; then printf 'OpenSSL 1.1.1\n'; exit 0; fi
+if [ "$1" = pkeyutl ]; then
+    printf 'pkeyutl\n' >> "$OPENSSL_LOG"
+    if [ "${OLD_OPENSSL:-0}" = 1 ]; then
+        printf 'pkeyutl: -rawin is unsupported by this OpenSSL CLI\n' >&2
+        exit 2
+    fi
+fi
 exec "$REAL_OPENSSL" "$@"
+SH
+cat > "$work/bin/python3" <<'SH'
+#!/bin/sh
+if [ "${FAIL_LIBCRYPTO:-0}" = 1 ] && [ "$1" = - ]; then
+    source=$(mktemp)
+    cat > "$source"
+    if rg -q 'EVP_PKEY_new_raw_public_key' "$source"; then
+        rm -f "$source"
+        printf 'fixture: libcrypto EVP API unavailable\n' >&2
+        exit 42
+    fi
+    shift
+    "$REAL_PYTHON3" "$source" "$@"
+    status=$?
+    rm -f "$source"
+    exit "$status"
+fi
+exec "$REAL_PYTHON3" "$@"
 SH
 cat > "$work/bin/systemctl" <<'PY'
 #!/usr/bin/env python3
@@ -111,9 +139,11 @@ PY
 reset_fixture() {
     rm -rf "$work/root";mkdir -p "$work/root/usr/local/bin" "$work/root/etc/boops" "$work/root/etc/systemd/system"
     export BOOPS_ROOT="$work/root" FIXTURE_STATE="$work/state.json" FIXTURE_LOG="$work/log"
+    export OPENSSL_LOG="$work/openssl.log"
     export FIXTURE_BINARY_BEFORE="$work/binary.before"
     printf '{"enabled":%s,"active":%s,"service_active":false}' "$1" "$2" > "$FIXTURE_STATE"
     : > "$FIXTURE_LOG"
+    : > "$OPENSSL_LOG"
     printf '#!/bin/sh\nprintf "0.2.0\\n"\n' > "$BOOPS_ROOT/usr/local/bin/boops";chmod +x "$BOOPS_ROOT/usr/local/bin/boops"
     printf 'old service\n' > "$BOOPS_ROOT/etc/systemd/system/boops.service"
     printf 'old timer\n' > "$BOOPS_ROOT/etc/systemd/system/boops.timer"
@@ -122,7 +152,7 @@ reset_fixture() {
     cp "$BOOPS_ROOT/etc/boops/config.json" "$work/config.before"
     cp "$BOOPS_ROOT/etc/boops/machine_state.json" "$work/state.before"
     cp "$BOOPS_ROOT/usr/local/bin/boops" "$work/binary.before"
-    unset FAIL_RELOAD FAIL_HTTP OLD_OPENSSL FAIL_REGISTRATION FAIL_STOP_UNIT
+    unset FAIL_RELOAD FAIL_HTTP OLD_OPENSSL FAIL_LIBCRYPTO FAIL_REGISTRATION FAIL_STOP_UNIT
     make_release
 }
 assert_preserved() {
@@ -155,10 +185,27 @@ assert lines.index('systemctl stop boops.timer')<lines.index('systemctl stop boo
 PY
     echo "PASS migration retains timer $status"
 done
-reset_fixture true true;OLD_OPENSSL=1;export OLD_OPENSSL;run_failure
-assert_rollback true true
-! rg -q '^systemctl stop ' "$FIXTURE_LOG"
-echo 'PASS prerequisites checked before stopping'
+reset_fixture true true;OLD_OPENSSL=1;export OLD_OPENSSL
+bash "$work/installer.sh" > "$work/output" 2>&1
+assert_preserved true true
+test "$("$BOOPS_ROOT/usr/local/bin/boops" version)" = 0.3.0
+! rg -q '^pkeyutl$' "$OPENSSL_LOG"
+echo 'PASS legacy OpenSSL uses real libcrypto fallback before migration'
+reset_fixture true true;OLD_OPENSSL=1;export OLD_OPENSSL
+python3 - "$work/downloads/latest.json" <<'PY'
+import json,sys
+p=sys.argv[1];e=json.load(open(p));e['signature']='A'*86+'==';open(p,'w').write(json.dumps(e))
+PY
+run_failure;assert_rollback true true
+echo 'PASS legacy libcrypto rejects invalid signature'
+reset_fixture true true;OLD_OPENSSL=1;export OLD_OPENSSL
+printf '\ncorruption\n' >> "$work/downloads/boops_0.3.0_amd64.binary"
+run_failure;assert_rollback true true
+echo 'PASS legacy libcrypto rejects hash mismatch after signed manifest'
+reset_fixture true true;OLD_OPENSSL=1;FAIL_LIBCRYPTO=1;export OLD_OPENSSL FAIL_LIBCRYPTO
+run_failure;assert_rollback true true
+! rg -q '^systemctl ' "$FIXTURE_LOG"
+echo 'PASS crypto capability preflight precedes systemctl'
 for failure in signature hash probe http oversize reload;do
     reset_fixture true true
     case "$failure" in

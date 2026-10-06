@@ -88,7 +88,7 @@ class PublishTests(unittest.TestCase):
                             trickle, final = b"0001\r\n", b"x\r\n0\r\n\r\n"
                         self.wfile.flush()
                         for byte in trickle:
-                            time.sleep(0.04)
+                            time.sleep(0.2)
                             self.wfile.write(bytes([byte]))
                             self.wfile.flush()
                         self.wfile.write(final)
@@ -115,10 +115,10 @@ class PublishTests(unittest.TestCase):
                 if owner.slow:
                     self.wfile.write(data[:1])
                     self.wfile.flush()
-                    time.sleep(0.07)
+                    time.sleep(0.2)
                     self.wfile.write(data[1:2])
                     self.wfile.flush()
-                    time.sleep(0.25)
+                    time.sleep(1.5)
                     try:
                         self.wfile.write(data[2:])
                     except (BrokenPipeError, ConnectionResetError):
@@ -428,29 +428,31 @@ class PublishTests(unittest.TestCase):
     def test_overall_deadline_applies_after_connection_close_header(self):
         # HTTP/1.0 clears connection.sock when headers arrive. A deadline must
         # still update the retained response socket before every incremental read.
+        # Allow child startup while keeping the response longer than the
+        # deadline, so this exercises an in-flight HTTP timeout.
         name = "boops_0.3.0_amd64.binary"
         self.files[name] = self.binaries[name]
         self.slow = True
         started = time.monotonic()
         with self.assertRaises(self.publisher.PublishError):
-            self.publisher.HTTPTransport().get(name, 19, 0.1)
-        self.assertLess(time.monotonic() - started, 0.145)
+            self.publisher.HTTPTransport().get(name, 19, 0.8)
+        self.assertLess(time.monotonic() - started, 1.1)
         self.assertEqual(self.events, [("GET", name)])
 
     def test_trickled_headers_cannot_return_missing_after_deadline(self):
         self.slow_headers = True
         started = time.monotonic()
         with self.assertRaises(self.publisher.PublishError):
-            self.publisher.HTTPTransport().get("missing.binary", 19, 0.1, missing_ok=True)
-        self.assertLess(time.monotonic() - started, 0.2)
+            self.publisher.HTTPTransport().get("missing.binary", 19, 0.8, missing_ok=True)
+        self.assertLess(time.monotonic() - started, 1.1)
         self.assertEqual(self.events, [("GET", "missing.binary")])
 
     def test_trickled_chunk_framing_cannot_extend_deadline(self):
         self.slow_chunk_framing = True
         started = time.monotonic()
         with self.assertRaises(self.publisher.PublishError):
-            self.publisher.HTTPTransport().get("chunked.binary", 19, 0.1)
-        self.assertLess(time.monotonic() - started, 0.2)
+            self.publisher.HTTPTransport().get("chunked.binary", 19, 0.8)
+        self.assertLess(time.monotonic() - started, 1.1)
         self.assertEqual(self.events, [("GET", "chunked.binary")])
 
     def test_stalled_dns_is_killed_and_reaped_before_return(self):

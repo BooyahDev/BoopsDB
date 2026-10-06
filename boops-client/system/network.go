@@ -86,14 +86,21 @@ func ApplyNetworkSettingsWithOps(ifaces []client.InterfaceInfo, ops Ops) error {
 		identities := make([]client.InterfaceInfo, len(normalized))
 		for i, info := range normalized {
 			out, err := ops.Run("ip", "-j", "link", "show", "dev", info.Name)
-			if err != nil {
-				return fmt.Errorf("NIC %s preflight: %w (%s)", info.Name, err, strings.TrimSpace(string(out)))
-			}
 			var links []struct {
 				Name string `json:"ifname"`
 				MAC  string `json:"address"`
 			}
-			if err := json.Unmarshal(out, &links); err != nil {
+			if err != nil {
+				// Older iproute2 lacks JSON output; sysfs still supplies local identity.
+				mac, readErr := ops.ReadFile("/sys/class/net/" + info.Name + "/address")
+				if readErr != nil {
+					return fmt.Errorf("NIC %s preflight: %w (%s); sysfs: %v", info.Name, err, strings.TrimSpace(string(out)), readErr)
+				}
+				links = append(links, struct {
+					Name string `json:"ifname"`
+					MAC  string `json:"address"`
+				}{info.Name, string(mac)})
+			} else if err := json.Unmarshal(out, &links); err != nil {
 				return fmt.Errorf("NIC %s identity: %w", info.Name, err)
 			}
 			if len(links) != 1 || links[0].Name != info.Name {
@@ -116,16 +123,39 @@ func ApplyNetworkSettingsWithOps(ifaces []client.InterfaceInfo, ops Ops) error {
 			return err
 		}
 		if exists {
+			owned, err := interfacesOwnRequestedNICs(normalized, ops)
+			if err != nil {
+				return err
+			}
+			if owned {
+				return applyInterfaces(normalized, ops)
+			}
+		}
+		if _, err := ops.LookPath("netplan"); err == nil {
+			files, err := loadNetplanFiles(ops)
+			if err != nil {
+				return err
+			}
+			if len(files) > 0 {
+				return applyNetplan(identities, ops)
+			}
+		}
+		if _, err := ops.LookPath("nmcli"); err == nil {
+			return applyNetworkManager(normalized, ops)
+		}
+		if exists {
 			return applyInterfaces(normalized, ops)
 		}
 		if _, err := ops.LookPath("netplan"); err == nil {
 			return applyNetplan(identities, ops)
 		}
-		if _, err := ops.LookPath("nmcli"); err == nil {
-			return applyNetworkManager(normalized, ops)
-		}
 		return fmt.Errorf("no supported Linux network configuration backend found")
 	case "windows":
+		for _, info := range normalized {
+			if len(info.IPs) == 0 {
+				return fmt.Errorf("NIC %s requires an IPv4 address on Windows", info.Name)
+			}
+		}
 		return applyWindows(normalized, ops)
 	default:
 		return fmt.Errorf("unsupported OS: %s", ops.OS())

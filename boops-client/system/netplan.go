@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/netip"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -143,8 +142,13 @@ func netplanMatches(id string, n *yaml.Node, info client.InterfaceInfo) (bool, e
 		if err != nil {
 			return false, err
 		}
-		if !ok && !renamed {
-			return false, nil
+		if !ok {
+			if !renamed {
+				return false, nil
+			}
+			if nodeValue(match, "macaddress") == nil {
+				return false, fmt.Errorf("cannot verify renamed NIC %s in definition %s without MAC match", info.Name, id)
+			}
 		}
 	}
 	if mac := nodeValue(match, "macaddress"); mac != nil {
@@ -167,39 +171,6 @@ func netplanMatches(id string, n *yaml.Node, info client.InterfaceInfo) (bool, e
 	return true, nil
 }
 
-func managedNetplanIDs(data []byte, ifaces []client.InterfaceInfo) (map[string]string, error) {
-	doc, err := parseNetplan(data)
-	if err != nil {
-		return nil, err
-	}
-	ids := map[string]string{}
-	for _, info := range ifaces {
-		ids[info.Name] = info.Name
-	}
-	network := nodeValue(doc.Content[0], "network")
-	for _, kind := range []string{"ethernets", "wifis", "bridges", "bonds", "vlans"} {
-		nodes := nodeValue(network, kind)
-		if nodes == nil {
-			continue
-		}
-		if nodes.Kind != yaml.MappingNode {
-			return nil, fmt.Errorf("Netplan %s must be a mapping", kind)
-		}
-		for i := 0; i < len(nodes.Content); i += 2 {
-			for _, info := range ifaces {
-				matches, err := netplanMatches(nodes.Content[i].Value, nodes.Content[i+1], info)
-				if err != nil {
-					return nil, err
-				}
-				if matches {
-					ids[nodes.Content[i].Value] = info.Name
-				}
-			}
-		}
-	}
-	return ids, nil
-}
-
 func ipv4DefaultRoute(n *yaml.Node) bool {
 	to := nodeValue(n, "to")
 	if to == nil {
@@ -217,25 +188,6 @@ func ipv4DefaultRoute(n *yaml.Node) bool {
 	}
 	addr, err := netip.ParseAddr(via.Value)
 	return err == nil && addr.Is4()
-}
-
-func netplanHasIPv4Settings(n *yaml.Node) bool {
-	if nodeValue(n, "<<") != nil {
-		return true
-	}
-	for _, key := range []string{"addresses", "dhcp4", "gateway4"} {
-		if nodeValue(n, key) != nil {
-			return true
-		}
-	}
-	if routes := nodeValue(n, "routes"); routes != nil {
-		for _, r := range routes.Content {
-			if ipv4DefaultRoute(r) {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func cloneNetplanForInspection(n *yaml.Node, depth int) (*yaml.Node, error) {
@@ -280,99 +232,6 @@ func mergeInspectedNetplan(previous, next *yaml.Node) *yaml.Node {
 		return previous
 	}
 	return next
-}
-
-type foreignNetplanDefinition struct {
-	id    string
-	node  *yaml.Node
-	paths []string
-}
-
-func checkForeignNetplan(ifaces []client.InterfaceInfo, managedIDs map[string]string, ops Ops) error {
-	// Equal basenames are shadowed by /run, then /etc, then /lib.
-	effective := map[string]string{}
-	for _, dir := range []string{"/lib/netplan", "/etc/netplan", "/run/netplan"} {
-		paths, err := ops.Glob(dir + "/*.yaml")
-		if err != nil {
-			return err
-		}
-		for _, path := range paths {
-			effective[filepath.Base(path)] = path
-		}
-	}
-	names := make([]string, 0, len(effective))
-	for name := range effective {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	definitions := map[string]foreignNetplanDefinition{}
-	for _, name := range names {
-		path := effective[name]
-		if path == netplanPath {
-			continue
-		}
-		data, err := ops.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		doc, err := parseNetplan(data)
-		if err != nil {
-			return fmt.Errorf("read %s: %w", path, err)
-		}
-		network := nodeValue(doc.Content[0], "network")
-		if nodeValue(doc.Content[0], "<<") != nil || nodeValue(network, "<<") != nil {
-			return fmt.Errorf("cannot safely resolve foreign Netplan merge in %s", path)
-		}
-		for _, kind := range []string{"ethernets", "wifis", "bridges", "bonds", "vlans"} {
-			nodes := nodeValue(network, kind)
-			if nodes == nil {
-				continue
-			}
-			if nodes.Kind != yaml.MappingNode {
-				return fmt.Errorf("%s: %s must be a mapping", path, kind)
-			}
-			if nodeValue(nodes, "<<") != nil {
-				return fmt.Errorf("cannot safely resolve foreign Netplan %s merge in %s", kind, path)
-			}
-			for i := 0; i < len(nodes.Content); i += 2 {
-				id, device := nodes.Content[i].Value, nodes.Content[i+1]
-				if nic, managed := managedIDs[id]; managed && (netplanHasIPv4Settings(device) || nodeValue(device, "match") != nil || nodeValue(device, "set-name") != nil) {
-					return fmt.Errorf("NIC %s shares Netplan ID %s with foreign definition in %s", nic, id, path)
-				}
-				copy, err := cloneNetplanForInspection(device, 0)
-				if err != nil {
-					return fmt.Errorf("read %s definition %s: %w", path, id, err)
-				}
-				key := kind + "/" + id
-				definition := definitions[key]
-				definition.id = id
-				definition.node = mergeInspectedNetplan(definition.node, copy)
-				definition.paths = append(definition.paths, path)
-				definitions[key] = definition
-			}
-		}
-	}
-	if path, ok := effective[filepath.Base(netplanPath)]; ok && path != netplanPath {
-		return fmt.Errorf("%s shadows managed Netplan file %s", path, netplanPath)
-	}
-	keys := make([]string, 0, len(definitions))
-	for key := range definitions {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		definition := definitions[key]
-		for _, info := range ifaces {
-			matches, err := netplanMatches(definition.id, definition.node, info)
-			if err != nil {
-				return err
-			}
-			if matches && netplanHasIPv4Settings(definition.node) {
-				return fmt.Errorf("NIC %s conflicts with effective foreign Netplan ID %s in %s", info.Name, definition.id, strings.Join(definition.paths, ", "))
-			}
-		}
-	}
-	return nil
 }
 
 func hasYAMLSharing(n *yaml.Node) bool {
@@ -422,150 +281,49 @@ func keepIPv6Nodes(old *yaml.Node, newValues []string, prefix bool) (*yaml.Node,
 	return n, nil
 }
 
-func generateNetplan(data []byte, ifaces []client.InterfaceInfo) ([]byte, error) {
-	doc, err := parseNetplan(data)
+func updateNetplanDevice(device *yaml.Node, info client.InterfaceInfo) error {
+	addresses, err := keepIPv6Nodes(nodeValue(device, "addresses"), addressCIDRs(info), true)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("NIC %s: %w", info.Name, err)
 	}
-	if nodeValue(doc.Content[0], "<<") != nil {
-		return nil, fmt.Errorf("Netplan root merge cannot be managed")
+	setNode(device, "addresses", addresses)
+	setNode(device, "dhcp4", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "false"})
+	removeNode(device, "gateway4")
+	routes := nodeValue(device, "routes")
+	if routes == nil {
+		routes = sequence(nil)
+	} else if routes.Kind != yaml.SequenceNode {
+		return fmt.Errorf("NIC %s routes must be a sequence", info.Name)
 	}
-	network, err := ensureMapping(doc.Content[0], "network")
-	if err != nil {
-		return nil, err
+	kept := make([]*yaml.Node, 0, len(routes.Content))
+	for _, route := range routes.Content {
+		if route.Kind != yaml.MappingNode {
+			return fmt.Errorf("NIC %s has unsupported route", info.Name)
+		}
+		if !ipv4DefaultRoute(route) {
+			kept = append(kept, route)
+		}
 	}
-	if network.Anchor != "" {
-		return nil, fmt.Errorf("managed Netplan network is a shared YAML anchor")
+	routes.Content = kept
+	if info.Gateway != "" {
+		route := mapping()
+		setNode(route, "to", scalar("0.0.0.0/0"))
+		setNode(route, "via", scalar(info.Gateway))
+		routes.Content = append(routes.Content, route)
 	}
-	if version := nodeValue(network, "version"); version == nil {
-		setNode(network, "version", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: "2"})
+	if len(routes.Content) > 0 {
+		setNode(device, "routes", routes)
+	} else {
+		removeNode(device, "routes")
 	}
-	ethernets, err := ensureMapping(network, "ethernets")
-	if err != nil {
-		return nil, err
-	}
-	if ethernets.Anchor != "" {
-		return nil, fmt.Errorf("managed Netplan ethernets is a shared YAML anchor")
-	}
-	usedIDs := map[string]string{}
-	for _, info := range ifaces {
-		id := info.Name
-		var device *yaml.Node
-		for _, kind := range []string{"ethernets", "wifis", "bridges", "bonds", "vlans"} {
-			nodes := nodeValue(network, kind)
-			if nodes == nil {
-				continue
-			}
-			if nodes.Kind != yaml.MappingNode {
-				return nil, fmt.Errorf("Netplan %s must be a mapping", kind)
-			}
-			for i := 0; i < len(nodes.Content); i += 2 {
-				matches, err := netplanMatches(nodes.Content[i].Value, nodes.Content[i+1], info)
-				if err != nil {
-					return nil, err
-				}
-				if matches {
-					if kind != "ethernets" || device != nil {
-						return nil, fmt.Errorf("NIC %s has ambiguous or unsupported Netplan definitions", info.Name)
-					}
-					id = nodes.Content[i].Value
-					device = nodes.Content[i+1]
-				}
-			}
-		}
-		if device == nil {
-			if nodeValue(ethernets, id) != nil {
-				return nil, fmt.Errorf("Netplan ID %s belongs to another NIC", id)
-			}
-			device = mapping()
-			setNode(ethernets, id, device)
-		}
-		if previous, ok := usedIDs[id]; ok {
-			return nil, fmt.Errorf("NICs %s and %s match the same Netplan definition %s", previous, info.Name, id)
-		}
-		usedIDs[id] = info.Name
-		if device.Kind != yaml.MappingNode || nodeValue(device, "<<") != nil || hasYAMLSharing(device) {
-			return nil, fmt.Errorf("NIC %s uses unsupported YAML alias/merge", info.Name)
-		}
-		if name := nodeValue(nodeValue(device, "match"), "name"); name != nil && strings.ContainsAny(name.Value, "*?[") {
-			return nil, fmt.Errorf("NIC %s matches a broad Netplan name pattern %q that may affect unrequested NICs", info.Name, name.Value)
-		}
-		addresses, err := keepIPv6Nodes(nodeValue(device, "addresses"), addressCIDRs(info), true)
-		if err != nil {
-			return nil, fmt.Errorf("NIC %s: %w", info.Name, err)
-		}
-		setNode(device, "addresses", addresses)
-		setNode(device, "dhcp4", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "false"})
-		removeNode(device, "gateway4")
-		routes := nodeValue(device, "routes")
-		if routes == nil {
-			routes = sequence(nil)
-		} else if routes.Kind != yaml.SequenceNode {
-			return nil, fmt.Errorf("NIC %s routes must be a sequence", info.Name)
-		}
-		kept := make([]*yaml.Node, 0, len(routes.Content))
-		for _, route := range routes.Content {
-			if route.Kind != yaml.MappingNode {
-				return nil, fmt.Errorf("NIC %s has unsupported route", info.Name)
-			}
-			if !ipv4DefaultRoute(route) {
-				kept = append(kept, route)
-			}
-		}
-		routes.Content = kept
-		if info.Gateway != "" {
-			route := mapping()
-			setNode(route, "to", scalar("0.0.0.0/0"))
-			setNode(route, "via", scalar(info.Gateway))
-			routes.Content = append(routes.Content, route)
-		}
-		if len(routes.Content) > 0 {
-			setNode(device, "routes", routes)
-		} else {
-			removeNode(device, "routes")
-		}
-		nameservers, err := ensureMapping(device, "nameservers")
-		if err != nil {
-			return nil, err
-		}
-		dns, err := keepIPv6Nodes(nodeValue(nameservers, "addresses"), dnsAddresses(info), false)
-		if err != nil {
-			return nil, err
-		}
-		setNode(nameservers, "addresses", dns)
-	}
-	var out bytes.Buffer
-	e := yaml.NewEncoder(&out)
-	e.SetIndent(2)
-	if err := e.Encode(doc); err != nil {
-		return nil, err
-	}
-	if err := e.Close(); err != nil {
-		return nil, err
-	}
-	return out.Bytes(), nil
-}
-
-func applyNetplan(ifaces []client.InterfaceInfo, ops Ops) error {
-	s, err := readSnapshot(ops, netplanPath, 0600)
+	nameservers, err := ensureMapping(device, "nameservers")
 	if err != nil {
 		return err
 	}
-	ids, err := managedNetplanIDs(s.data, ifaces)
+	dns, err := keepIPv6Nodes(nodeValue(nameservers, "addresses"), dnsAddresses(info), false)
 	if err != nil {
 		return err
 	}
-	if err := checkForeignNetplan(ifaces, ids, ops); err != nil {
-		return err
-	}
-	data, err := generateNetplan(s.data, ifaces)
-	if err != nil {
-		return fmt.Errorf("generate Netplan: %w", err)
-	}
-	return applyFile(ops, s, data, func() error {
-		if err := runChecked(ops, "netplan", "generate"); err != nil {
-			return err
-		}
-		return runChecked(ops, "netplan", "apply")
-	})
+	setNode(nameservers, "addresses", dns)
+	return nil
 }

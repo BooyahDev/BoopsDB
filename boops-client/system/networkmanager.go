@@ -11,8 +11,25 @@ import (
 var nmProperties = []string{"ipv4.method", "ipv4.addresses", "ipv4.gateway", "ipv4.dns", "ipv4.never-default", "ipv4.routes"}
 
 type nmPlan struct {
-	uuid, device      string
-	original, desired []string
+	uuid, device        string
+	original, desired   []string
+	wasActive           bool
+	activationAttempted bool
+}
+
+func nmProfileUUIDs(raw []byte) ([]string, error) {
+	var uuids []string
+	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		uuid := strings.TrimSpace(line)
+		if uuid == "" || uuid == "--" {
+			continue
+		}
+		if strings.Contains(uuid, ":") {
+			return nil, fmt.Errorf("invalid NetworkManager profile UUID output")
+		}
+		uuids = append(uuids, uuid)
+	}
+	return uuids, nil
 }
 
 // nmRoutes accepts nmcli's human route representation and setter representation.
@@ -114,6 +131,51 @@ func planNetworkManager(ifaces []client.InterfaceInfo, ops Ops) ([]nmPlan, error
 		}
 		byDevice[parts[1]] = parts[0]
 	}
+	activeDevices := make(map[string]bool, len(byDevice))
+	for device := range byDevice {
+		activeDevices[device] = true
+	}
+	missing := make(map[string]bool)
+	for _, info := range ifaces {
+		if _, ok := byDevice[info.Name]; !ok {
+			missing[info.Name] = true
+		}
+	}
+	if len(missing) > 0 {
+		// Rocky/RHEL commonly keeps a persistent profile inactive while the
+		// device is down. Resolve it by its explicit interface binding before
+		// rejecting the request; an unbound or duplicate profile is ambiguous.
+		profiles, err := ops.Run("nmcli", "-t", "--escape", "no", "-f", "UUID", "connection", "show")
+		if err != nil {
+			return nil, fmt.Errorf("read inactive NetworkManager profiles: %w", err)
+		}
+		uuids, err := nmProfileUUIDs(profiles)
+		if err != nil {
+			return nil, err
+		}
+		byProfileDevice := map[string][]string{}
+		for _, uuid := range uuids {
+			binding, err := ops.Run("nmcli", "-g", "connection.interface-name", "connection", "show", "uuid", uuid)
+			if err != nil {
+				return nil, fmt.Errorf("read interface binding for NetworkManager profile %s: %w", uuid, err)
+			}
+			device := strings.TrimSpace(string(binding))
+			if device == "" || device == "--" {
+				continue
+			}
+			byProfileDevice[device] = append(byProfileDevice[device], uuid)
+		}
+		for device := range missing {
+			uuids := byProfileDevice[device]
+			if len(uuids) != 1 {
+				if len(uuids) == 0 {
+					return nil, fmt.Errorf("NIC %s has no active or interface-bound NetworkManager connection", device)
+				}
+				return nil, fmt.Errorf("NIC %s has ambiguous NetworkManager profiles", device)
+			}
+			byDevice[device] = uuids[0]
+		}
+	}
 	plans := make([]nmPlan, 0, len(ifaces))
 	used := map[string]bool{}
 	for _, info := range ifaces {
@@ -125,7 +187,7 @@ func planNetworkManager(ifaces []client.InterfaceInfo, ops Ops) ([]nmPlan, error
 			return nil, fmt.Errorf("connection %s is shared by requested NICs", uuid)
 		}
 		used[uuid] = true
-		p := nmPlan{uuid: uuid, device: info.Name}
+		p := nmPlan{uuid: uuid, device: info.Name, wasActive: activeDevices[info.Name]}
 		original := map[string]string{}
 		for _, property := range nmProperties {
 			value, err := ops.Run("nmcli", "-g", property, "connection", "show", "uuid", uuid)
@@ -149,11 +211,17 @@ func planNetworkManager(ifaces []client.InterfaceInfo, ops Ops) ([]nmPlan, error
 		if err != nil {
 			return nil, err
 		}
+		method := "manual"
 		neverDefault := "yes"
 		if info.Gateway != "" {
 			neverDefault = "no"
 		}
-		p.desired = []string{"ipv4.method", "manual", "ipv4.addresses", strings.Join(addressCIDRs(info), ","), "ipv4.gateway", info.Gateway, "ipv4.dns", info.DnsServers, "ipv4.never-default", neverDefault, "ipv4.routes", routes}
+		if len(info.IPs) == 0 {
+			// NetworkManager rejects ipv4.method=manual without an address. This
+			// is the expected profile for bridge/bond member links managed by NM.
+			method = "disabled"
+		}
+		p.desired = []string{"ipv4.method", method, "ipv4.addresses", strings.Join(addressCIDRs(info), ","), "ipv4.gateway", info.Gateway, "ipv4.dns", info.DnsServers, "ipv4.never-default", neverDefault, "ipv4.routes", routes}
 		plans = append(plans, p)
 	}
 	return plans, nil
@@ -175,9 +243,15 @@ func applyNetworkManager(ifaces []client.InterfaceInfo, ops Ops) error {
 			}
 		}
 		for i := 0; i < changed; i++ {
-			p := plans[i]
-			if err := runChecked(ops, "nmcli", "connection", "up", "uuid", p.uuid, "ifname", p.device); err != nil {
-				errs = append(errs, fmt.Errorf("reactivate NIC %s: %w", p.device, err))
+			p := &plans[i]
+			if p.wasActive {
+				if err := runChecked(ops, "nmcli", "connection", "up", "uuid", p.uuid, "ifname", p.device); err != nil {
+					errs = append(errs, fmt.Errorf("reactivate NIC %s: %w", p.device, err))
+				}
+			} else if p.activationAttempted {
+				if err := runChecked(ops, "nmcli", "connection", "down", "uuid", p.uuid); err != nil {
+					errs = append(errs, fmt.Errorf("deactivate NIC %s after failed apply: %w", p.device, err))
+				}
 			}
 		}
 		return errors.Join(errs...)
@@ -189,7 +263,9 @@ func applyNetworkManager(ifaces []client.InterfaceInfo, ops Ops) error {
 			return rollback(err)
 		}
 	}
-	for _, p := range plans {
+	for i := range plans {
+		p := &plans[i]
+		p.activationAttempted = true
 		if err := runChecked(ops, "nmcli", "connection", "up", "uuid", p.uuid, "ifname", p.device); err != nil {
 			return rollback(err)
 		}

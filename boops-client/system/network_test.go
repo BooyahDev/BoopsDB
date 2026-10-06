@@ -23,6 +23,7 @@ type fixtureOps struct {
 	writes                int
 	fail                  func(string, []string) bool
 	response              func(string, []string) ([]byte, error)
+	failWritePath         string
 }
 
 func newFixtureOps(t *testing.T, backend string) *fixtureOps {
@@ -74,6 +75,9 @@ func (o *fixtureOps) Run(name string, args ...string) ([]byte, error) {
 		}
 		return []byte(fmt.Sprintf("%o", s.Mode().Perm())), nil
 	}
+	if name == "mkdir" && len(args) == 3 && args[2] == "/etc/netplan" {
+		return nil, os.MkdirAll(o.local(args[2]), 0755)
+	}
 	if name == "netsh" && strings.Join(args, " ") == "interface ipv4 dump" {
 		return []byte("# original netsh configuration\n"), nil
 	}
@@ -82,6 +86,10 @@ func (o *fixtureOps) Run(name string, args ...string) ([]byte, error) {
 func (o *fixtureOps) ReadFile(p string) ([]byte, error) { return os.ReadFile(o.local(p)) }
 func (o *fixtureOps) WriteFile(p string, b []byte, m fs.FileMode) error {
 	o.writes++
+	if o.failWritePath != "" && strings.HasPrefix(p, o.failWritePath+".boops-") {
+		o.failWritePath = ""
+		return errors.New("fixture write failure")
+	}
 	return RealOps().WriteFile(o.local(p), b, m)
 }
 func (o *fixtureOps) Rename(a, b string) error { return os.Rename(o.local(a), o.local(b)) }
@@ -177,6 +185,57 @@ func TestInvalidLocalIdentityPreventsWrites(t *testing.T) {
 			}
 			if o.writes != 0 || o.count("netplan", "apply") != 0 {
 				t.Fatal("identity failure changed host")
+			}
+		})
+	}
+}
+
+func TestOlderIPRouteWithoutJSONUsesSysfsIdentity(t *testing.T) {
+	o := newFixtureOps(t, "netplan")
+	o.put(netplanPath, netplanOriginal, 0600)
+	o.put("/sys/class/net/eth0/address", "02:00:00:00:00:01\n", 0444)
+	o.fail = func(n string, a []string) bool { return n == "ip" && a[0] == "-j" }
+	if err := ApplyNetworkSettingsWithOps(twoNICs()[:1], o); err != nil {
+		t.Fatal(err)
+	}
+	if o.count("netplan", "apply") != 1 {
+		t.Fatal(o.calls)
+	}
+}
+
+func TestAddresslessWindowsNICIsRejectedBeforeCommands(t *testing.T) {
+	o := newFixtureOps(t, "netsh")
+	o.osName = "windows"
+	if err := ApplyNetworkSettingsWithOps([]client.InterfaceInfo{{Name: "Ethernet"}}, o); err == nil {
+		t.Fatal("addressless Windows NIC accepted")
+	}
+	if len(o.calls) != 0 || o.writes != 0 {
+		t.Fatal("host modified")
+	}
+}
+
+func TestLoopbackInterfacesFileDoesNotOverrideActualBackend(t *testing.T) {
+	for _, backend := range []string{"netplan", "nmcli"} {
+		t.Run(backend, func(t *testing.T) {
+			var o *fixtureOps
+			if backend == "nmcli" {
+				o = nmFixture(t)
+			} else {
+				o = newFixtureOps(t, backend)
+				o.put(netplanPath, netplanOriginal, 0600)
+			}
+			o.put(interfacesPath, "auto lo\niface lo inet loopback\n", 0644)
+			if err := ApplyNetworkSettingsWithOps(twoNICs(), o); err != nil {
+				t.Fatal(err)
+			}
+			if o.count("ifdown", "") != 0 || o.count("ifup", "") != 0 {
+				t.Fatal("loopback file selected instead of actual backend")
+			}
+			if backend == "netplan" && o.count("netplan", "apply") != 1 {
+				t.Fatal(o.calls)
+			}
+			if backend == "nmcli" && o.count("nmcli", "connection") < 2 {
+				t.Fatal(o.calls)
 			}
 		})
 	}

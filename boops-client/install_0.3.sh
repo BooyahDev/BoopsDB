@@ -13,7 +13,106 @@ done
 [[ $(uname -s) = Linux ]] || { echo 'This installer supports Linux only.' >&2;exit 1; }
 python3 -c 'import base64,fcntl,hashlib,json,pathlib,subprocess,sys; assert sys.version_info >= (3,6)'
 openssl_version=$(openssl version)
-[[ "$openssl_version" =~ ^OpenSSL\ ([3-9]|[1-9][0-9]+)\. ]] || { echo 'OpenSSL 3.0 or newer is required for Ed25519 verification.' >&2;exit 1; }
+verify_libcrypto() {
+    python3 - "$1" "$2" "$3" <<'PY'
+import base64,ctypes,ctypes.util,pathlib,sys
+
+def fail(message):
+    raise SystemExit(message)
+
+lines=pathlib.Path(sys.argv[1]).read_text().splitlines()
+if len(lines)<3 or lines[0]!='-----BEGIN PUBLIC KEY-----' or lines[-1]!='-----END PUBLIC KEY-----':
+    fail('Invalid embedded public key format')
+try:
+    der=base64.b64decode(''.join(lines[1:-1]).encode('ascii'),validate=True)
+except (ValueError,UnicodeEncodeError):
+    fail('Invalid embedded public key encoding')
+prefix=bytes.fromhex('302a300506032b6570032100')
+if len(der)!=len(prefix)+32 or der[:len(prefix)]!=prefix:
+    fail('Embedded public key is not an Ed25519 SubjectPublicKeyInfo')
+raw=der[len(prefix):]
+payload=pathlib.Path(sys.argv[2]).read_bytes()
+signature=pathlib.Path(sys.argv[3]).read_bytes()
+if len(signature)!=64:
+    fail('Invalid Ed25519 signature length')
+found=ctypes.util.find_library('crypto')
+candidates=[]
+if found:
+    candidates.append(found)
+candidates.extend(('libcrypto.so.3','libcrypto.so.1.1','libcrypto.so','libcrypto.dylib'))
+lib=None
+for candidate in candidates:
+    try:
+        lib=ctypes.CDLL(candidate)
+        break
+    except OSError:
+        pass
+if lib is None:
+    fail('No usable system libcrypto was found')
+try:
+    lib.EVP_PKEY_new_raw_public_key.argtypes=[ctypes.c_int,ctypes.c_void_p,ctypes.POINTER(ctypes.c_ubyte),ctypes.c_size_t]
+    lib.EVP_PKEY_new_raw_public_key.restype=ctypes.c_void_p
+    lib.EVP_PKEY_free.argtypes=[ctypes.c_void_p]
+    lib.EVP_PKEY_free.restype=None
+    lib.EVP_MD_CTX_new.argtypes=[]
+    lib.EVP_MD_CTX_new.restype=ctypes.c_void_p
+    lib.EVP_MD_CTX_free.argtypes=[ctypes.c_void_p]
+    lib.EVP_MD_CTX_free.restype=None
+    lib.EVP_DigestVerifyInit.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p,ctypes.c_void_p]
+    lib.EVP_DigestVerifyInit.restype=ctypes.c_int
+    lib.EVP_DigestVerify.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_size_t,ctypes.c_void_p,ctypes.c_size_t]
+    lib.EVP_DigestVerify.restype=ctypes.c_int
+except AttributeError:
+    fail('System libcrypto lacks the Ed25519 EVP verification API')
+byte_type=ctypes.c_ubyte
+raw_buffer=(byte_type*len(raw)).from_buffer_copy(raw)
+signature_buffer=(byte_type*len(signature)).from_buffer_copy(signature)
+payload_buffer=None if not payload else (byte_type*len(payload)).from_buffer_copy(payload)
+pkey=None
+ctx=None
+try:
+    pkey=lib.EVP_PKEY_new_raw_public_key(1087,None,raw_buffer,len(raw))
+    if not pkey:
+        fail('System libcrypto could not load the Ed25519 public key')
+    ctx=lib.EVP_MD_CTX_new()
+    if not ctx:
+        fail('System libcrypto could not create a verification context')
+    if lib.EVP_DigestVerifyInit(ctx,None,None,None,pkey)!=1:
+        fail('System libcrypto could not initialize Ed25519 verification')
+    if lib.EVP_DigestVerify(ctx,signature_buffer,len(signature),payload_buffer,len(payload))!=1:
+        fail('Ed25519 signature verification failed')
+finally:
+    if ctx:
+        lib.EVP_MD_CTX_free(ctx)
+    if pkey:
+        lib.EVP_PKEY_free(pkey)
+PY
+}
+crypto_probe=$(mktemp -d)
+trap 'rm -rf "$crypto_probe"' EXIT
+# This independent RFC vector probes the local verifier; it is not a trust key.
+python3 - "$crypto_probe" <<'PY'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])
+p.joinpath('probe-key.pem').write_text('''-----BEGIN PUBLIC KEY-----
+MCowBQYDK2VwAyEA11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=
+-----END PUBLIC KEY-----
+''')
+p.joinpath('probe-payload').write_bytes(b'boops installer crypto probe')
+p.joinpath('probe-signature').write_bytes(bytes.fromhex('b09e6c6eda77627c954ab91f7b1438714f613307655489acd3203a23b861ea272b8f89021909bd508cf1a27fee5b600145002992e2c5a9fde24fec9ee48ad40c'))
+PY
+if [[ "$openssl_version" =~ ^OpenSSL\ ([3-9]|[1-9][0-9]+)\. ]];then
+    verify_backend=openssl
+    if ! openssl pkeyutl -verify -rawin -pubin -inkey "$crypto_probe/probe-key.pem" -in "$crypto_probe/probe-payload" -sigfile "$crypto_probe/probe-signature" >/dev/null 2>&1;then
+        echo 'OpenSSL Ed25519 verification capability is unavailable.' >&2
+        exit 1
+    fi
+else
+    verify_backend=libcrypto
+    verify_libcrypto "$crypto_probe/probe-key.pem" "$crypto_probe/probe-payload" "$crypto_probe/probe-signature"
+fi
+rm -rf "$crypto_probe"
+trap - EXIT
 case $(uname -m) in x86_64) arch=amd64;;aarch64|arm64) arch=arm64;;*) echo 'Unsupported CPU architecture.' >&2;exit 1;;esac
 binary_dir="$root/usr/local/bin"
 config_dir="$root/etc/boops"
@@ -110,6 +209,7 @@ trap finish EXIT
 stopped=true
 if "$timer_present";then systemctl stop boops.timer;fi
 if "$service_present";then systemctl stop boops.service;fi
+# This fixed SPKI is the sole release trust root; no manifest key is read.
 cat > "$staging/public-key.pem" <<'PEM'
 -----BEGIN PUBLIC KEY-----
 MCowBQYDK2VwAyEAEnduz++M/m77CizmdKHP/Jzbh8CFMRJQFN+jGrTqBjM=
@@ -143,7 +243,11 @@ payload=base64.b64decode(e['payload'],validate=True);signature=base64.b64decode(
 assert len(signature)==64, 'Invalid Ed25519 signature length'
 (p/'payload.json').write_bytes(payload);(p/'signature.bin').write_bytes(signature)
 PY
-openssl pkeyutl -verify -rawin -pubin -inkey "$staging/public-key.pem" -in "$staging/payload.json" -sigfile "$staging/signature.bin" >/dev/null
+if [[ "$verify_backend" = openssl ]];then
+    openssl pkeyutl -verify -rawin -pubin -inkey "$staging/public-key.pem" -in "$staging/payload.json" -sigfile "$staging/signature.bin" >/dev/null
+else
+    verify_libcrypto "$staging/public-key.pem" "$staging/payload.json" "$staging/signature.bin"
+fi
 # Only use manifest fields after signature verification.
 python3 - "$staging" "$arch" <<'PY'
 import json,pathlib,re,sys

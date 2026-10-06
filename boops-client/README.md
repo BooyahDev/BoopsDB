@@ -4,7 +4,7 @@ Boops Client は、WebUI で登録したマシンの設定を API から取得�
 
 ## 新規導入と 0.1／0.2 からの移行
 
-対象は systemd を使用する Linux amd64・arm64 です。root 権限と Bash、Python 3.6 以上、OpenSSL 3.0 以上、curl、systemctl、flock、および通常のファイル操作コマンドが必要です。OpenSSL で Ed25519 署名を検証できない環境では導入を中止します。
+対象は systemd を使用する Linux amd64・arm64 です。root 権限と Bash、Python 3.6 以上、OpenSSL（Ed25519 の検証機能が必要）、curl、systemctl、flock、および通常のファイル操作コマンドが必要です。OpenSSL 3 系はコマンドで検証し、1.1.1 系などは Python の ctypes 経由でシステムの libcrypto の検証 API を使います。導入前に固定の署名を使って検証機能を確認し、機能がない環境では service と timer を停止する前に中止します。署名検証を省略する経路はありません。
 
 ```bash
 curl -fsS --proto '=https' https://file.booyah.dev/BoopsDB-Client/install.sh -o install.sh
@@ -21,7 +21,22 @@ sudo bash install.sh
 
 デフォルトゲートウェイを使う NIC はマシン全体で最大 1 つです。WebUI の「この NIC を使用」で選択し、不要な場合は「解除」で空にできます。既存の複数ゲートウェイは画面で通知し、選択した NIC を保存すると他の NIC の値を解除します。
 
-クライアントは全 NIC の入力と既存のネットワーク定義を確認してから反映します。Netplan の別ファイルとの競合、複数 NIC に作用する `match.name` のパターン、ifupdown の物理名と異なる論理名（例: `eth0=home`）など、安全な変更・復元を保証できない構成は変更前にエラーとします。対象外の NIC、既存 IPv6、経路やフックを黙って削除しません。Netplan の MAC 照合にはローカル NIC の実値を使い、API の MAC が未登録でも識別できます。MAC 値そのものは書き換えません。
+クライアントはディストリビューション名やバージョン番号で分岐せず、既存設定と利用可能なコマンドから設定方式を選びます。対象は systemd を使う Linux amd64・arm64 です。
+
+| 環境 | 設定方式と反映方法 |
+| --- | --- |
+| Ubuntu、Netplan を使う Debian | `/etc/netplan/*.yaml` の既存 NIC 定義を更新し、`netplan generate` と `netplan apply` を各 1 回実行 |
+| Debian の ifupdown | `/etc/network/interfaces` と `source`／`source-directory` で読み込む設定を更新し、対象 NIC を反映 |
+| Proxmox、ifupdown2 を使う Debian | 既存のブリッジ・ボンド・VLAN 設定を保持し、`ifreload` で反映 |
+| Rocky Linux、NetworkManager を使う Debian／Ubuntu | NIC に対応する既存接続プロファイルの IPv4 設定を `nmcli` で更新 |
+
+0.3.1 では、Ubuntu インストーラーの `00-installer-config.yaml` や `50-cloud-init.yaml` もそのまま更新対象にします。同じ Netplan ID が複数ファイルに分かれている場合は、全定義を照合して古い IPv4 アドレス・DNS・デフォルトルートを取り除きます。新しい値を重複して追加しません。`/lib/netplan` の設定は、同じファイル名を `/etc/netplan` に置いて上書きします。ベンダーの元ファイルは保持します。MAC 照合にはローカル NIC の実値を使うため、API の MAC が未登録でも識別できます。`match`、`set-name`、`dhcp6`、既存 IPv6、対象外の NIC、ブリッジ構成、通常の経路やフックを保持します。
+
+Proxmox の物理ポートなど、IPv4 を持たない NIC も扱えます。その場合はゲートウェイと DNS も空にしてください。管理 IP は `vmbr0` など、実際に IP を持つインターフェースへ設定します。IP の移し替えやブリッジの新設は行いません。既存ブリッジの反映には ifupdown2 の `ifreload` が必要です。旧環境でこのコマンドがない場合は、ブリッジを停止せず、変更前にエラーにします。`auto` の構成は `ifreload -a`、起動済みの非 `auto` 構成は `ifreload -c`、未起動の単独 NIC は `ifup` で反映します。
+
+全 NIC の入力と変更ファイルの元の内容・権限を確認してから反映します。書き込みや適用が失敗した場合は変更したファイルを戻します。複数 NIC に作用する広い `match.name`、共有 YAML、`/run/netplan` だけにある一時設定、ifupdown の物理名と異なる論理名（例: `eth0=home`）など、変更範囲や復元方法を特定できない構成は変更前にエラーとします。古い `iproute2` に JSON 出力がない場合は、sysfs の MAC アドレスを使って NIC を照合します。
+
+各版の実機での疎通、systemd、再起動後の設定保持は、下記の検証範囲とは別に確認してください。
 
 ## 同期と更新
 
@@ -60,9 +75,9 @@ Linux のホスト名変更に失敗した場合は警告を表示してネッ�
 cd boops-client
 go test ./...
 bash test/install-test.sh
-go run ./cmd/release -version 0.3.0 \
+go run ./cmd/release -version 0.3.1 \
   -key /Volumes/DATAHDD1/BoopsDB-release-private/signing-key.pem \
-  -out /Volumes/DATAHDD1/BoopsDB-releases/0.3.0
+  -out /Volumes/DATAHDD1/BoopsDB-releases/0.3.1
 ```
 
 生成後に同じ出力先へ `install_0.3.sh`、同一バイトの `install.sh`、検証記録 `verification-ja.md` を用意し、`python3 scripts/publish.py --dir <release-dir>` で検証します。公開するときだけ `--publish` を付けます。公開処理は両バイナリと bootstrap ファイルを読み戻して検証し、最後に `latest.json` を公開します。同じバージョンの異なる内容は上書きしません。

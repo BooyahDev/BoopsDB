@@ -39,7 +39,8 @@ func TestNormalizeInterfacesRejectsBeforeApply(t *testing.T) {
 		{"duplicate name", func(i []InterfaceInfo) { i[1].Name = "eth0" }},
 		{"empty name", func(i []InterfaceInfo) { i[1].Name = " " }},
 		{"path name", func(i []InterfaceInfo) { i[1].Name = "../eth1" }},
-		{"no IP", func(i []InterfaceInfo) { i[1].IPs = nil }},
+		{"gateway without IP", func(i []InterfaceInfo) { i[1].IPs = nil; i[1].Gateway = "198.51.100.1" }},
+		{"DNS without IP", func(i []InterfaceInfo) { i[1].IPs = nil; i[1].DnsServers = "1.1.1.1" }},
 		{"IPv6", func(i []InterfaceInfo) { i[1].IPs[0].IP = "2001:db8::1" }},
 		{"noncontiguous mask", func(i []InterfaceInfo) { i[1].IPs[0].Subnet = "255.0.255.0" }},
 		{"invalid DNS", func(i []InterfaceInfo) { i[1].DnsServers = "1.1.1.1,broken" }},
@@ -54,6 +55,27 @@ func TestNormalizeInterfacesRejectsBeforeApply(t *testing.T) {
 				t.Fatal("invalid interfaces accepted")
 			}
 		})
+	}
+}
+
+func TestNormalizeManualBridgePortWithoutIPv4(t *testing.T) {
+	in := networkInterfaces()
+	in[1].IPs = nil
+	got, err := NormalizeInterfaces(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got[1].IPs) != 0 || got[1].Gateway != "" {
+		t.Fatal(got)
+	}
+	next := networkInterfaces()
+	next[1].IPs = []IPInfo{}
+	normalizedNext, err := NormalizeInterfaces(next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !InterfacesEqual(got, normalizedNext) {
+		t.Fatal("manual ports repeatedly apply")
 	}
 }
 

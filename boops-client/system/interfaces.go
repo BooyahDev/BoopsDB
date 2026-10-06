@@ -2,11 +2,14 @@ package system
 
 import (
 	"boops/client"
+	"bytes"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
+	"unicode"
 )
 
 const interfacesPath = "/etc/network/interfaces"
@@ -123,17 +126,39 @@ func validateInterfaceStanza(lines []string, stanza interfaceStanza, targets map
 
 var sourceDirectoryName = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 
-func checkInterfacesIncludes(ops Ops, path string, data []byte, targets map[string]client.InterfaceInfo, visited map[string]bool, definitions map[string]bool) error {
+type interfaceFiles struct {
+	files        map[string]fileSnapshot
+	targetIPv4   map[string]string
+	targetAny    map[string]string
+	definitions  map[string]bool
+	auto         map[string]bool
+	bridge       map[string]bool
+	dependencies map[string][]string
+}
+
+func collectInterfacesFile(ops Ops, snapshot fileSnapshot, targets map[string]client.InterfaceInfo, visited map[string]bool, result *interfaceFiles) error {
+	path := filepath.Clean(snapshot.path)
 	if visited[path] {
 		return nil
 	}
 	visited[path] = true
+	snapshot.path = path
+	result.files[path] = snapshot
+	data := snapshot.data
 	lines, _, err := interfaceLogicalLines(strings.Split(string(data), "\n"))
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
 	for _, line := range lines {
 		fields := strings.Fields(line)
+		if len(fields) > 1 && (fields[0] == "auto" || fields[0] == "allow-auto") {
+			for _, name := range fields[1:] {
+				if strings.HasPrefix(name, "#") {
+					break
+				}
+				result.auto[strings.SplitN(name, ":", 2)[0]] = true
+			}
+		}
 		if len(fields) > 1 && fields[0] == "mapping" {
 			for _, pattern := range fields[1:] {
 				if strings.HasPrefix(pattern, "#") {
@@ -152,7 +177,7 @@ func checkInterfacesIncludes(ops Ops, path string, data []byte, targets map[stri
 		}
 	}
 	for _, stanza := range interfaceStanzas(lines) {
-		definitions[stanza.name] = true
+		result.definitions[stanza.name] = true
 		if err := validateInterfaceStanza(lines, stanza, targets); err != nil {
 			return err
 		}
@@ -160,11 +185,49 @@ func checkInterfacesIncludes(ops Ops, path string, data []byte, targets map[stri
 		if _, ok := targets[physical]; ok && physical != stanza.name && stanza.family == "inet" {
 			return fmt.Errorf("NIC %s has a separate ifupdown alias %s in %s", physical, stanza.name, path)
 		}
-	}
-	if path != interfacesPath {
-		for _, stanza := range interfaceStanzas(lines) {
-			if _, ok := targets[stanza.name]; ok && stanza.family == "inet" {
-				return fmt.Errorf("NIC %s has included ifupdown definition in %s", stanza.name, path)
+		var stanzaDependencies []string
+		bridgeStanza := false
+		for _, line := range lines[stanza.start+1 : stanza.end] {
+			fields := strings.Fields(line)
+			if len(fields) < 2 {
+				continue
+			}
+			var count int
+			switch fields[0] {
+			case "bridge-ports", "bridge_ports", "bond-slaves", "bond_slaves":
+				if fields[0] == "bridge-ports" || fields[0] == "bridge_ports" {
+					bridgeStanza = true
+				}
+				count = len(fields) - 1
+			case "vlan-raw-device", "vlan_raw_device":
+				count = 1
+			}
+			for _, dependency := range fields[1 : 1+count] {
+				if strings.HasPrefix(dependency, "#") {
+					break
+				}
+				if dependency != "none" {
+					stanzaDependencies = append(stanzaDependencies, dependency)
+				}
+			}
+		}
+		if len(stanzaDependencies) > 0 {
+			result.dependencies[stanza.name] = append(result.dependencies[stanza.name], stanzaDependencies...)
+		}
+		if bridgeStanza {
+			result.bridge[stanza.name] = true
+		}
+		info, target := targets[stanza.name]
+		if !target {
+			info, target = targets[physical]
+		}
+		if target {
+			result.targetAny[info.Name] = path
+			if stanza.family == "inet" {
+				if previous, duplicate := result.targetIPv4[info.Name]; duplicate {
+					return fmt.Errorf("NIC %s has multiple IPv4 ifupdown definitions in %s and %s", info.Name, previous, path)
+				}
+				result.targetIPv4[info.Name] = path
 			}
 		}
 	}
@@ -203,11 +266,14 @@ func checkInterfacesIncludes(ops Ops, path string, data []byte, targets map[stri
 				paths = files
 			}
 			for _, include := range paths {
-				bytes, err := ops.ReadFile(include)
+				included, err := readSnapshot(ops, include, 0644)
 				if err != nil {
 					return fmt.Errorf("read include %s: %w", include, err)
 				}
-				if err := checkInterfacesIncludes(ops, include, bytes, targets, visited, definitions); err != nil {
+				if !included.exists {
+					continue
+				}
+				if err := collectInterfacesFile(ops, included, targets, visited, result); err != nil {
 					return err
 				}
 			}
@@ -216,7 +282,125 @@ func checkInterfacesIncludes(ops Ops, path string, data []byte, targets map[stri
 	return nil
 }
 
-func generateInterfaces(data []byte, ifaces []client.InterfaceInfo) ([]byte, error) {
+func collectInterfaces(ops Ops, root fileSnapshot, targets map[string]client.InterfaceInfo) (interfaceFiles, error) {
+	result := interfaceFiles{
+		files:        map[string]fileSnapshot{},
+		targetIPv4:   map[string]string{},
+		targetAny:    map[string]string{},
+		definitions:  map[string]bool{},
+		auto:         map[string]bool{},
+		bridge:       map[string]bool{},
+		dependencies: map[string][]string{},
+	}
+	if err := collectInterfacesFile(ops, root, targets, map[string]bool{}, &result); err != nil {
+		return interfaceFiles{}, err
+	}
+	return result, nil
+}
+
+// interfacesOwnRequestedNICs reports whether ifupdown already defines any of
+// the requested devices in the main file or its source/source-directory graph.
+// Network backend selection uses this to ignore an empty placeholder file on
+// Netplan or NetworkManager hosts while still selecting ifupdown for existing
+// Debian/Proxmox definitions.
+func interfacesOwnRequestedNICs(ifaces []client.InterfaceInfo, ops Ops) (bool, error) {
+	snapshot, err := readSnapshot(ops, interfacesPath, 0644)
+	if err != nil || !snapshot.exists {
+		return false, err
+	}
+	targets := make(map[string]client.InterfaceInfo, len(ifaces))
+	for _, info := range ifaces {
+		targets[info.Name] = info
+	}
+	configs, err := collectInterfaces(ops, snapshot, targets)
+	if err != nil {
+		return false, err
+	}
+	for _, info := range ifaces {
+		if _, ok := configs.targetAny[info.Name]; ok || interfaceReferencedAsDependency(info.Name, configs) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// checkInterfacesIncludes validates the complete ifupdown include graph.
+// Callers that need to update included files should use collectInterfaces.
+func checkInterfacesIncludes(ops Ops, path string, data []byte, targets map[string]client.InterfaceInfo, visited map[string]bool, definitions map[string]bool) error {
+	result := interfaceFiles{
+		files:        map[string]fileSnapshot{},
+		targetIPv4:   map[string]string{},
+		targetAny:    map[string]string{},
+		definitions:  definitions,
+		auto:         map[string]bool{},
+		bridge:       map[string]bool{},
+		dependencies: map[string][]string{},
+	}
+	return collectInterfacesFile(ops, fileSnapshot{path: path, data: data, mode: 0644, exists: true}, targets, visited, &result)
+}
+
+func validateIfupdownNames(ifaces []client.InterfaceInfo) error {
+	for _, info := range ifaces {
+		if strings.IndexFunc(info.Name, unicode.IsSpace) >= 0 {
+			return fmt.Errorf("ifupdown cannot represent NIC name %q containing whitespace", info.Name)
+		}
+	}
+	return nil
+}
+
+func interfaceCoveredByAuto(name string, configs interfaceFiles, visiting map[string]bool) bool {
+	if configs.auto[name] {
+		return true
+	}
+	if visiting[name] {
+		return false
+	}
+	visiting[name] = true
+	defer delete(visiting, name)
+	for parent, members := range configs.dependencies {
+		for _, member := range members {
+			if member == name && interfaceCoveredByAuto(parent, configs, visiting) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func interfaceHasBridgeAncestor(name string, configs interfaceFiles, visiting map[string]bool) bool {
+	if configs.bridge[name] {
+		return true
+	}
+	if visiting[name] {
+		return false
+	}
+	visiting[name] = true
+	defer delete(visiting, name)
+	for parent, members := range configs.dependencies {
+		for _, member := range members {
+			if member == name && interfaceHasBridgeAncestor(parent, configs, visiting) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func interfaceReferencedAsDependency(name string, configs interfaceFiles) bool {
+	for _, members := range configs.dependencies {
+		for _, member := range members {
+			if member == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func generateInterfacesWithMissing(data []byte, ifaces []client.InterfaceInfo, appendMissing bool) ([]byte, error) {
+	if err := validateIfupdownNames(ifaces); err != nil {
+		return nil, err
+	}
 	lines := strings.Split(string(data), "\n")
 	logical, ends, err := interfaceLogicalLines(lines)
 	if err != nil {
@@ -255,10 +439,22 @@ func generateInterfaces(data []byte, ifaces []client.InterfaceInfo) ([]byte, err
 			}
 		}
 	}
+	const managedAddressMarker = "# boops-managed-address "
 	settings := func(info client.InterfaceInfo) []string {
 		var result []string
-		for _, addr := range addressCIDRs(info) {
-			result = append(result, "    address "+addr)
+		addresses := addressCIDRs(info)
+		if len(addresses) > 0 {
+			// The classic Debian ifupdown static method documents one address
+			// option per stanza. Keep the primary address portable and install
+			// additional addresses with idempotent iproute2 hooks.
+			result = append(result, "    address "+addresses[0])
+			for _, addr := range addresses[1:] {
+				result = append(result,
+					"    "+managedAddressMarker+addr,
+					"    up ip -4 addr replace "+addr+" dev \"$IFACE\"",
+					"    down ip -4 addr del "+addr+" dev \"$IFACE\" || true",
+				)
+			}
 		}
 		if info.Gateway != "" {
 			result = append(result, "    gateway "+info.Gateway)
@@ -276,9 +472,29 @@ func generateInterfaces(data []byte, ifaces []client.InterfaceInfo) ([]byte, err
 			continue
 		}
 		info := targets[stanza.name]
-		out = append(out, "iface "+info.Name+" inet static")
+		method := "static"
+		if len(info.IPs) == 0 {
+			method = "manual"
+		}
+		out = append(out, "iface "+info.Name+" inet "+method)
 		out = append(out, settings(info)...)
 		for j := ends[i]; j < stanza.end; j++ {
+			if marker := strings.TrimSpace(logical[j]); strings.HasPrefix(marker, managedAddressMarker) {
+				addr := strings.TrimSpace(strings.TrimPrefix(marker, managedAddressMarker))
+				last := j
+				for _, hook := range []string{
+					"up ip -4 addr replace " + addr + " dev \"$IFACE\"",
+					"down ip -4 addr del " + addr + " dev \"$IFACE\" || true",
+				} {
+					next := last + 1
+					if next >= stanza.end || strings.TrimSpace(logical[next]) != hook {
+						break
+					}
+					last = ends[next] - 1
+				}
+				j = last
+				continue
+			}
 			fields := strings.Fields(logical[j])
 			if len(fields) > 0 {
 				switch fields[0] {
@@ -291,14 +507,24 @@ func generateInterfaces(data []byte, ifaces []client.InterfaceInfo) ([]byte, err
 		}
 		i = stanza.end - 1
 	}
-	for _, info := range ifaces {
-		if seen[info.Name] {
-			continue
+	if appendMissing {
+		for _, info := range ifaces {
+			if seen[info.Name] {
+				continue
+			}
+			method := "static"
+			if len(info.IPs) == 0 {
+				method = "manual"
+			}
+			out = append(out, "", "auto "+info.Name, "iface "+info.Name+" inet "+method)
+			out = append(out, settings(info)...)
 		}
-		out = append(out, "", "auto "+info.Name, "iface "+info.Name+" inet static")
-		out = append(out, settings(info)...)
 	}
 	return []byte(strings.TrimRight(strings.Join(out, "\n"), "\n") + "\n"), nil
+}
+
+func generateInterfaces(data []byte, ifaces []client.InterfaceInfo) ([]byte, error) {
+	return generateInterfacesWithMissing(data, ifaces, true)
 }
 
 func readIfupdownState(ops Ops, ifaces []client.InterfaceInfo) (map[string]string, error) {
@@ -341,9 +567,15 @@ func readIfupdownState(ops Ops, ifaces []client.InterfaceInfo) (map[string]strin
 }
 
 func applyInterfaces(ifaces []client.InterfaceInfo, ops Ops) error {
-	for _, tool := range []string{"ifdown", "ifup"} {
-		if _, err := ops.LookPath(tool); err != nil {
-			return fmt.Errorf("ifupdown requires %s: %w", tool, err)
+	if err := validateIfupdownNames(ifaces); err != nil {
+		return err
+	}
+	_, reloadErr := ops.LookPath("ifreload")
+	if reloadErr != nil {
+		for _, tool := range []string{"ifdown", "ifup"} {
+			if _, err := ops.LookPath(tool); err != nil {
+				return fmt.Errorf("ifupdown requires %s: %w", tool, err)
+			}
 		}
 	}
 	s, err := readSnapshot(ops, interfacesPath, 0644)
@@ -365,24 +597,102 @@ func applyInterfaces(ifaces []client.InterfaceInfo, ops Ops) error {
 			targets[logical] = info
 		}
 	}
-	definitions := map[string]bool{}
-	if err := checkInterfacesIncludes(ops, interfacesPath, s.data, targets, map[string]bool{}, definitions); err != nil {
+	configs, err := collectInterfaces(ops, s, targets)
+	if err != nil {
 		return err
 	}
-	var oldNames []string
+	for _, info := range ifaces {
+		if _, direct := configs.targetAny[info.Name]; !direct && interfaceReferencedAsDependency(info.Name, configs) {
+			return fmt.Errorf("NIC %s is referenced by an existing ifupdown topology without its own stanza; refusing to create a standalone configuration", info.Name)
+		}
+	}
+	reloadTargetAuto := func(info client.InterfaceInfo) bool {
+		if _, existingIPv4 := configs.targetIPv4[info.Name]; !existingIPv4 {
+			return true
+		}
+		return interfaceCoveredByAuto(info.Name, configs, map[string]bool{})
+	}
+	var reloadAutoCount, reloadCurrentlyUpCount int
+	var reloadInactiveNames []string
+	if reloadErr != nil {
+		for _, info := range ifaces {
+			if interfaceHasBridgeAncestor(info.Name, configs, map[string]bool{}) {
+				return fmt.Errorf("NIC %s has a bridge configuration; ifreload/ifupdown2 is required to avoid an ifdown bridge outage", info.Name)
+			}
+		}
+	}
+	if reloadErr == nil {
+		for _, info := range ifaces {
+			// A target without an existing IPv4 stanza receives a new auto
+			// stanza below. Existing non-auto stanzas are reloaded with
+			// --currently-up when active, or activated explicitly below.
+			auto := reloadTargetAuto(info)
+			if auto {
+				reloadAutoCount++
+				continue
+			}
+			if _, active := state[info.Name]; active {
+				reloadCurrentlyUpCount++
+			} else {
+				reloadInactiveNames = append(reloadInactiveNames, info.Name)
+			}
+		}
+		if len(reloadInactiveNames) > 0 {
+			if _, err := ops.LookPath("ifup"); err != nil {
+				return fmt.Errorf("ifupdown requires ifup to activate non-auto NICs: %w", err)
+			}
+			if _, err := ops.LookPath("ifdown"); err != nil {
+				return fmt.Errorf("ifupdown requires ifdown to roll back non-auto NIC activation: %w", err)
+			}
+		}
+	}
+	var oldNames, originallyActiveNames []string
 	for _, info := range ifaces {
 		if logical, active := state[info.Name]; active {
-			if !definitions[logical] {
+			if !configs.definitions[logical] {
 				return fmt.Errorf("NIC %s has ifupdown state %s without an existing definition", info.Name, logical)
 			}
 			oldNames = append(oldNames, info.Name)
-		} else if definitions[info.Name] {
+			originallyActiveNames = append(originallyActiveNames, info.Name)
+		} else if configs.definitions[info.Name] {
 			oldNames = append(oldNames, info.Name)
 		}
 	}
-	data, err := generateInterfaces(s.data, ifaces)
-	if err != nil {
-		return err
+	paths := make([]string, 0, len(configs.files))
+	for path := range configs.files {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	changes := make([]fileChange, 0, len(paths))
+	for _, path := range paths {
+		snapshot := configs.files[path]
+		var local []client.InterfaceInfo
+		for _, info := range ifaces {
+			updatePath, ok := configs.targetIPv4[info.Name]
+			if !ok {
+				updatePath = configs.targetAny[info.Name]
+			}
+			if !ok && updatePath == "" {
+				updatePath = interfacesPath
+			}
+			if updatePath == path {
+				local = append(local, info)
+			}
+		}
+		if len(local) == 0 {
+			continue
+		}
+		data, err := generateInterfacesWithMissing(snapshot.data, local, true)
+		if err != nil {
+			return err
+		}
+		if bytes.Equal(data, snapshot.data) {
+			continue
+		}
+		changes = append(changes, fileChange{before: snapshot, data: data})
+	}
+	if len(changes) == 0 {
+		return nil
 	}
 	runInterfaces := func(tool string, nics []string) error {
 		if len(nics) == 0 {
@@ -393,31 +703,58 @@ func applyInterfaces(ifaces []client.InterfaceInfo, ops Ops) error {
 	down := func() error { return runInterfaces("ifdown", names) }
 	up := func() error { return runInterfaces("ifup", names) }
 	reactivateOriginal := func(cause error) error {
-		if err := runInterfaces("ifup", oldNames); err != nil {
+		if err := runInterfaces("ifup", originallyActiveNames); err != nil {
 			return errors.Join(cause, fmt.Errorf("reactivate original ifupdown configuration: %w", err))
 		}
 		return cause
+	}
+	if reloadErr == nil {
+		applyAttempts := 0
+		return applyFiles(ops, changes, func() error {
+			applyAttempts++
+			if reloadAutoCount > 0 {
+				if err := runChecked(ops, "ifreload", "-a"); err != nil {
+					return err
+				}
+			}
+			if reloadCurrentlyUpCount > 0 {
+				if err := runChecked(ops, "ifreload", "-c"); err != nil {
+					return err
+				}
+			}
+			if applyAttempts > 1 || len(reloadInactiveNames) == 0 {
+				return nil
+			}
+			if err := runInterfaces("ifup", reloadInactiveNames); err != nil {
+				if cleanupErr := runInterfaces("ifdown", reloadInactiveNames); cleanupErr != nil {
+					return errors.Join(err, fmt.Errorf("stop partially activated non-auto NICs: %w", cleanupErr))
+				}
+				return err
+			}
+			return nil
+		})
 	}
 	// ifdown needs the original method/options to release the old configuration.
 	if err := runInterfaces("ifdown", oldNames); err != nil {
 		return reactivateOriginal(err)
 	}
-	if err := replaceFile(ops, s.path, data, s.mode); err != nil {
+	applyAttempts := 0
+	err = applyFiles(ops, changes, func() error {
+		applyAttempts++
+		if applyAttempts > 1 {
+			return runInterfaces("ifup", originallyActiveNames)
+		}
+		if err := up(); err != nil {
+			// Remove any partly activated new settings while their files are present.
+			if stopErr := down(); stopErr != nil {
+				return errors.Join(err, fmt.Errorf("stop failed replacement configuration: %w", stopErr))
+			}
+			return err
+		}
+		return nil
+	})
+	if err != nil && applyAttempts == 0 {
 		return reactivateOriginal(err)
 	}
-	if err := up(); err != nil {
-		errs := []error{err}
-		// Remove any partly activated new settings while their file is present.
-		if stopErr := down(); stopErr != nil {
-			errs = append(errs, fmt.Errorf("stop failed replacement configuration: %w", stopErr))
-		}
-		if restoreErr := replaceFile(ops, s.path, s.data, s.mode); restoreErr != nil {
-			return errors.Join(append(errs, fmt.Errorf("restore %s: %w", s.path, restoreErr))...)
-		}
-		if restoreErr := runInterfaces("ifup", oldNames); restoreErr != nil {
-			errs = append(errs, fmt.Errorf("reactivate restored ifupdown configuration: %w", restoreErr))
-		}
-		return errors.Join(errs...)
-	}
-	return nil
+	return err
 }

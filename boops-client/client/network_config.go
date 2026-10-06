@@ -23,9 +23,6 @@ func NormalizeInterfaces(ifaces []InterfaceInfo) ([]InterfaceInfo, error) {
 			return nil, fmt.Errorf("duplicate NIC name %q", info.Name)
 		}
 		names[info.Name] = true
-		if len(info.IPs) == 0 {
-			return nil, fmt.Errorf("NIC %s has no IPv4 addresses", info.Name)
-		}
 		info.IPs = append([]IPInfo(nil), info.IPs...)
 		for j := range info.IPs {
 			ip, err := parseIPv4(info.IPs[j].IP)
@@ -69,6 +66,9 @@ func NormalizeInterfaces(ifaces []InterfaceInfo) ([]InterfaceInfo, error) {
 			dns = append(dns, addr.String())
 		}
 		info.DnsServers = strings.Join(dns, ",")
+		if len(info.IPs) == 0 && (info.Gateway != "" || info.DnsServers != "") {
+			return nil, fmt.Errorf("NIC %s has a gateway or DNS without IPv4 addresses", info.Name)
+		}
 		info.MacAddress = strings.TrimSpace(info.MacAddress)
 		if info.MacAddress != "" {
 			mac, err := net.ParseMAC(info.MacAddress)
