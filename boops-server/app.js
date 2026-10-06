@@ -1,7 +1,10 @@
 import db from './models/db.js';
 import { createApp } from './httpApp.js';
+import { archiveFromEnv } from './archive/service.js';
 
-const app = createApp(db);
+const archive = archiveFromEnv(db);
+const app = createApp(db, { archive });
+archive?.schedule();
 
 // Global error handler for uncaught exceptions
 process.on('uncaughtException', (err) => {

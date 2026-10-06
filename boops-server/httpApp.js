@@ -1,4 +1,5 @@
 import express from 'express';
+import { archiveMiddleware } from './archive/service.js';
 import bodyParser from 'body-parser';
 import cors from 'cors';
 import { v4 as uuidv4 } from 'uuid';
@@ -31,10 +32,11 @@ function apiRoute(handler) {
   };
 }
 
-export function createApp(db) {
+export function createApp(db, { archive } = {}) {
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
+if (archive) app.use(archiveMiddleware(archive));
 
 // GET all machines with interfaces
 app.get('/api/machines', async (req, res) => {

@@ -129,3 +129,31 @@ TEST_DB_PASSWORD=boops-disposable-test npm test
 ```
 
 既に隔離した MySQL がある場合も、同じ `TEST_DB_*` で接続できます。結合テストは ID 維持、旧形式、空値・同値更新、並行 gateway 選択、曖昧な NIC 名、登録日時が NULL の順序、SQL 失敗後の全値復元を実 DB で確認します。
+
+## GitHub への Markdown 退避
+
+`.env.archive.example` の設定を `.env` に追加します。`GITHUB_ARCHIVE_ENABLED=true` とトークンの両方が設定された場合だけ有効です。フラグ未設定・`false`・その他の値、または `GITHUB_ARCHIVE_TOKEN` が空なら、更新時退避・起動時同期・定期チェック・再試行はすべて無効です。Node.js 22（既存 Dockerfile と同じ）を使用してください。
+
+```dotenv
+GITHUB_ARCHIVE_ENABLED=true
+GITHUB_ARCHIVE_TOKEN=github_pat_...
+GITHUB_ARCHIVE_REPOSITORY=BooyahDev/BoopsDB-Archive
+GITHUB_ARCHIVE_BRANCH=
+GITHUB_ARCHIVE_DIR=.boops-archive
+```
+
+トークンには対象プライベートリポジトリの **Contents: Read and write** 権限を付与してください。組織の承認が必要な場合は承認済みトークンを使用します。SSH URL で指定された同じリポジトリに、トークン認証の GitHub Contents API でコミットを作成します。SSH キー・git コマンド・追加 npm 依存は不要です。空のリポジトリも最初のコミットで初期化します。ブランチ未指定はリポジトリの既定ブランチを使用し、既存の別ブランチを使用するときだけ指定してください。
+
+有効なインスタンスでは起動時に全件退避し、その後はマシン・NIC・IP 関連の POST / PUT / DELETE が成功したときに非同期で退避します。短時間の更新は 2 秒でまとめ、`README.md` のマシン・ハードウェア、NIC・ネットワーク、IP の 3 表を全件更新します。マシン ID、ホスト名、モデル、用途・説明・メモ、CPU・アーキテクチャ・メモリ・ディスク・OS、仮想マシン区分・親 ID、NIC ID・名前・MAC・gateway・DNS、IP ID・アドレス・サブネット・DNS 登録設定を含みます。NIC がないマシンも含み、削除されたマシン・NIC・IP は現在の表から除去します（過去のコミットには残ります）。
+
+`update-last-alive` は退避を一切起動せず、`last_alive`・`created_at`・`updated_at` は表にも差分判定にも含みません。全マシン PUT でも構成が同一なら GitHub 通信を省略します（起動後の初回はリモートとの比較が必要）。読み取り・失敗した API は退避を起動しません。既存の保存・検証・HTTP 応答は維持し、GitHub の失敗で API を失敗させません。
+
+退避前に `GITHUB_ARCHIVE_DIR/README.md` を atomic rename で保存します。GitHub 障害時は 60 秒から最大 1 時間までの指数バックオフで再試行し、RateLimit の Retry-After / リセット時刻にも従います。再試行時は最新 DB を読み直し、DB が使えない場合は保存済み Markdown を送信します。プロセス再起動後も起動時同期で再送します。ログの `GitHub archive failed; retry scheduled` で失敗を確認できます。
+
+有効な API の起動から **24 時間ごと（1 日 1 回）**に、最新 DB と GitHub の README を比較します。ローカルで同一内容と判定されていても、この定期チェックでは GitHub を読み直し、差分がある場合だけコミットします。他の API インスタンス経由の更新や、GitHub 側での変更・削除もこのチェックで同期します。更新時退避・定期チェック・再試行は同じワーカーで直列実行します。失敗時は回数・期間の上限なく再試行を続けるため、1 時間以上の GitHub 障害からも復旧後に追いつきます。1 時間は再試行の最大間隔で、打ち切り時間ではありません。RateLimit で指定された待機時間が長い場合はそれを優先します。再起動すると 24 時間のタイマーを再設定しますが、起動時にも全件同期します。
+
+Docker / Kubernetes ではこのディレクトリを永続ボリュームに配置し、`.env` または Secret でトークンを渡してください。退避担当の **1 台だけ**に `GITHUB_ARCHIVE_ENABLED=true`、その他の全 API インスタンスには `GITHUB_ARCHIVE_ENABLED=false` を設定してください。複数インスタンスでは共有ロックを実装していないため、古いスナップショットによる上書きを防げません。トークンや実データ入りのローカル Markdown はソースリポジトリへコミットしないでください。
+
+非同期処理のため、DB 保存直後から退避までに短い遅延があります。退避前にプロセスと MySQL の両方が失われた場合、その未退避分は復元できません。MySQL 障害時には GitHub の README を閲覧でき、API の DB 読み取り動作を切り替える機能は追加していません。
+
+仕様: [GitHub Contents API](https://docs.github.com/en/rest/repos/contents)。`npm run test:unit` で Markdown・GitHub モック・再試行・HTTP の既存応答と Heartbeat 除外を検証できます。
