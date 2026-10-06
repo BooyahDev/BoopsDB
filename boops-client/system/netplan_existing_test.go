@@ -219,3 +219,199 @@ func TestApplyFilesRejectsDuplicateDestinationsBeforeWriting(t *testing.T) {
 		t.Fatalf("duplicate plan was applied: %v writes=%d called=%v", err, o.writes, called)
 	}
 }
+
+func TestUbuntuInstallerRebindsReplacedNICMAC(t *testing.T) {
+	for _, failure := range []string{"", "generate", "apply"} {
+		t.Run(failure, func(t *testing.T) {
+			o := newFixtureOps(t, "netplan")
+			path := "/etc/netplan/00-installer-config.yaml"
+			original := strings.ReplaceAll(ubuntuInstaller, "bc:24:11:d4:ae:87", "bc:24:11:33:22:c9")
+			o.put(path, original, 0600)
+			failed := false
+			o.fail = func(n string, a []string) bool {
+				if !failed && n == "netplan" && a[0] == failure {
+					failed = true
+					return true
+				}
+				return false
+			}
+			o.response = func(n string, a []string) ([]byte, error) {
+				if n == "ip" {
+					return []byte(`[{"ifname":"ens18","address":"bc:24:11:35:84:47"}]`), nil
+				}
+				return nil, nil
+			}
+			in := []client.InterfaceInfo{{Name: "ens18", IPs: []client.IPInfo{{IP: "10.1.1.3", Subnet: "255.255.0.0"}}, Gateway: "10.1.0.1"}}
+			err := ApplyNetworkSettingsWithOps(in, o)
+			got, _ := o.ReadFile(path)
+			if failure != "" {
+				if err == nil || string(got) != original {
+					t.Fatalf("rollback failed: %v %s", err, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range []string{"macaddress: bc:24:11:35:84:47", "dhcp6: true", "set-name: ens18", "10.1.1.3/16", "dhcp4: false"} {
+				if !strings.Contains(string(got), want) {
+					t.Fatalf("missing %s: %s", want, got)
+				}
+			}
+			if strings.Contains(string(got), "bc:24:11:33:22:c9") {
+				t.Fatal("stale MAC remains")
+			}
+		})
+	}
+}
+
+func TestNetplanMACRebindingRejectsLiveOwnerAndUnverifiedInventory(t *testing.T) {
+	for _, inventory := range []string{
+		`[{"ifname":"ens18","address":"bc:24:11:35:84:47"},{"ifname":"ens19","address":"bc:24:11:d4:ae:87"}]`,
+		`[{"ifname":"ens18","address":"bc:24:11:35:84:47"},{"ifname":"ens19","address":"02:00:00:00:00:02","permaddr":"bc:24:11:d4:ae:87"}]`,
+		`[]`, `{broken`,
+	} {
+		t.Run(inventory, func(t *testing.T) {
+			o := newFixtureOps(t, "netplan")
+			path := "/etc/netplan/00-installer-config.yaml"
+			o.put(path, ubuntuInstaller, 0600)
+			o.response = func(n string, a []string) ([]byte, error) {
+				if n == "ip" {
+					if len(a) == 4 {
+						return []byte(inventory), nil
+					}
+					return []byte(`[{"ifname":"ens18","address":"bc:24:11:35:84:47"}]`), nil
+				}
+				return nil, nil
+			}
+			err := ApplyNetworkSettingsWithOps([]client.InterfaceInfo{{Name: "ens18"}}, o)
+			if err == nil || o.writes != 0 || o.count("netplan", "apply") != 0 {
+				t.Fatalf("unsafe MAC rebind: %v writes=%d", err, o.writes)
+			}
+		})
+	}
+}
+
+func TestNetplanRebindingUsesSysfsOnOldIPRouteAndUpdatesSplitMatches(t *testing.T) {
+	o := newFixtureOps(t, "netplan")
+	first := "/etc/netplan/00-installer.yaml"
+	second := "/etc/netplan/50-cloud-init.yaml"
+	o.put(first, ubuntuInstaller, 0640)
+	o.put(second, "network:\n  ethernets:\n    ens18:\n      match: {macaddress: 'bc:24:11:d4:ae:87'}\n", 0600)
+	o.put("/sys/class/net/ens18/address", "bc:24:11:35:84:47\n", 0644)
+	o.put("/sys/class/net/ens18/device", "physical PCI device marker", 0600)
+	o.put("/sys/class/net/lo/address", "00:00:00:00:00:00\n", 0644)
+	o.response = func(n string, _ []string) ([]byte, error) {
+		if n == "ip" {
+			return nil, fmt.Errorf("JSON unsupported")
+		}
+		return nil, nil
+	}
+	if err := ApplyNetworkSettingsWithOps([]client.InterfaceInfo{{Name: "ens18"}}, o); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{first, second} {
+		data, _ := o.ReadFile(p)
+		if strings.Contains(string(data), "bc:24:11:d4:ae:87") || !strings.Contains(string(data), "bc:24:11:35:84:47") {
+			t.Fatalf("split MAC not updated: %s", data)
+		}
+	}
+}
+
+func TestNetplanMatchesPermanentMACAfterRuntimeMACChange(t *testing.T) {
+	o := newFixtureOps(t, "netplan")
+	o.put("/etc/netplan/00-installer.yaml", ubuntuInstaller, 0600)
+	o.response = func(n string, _ []string) ([]byte, error) {
+		if n == "ip" {
+			return []byte(`[{"ifname":"ens18","address":"bc:24:11:35:84:47","permaddr":"bc:24:11:d4:ae:87"}]`), nil
+		}
+		return nil, nil
+	}
+	if err := ApplyNetworkSettingsWithOps([]client.InterfaceInfo{{Name: "ens18"}}, o); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := o.ReadFile("/etc/netplan/00-installer.yaml")
+	if !strings.Contains(string(data), "bc:24:11:d4:ae:87") || strings.Contains(string(data), "bc:24:11:35:84:47") {
+		t.Fatalf("permanent binding changed: %s", data)
+	}
+}
+
+func TestNetplanRebindingRejectsAmbiguousOrUnsupportedDefinitions(t *testing.T) {
+	for _, extra := range []string{
+		"    duplicate:\n      set-name: ens18\n      match: {macaddress: 'bc:24:11:00:00:01'}\n",
+		"",
+	} {
+		for _, unsafe := range []string{"virtual", "driver", "runtime-mac", "wide-name"} {
+			t.Run(unsafe+extra, func(t *testing.T) {
+				o := newFixtureOps(t, "netplan")
+				config := ubuntuInstaller
+				switch unsafe {
+				case "driver":
+					config = strings.Replace(config, "match:\n", "match:\n        driver: virtio_net\n", 1)
+				case "runtime-mac":
+					config = strings.Replace(config, "dhcp4: true", "dhcp4: true\n      macaddress: '02:00:00:00:00:01'", 1)
+				case "wide-name":
+					config = strings.Replace(config, "match:\n", "match:\n        name: 'ens*'\n", 1)
+				}
+				config = strings.Replace(config, "  version: 2", extra+"  version: 2", 1)
+				o.put("/etc/netplan/00-installer.yaml", config, 0600)
+				o.response = func(n string, a []string) ([]byte, error) {
+					if n == "ip" {
+						inventory := `[{"ifname":"ens18","address":"bc:24:11:35:84:47"}]`
+						if unsafe == "virtual" && len(a) == 4 {
+							inventory = `[{"ifname":"ens18","address":"bc:24:11:35:84:47","linkinfo":{"info_kind":"veth"}}]`
+						}
+						return []byte(inventory), nil
+					}
+					return nil, nil
+				}
+				if err := ApplyNetworkSettingsWithOps([]client.InterfaceInfo{{Name: "ens18"}}, o); err == nil || o.writes != 0 {
+					t.Fatalf("unsafe definition applied: %v writes=%d", err, o.writes)
+				}
+			})
+		}
+	}
+}
+
+func TestNetplanRebindingDoesNotRetargetUnnamedMACGroup(t *testing.T) {
+	o := newFixtureOps(t, "netplan")
+	original := "network:\n  version: 2\n  ethernets:\n    mac_group:\n      match: {macaddress: 'bc:24:11:d4:ae:87'}\n      dhcp4: true\n"
+	path := "/etc/netplan/00-other.yaml"
+	o.put(path, original, 0600)
+	if err := ApplyNetworkSettingsWithOps(twoNICs()[:1], o); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := o.ReadFile(path)
+	if string(data) != original {
+		t.Fatal("unrelated MAC-only group changed")
+	}
+}
+
+func TestNetplanRejectsConflictingSplitMACsBeforeWriting(t *testing.T) {
+	for _, lastMAC := range []string{"bc:24:11:35:84:47", "bc:24:11:00:00:02"} {
+		t.Run(lastMAC, func(t *testing.T) {
+			o := newFixtureOps(t, "netplan")
+			first := "/etc/netplan/00-installer.yaml"
+			second := "/etc/netplan/50-cloud-init.yaml"
+			override := "network:\n  ethernets:\n    ens18:\n      match: {macaddress: '" + lastMAC + "'}\n"
+			o.put(first, ubuntuInstaller, 0600)
+			o.put(second, override, 0600)
+			o.response = func(n string, _ []string) ([]byte, error) {
+				if n == "ip" {
+					return []byte(`[{"ifname":"ens18","address":"bc:24:11:35:84:47"}]`), nil
+				}
+				return nil, nil
+			}
+			err := ApplyNetworkSettingsWithOps([]client.InterfaceInfo{{Name: "ens18"}}, o)
+			if err == nil || o.writes != 0 {
+				t.Fatalf("conflicting source MACs changed: %v writes=%d", err, o.writes)
+			}
+			for p, want := range map[string]string{first: ubuntuInstaller, second: override} {
+				data, _ := o.ReadFile(p)
+				if string(data) != want {
+					t.Fatalf("changed %s", p)
+				}
+			}
+		})
+	}
+}

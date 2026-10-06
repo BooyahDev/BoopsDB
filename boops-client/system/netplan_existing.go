@@ -99,9 +99,10 @@ func planExistingNetplan(ifaces []client.InterfaceInfo, ops Ops) ([]fileChange, 
 	used := map[string]string{}
 	for _, info := range ifaces {
 		var selected *netplanDefinition
+		rebindMAC := false
 		for _, id := range ids {
 			def := definitions[id]
-			matches, err := netplanMatches(id, def.effective, info)
+			matches, rebind, err := matchExistingNetplan(def, info, ops)
 			if err != nil {
 				return nil, err
 			}
@@ -110,6 +111,7 @@ func planExistingNetplan(ifaces []client.InterfaceInfo, ops Ops) ([]fileChange, 
 					return nil, fmt.Errorf("NIC %s matches multiple Netplan IDs %s and %s", info.Name, selected.id, id)
 				}
 				selected = def
+				rebindMAC = rebind
 			}
 		}
 		if selected == nil {
@@ -146,6 +148,9 @@ func planExistingNetplan(ifaces []client.InterfaceInfo, ops Ops) ([]fileChange, 
 			setNode(nodes, info.Name, mapping())
 			selected = &netplanDefinition{kind: "ethernets", id: info.Name, files: []int{f}}
 		}
+		if err := validateNetplanFragmentMACs(selected, files); err != nil {
+			return nil, err
+		}
 		if previous := used[selected.id]; previous != "" {
 			return nil, fmt.Errorf("NICs %s and %s share Netplan ID %s", previous, info.Name, selected.id)
 		}
@@ -163,6 +168,12 @@ func planExistingNetplan(ifaces []client.InterfaceInfo, ops Ops) ([]fileChange, 
 			device := nodeValue(nodes, selected.id)
 			if network.Anchor != "" || nodes.Anchor != "" || device.Kind != yaml.MappingNode || hasYAMLSharing(device) || nodeValue(device, "<<") != nil {
 				return nil, fmt.Errorf("NIC %s uses unsupported YAML sharing in %s", info.Name, file.path)
+			}
+			if rebindMAC {
+				match := nodeValue(device, "match")
+				if nodeValue(match, "macaddress") != nil {
+					setNode(match, "macaddress", scalar(info.MacAddress))
+				}
 			}
 			settings := info
 			if j != 0 {

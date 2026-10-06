@@ -32,6 +32,8 @@ sudo bash install.sh
 
 0.3.1 では、Ubuntu インストーラーの `00-installer-config.yaml` や `50-cloud-init.yaml` もそのまま更新対象にします。同じ Netplan ID が複数ファイルに分かれている場合は、全定義を照合して古い IPv4 アドレス・DNS・デフォルトルートを取り除きます。新しい値を重複して追加しません。`/lib/netplan` の設定は、同じファイル名を `/etc/netplan` に置いて上書きします。ベンダーの元ファイルは保持します。MAC 照合にはローカル NIC の実値を使うため、API の MAC が未登録でも識別できます。`match`、`set-name`、`dhcp6`、既存 IPv6、対象外の NIC、ブリッジ構成、通常の経路やフックを保持します。
 
+0.3.2 では、VM の複製や NIC の交換で MAC が変わった場合も、明示された NIC 名の既存 Netplan 定義を引き継ぎます。旧 MAC が別のローカル NIC に残っていないことを確認し、分割ファイルの MAC 照合も更新します。恒久 MAC が取得できる環境では、それを照合に使います。MAC だけで指定された別名のグループや、変更範囲を特定できない定義は引き継ぎません。
+
 Proxmox の物理ポートなど、IPv4 を持たない NIC も扱えます。その場合はゲートウェイと DNS も空にしてください。管理 IP は `vmbr0` など、実際に IP を持つインターフェースへ設定します。IP の移し替えやブリッジの新設は行いません。既存ブリッジの反映には ifupdown2 の `ifreload` が必要です。旧環境でこのコマンドがない場合は、ブリッジを停止せず、変更前にエラーにします。`auto` の構成は `ifreload -a`、起動済みの非 `auto` 構成は `ifreload -c`、未起動の単独 NIC は `ifup` で反映します。
 
 全 NIC の入力と変更ファイルの元の内容・権限を確認してから反映します。書き込みや適用が失敗した場合は変更したファイルを戻します。複数 NIC に作用する広い `match.name`、共有 YAML、`/run/netplan` だけにある一時設定、ifupdown の物理名と異なる論理名（例: `eth0=home`）など、変更範囲や復元方法を特定できない構成は変更前にエラーとします。古い `iproute2` に JSON 出力がない場合は、sysfs の MAC アドレスを使って NIC を照合します。
@@ -75,9 +77,9 @@ Linux のホスト名変更に失敗した場合は警告を表示してネッ�
 cd boops-client
 go test ./...
 bash test/install-test.sh
-go run ./cmd/release -version 0.3.1 \
+go run ./cmd/release -version 0.3.2 \
   -key /Volumes/DATAHDD1/BoopsDB-release-private/signing-key.pem \
-  -out /Volumes/DATAHDD1/BoopsDB-releases/0.3.1
+  -out /Volumes/DATAHDD1/BoopsDB-releases/0.3.2
 ```
 
 生成後に同じ出力先へ `install_0.3.sh`、同一バイトの `install.sh`、検証記録 `verification-ja.md` を用意し、`python3 scripts/publish.py --dir <release-dir>` で検証します。公開するときだけ `--publish` を付けます。公開処理は両バイナリと bootstrap ファイルを読み戻して検証し、最後に `latest.json` を公開します。同じバージョンの異なる内容は上書きしません。

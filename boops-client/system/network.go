@@ -86,27 +86,21 @@ func ApplyNetworkSettingsWithOps(ifaces []client.InterfaceInfo, ops Ops) error {
 		identities := make([]client.InterfaceInfo, len(normalized))
 		for i, info := range normalized {
 			out, err := ops.Run("ip", "-j", "link", "show", "dev", info.Name)
-			var links []struct {
-				Name string `json:"ifname"`
-				MAC  string `json:"address"`
-			}
+			var links []localLinkIdentity
 			if err != nil {
 				// Older iproute2 lacks JSON output; sysfs still supplies local identity.
 				mac, readErr := ops.ReadFile("/sys/class/net/" + info.Name + "/address")
 				if readErr != nil {
 					return fmt.Errorf("NIC %s preflight: %w (%s); sysfs: %v", info.Name, err, strings.TrimSpace(string(out)), readErr)
 				}
-				links = append(links, struct {
-					Name string `json:"ifname"`
-					MAC  string `json:"address"`
-				}{info.Name, string(mac)})
+				links = append(links, localLinkIdentity{Name: info.Name, MAC: string(mac)})
 			} else if err := json.Unmarshal(out, &links); err != nil {
 				return fmt.Errorf("NIC %s identity: %w", info.Name, err)
 			}
 			if len(links) != 1 || links[0].Name != info.Name {
 				return fmt.Errorf("NIC %s identity did not identify the requested interface", info.Name)
 			}
-			localMAC := strings.TrimSpace(links[0].MAC)
+			localMAC := links[0].matchingMAC()
 			if localMAC != "" {
 				mac, err := net.ParseMAC(localMAC)
 				if err != nil || len(mac) != 6 {
