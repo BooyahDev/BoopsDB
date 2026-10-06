@@ -144,7 +144,7 @@ GITHUB_ARCHIVE_DIR=.boops-archive
 
 トークンには対象プライベートリポジトリの **Contents: Read and write** 権限を付与してください。組織の承認が必要な場合は承認済みトークンを使用します。SSH URL で指定された同じリポジトリに、トークン認証の GitHub Contents API でコミットを作成します。SSH キー・git コマンド・追加 npm 依存は不要です。空のリポジトリも最初のコミットで初期化します。ブランチ未指定はリポジトリの既定ブランチを使用し、既存の別ブランチを使用するときだけ指定してください。
 
-有効なインスタンスでは起動時に全件退避し、その後はマシン・NIC・IP 関連の POST / PUT / DELETE が成功したときに非同期で退避します。短時間の更新は 2 秒でまとめ、`README.md` のマシン・ハードウェア、NIC・ネットワーク、IP の 3 表を全件更新します。マシン ID、ホスト名、モデル、用途・説明・メモ、CPU・アーキテクチャ・メモリ・ディスク・OS、仮想マシン区分・親 ID、NIC ID・名前・MAC・gateway・DNS、IP ID・アドレス・サブネット・DNS 登録設定を含みます。NIC がないマシンも含み、削除されたマシン・NIC・IP は現在の表から除去します（過去のコミットには残ります）。
+有効なインスタンスでは起動時に全件退避し、その後はマシン・NIC・IP 関連の POST / PUT / DELETE が成功したときに非同期で退避します。短時間の更新は 2 秒でまとめ、`README.md` のマシン・ハードウェア、NIC・ネットワーク、IP を統合した 1 つの表を全件更新します。マシン ID、ホスト名、モデル、用途・説明・メモ、CPU・アーキテクチャ・メモリ・ディスク・OS、仮想マシン区分・親 ID、NIC ID・名前・MAC・gateway・DNS、IP ID・アドレス・サブネット・DNS 登録設定を含みます。1 行につき 1 つの IP 設定を掲載し、複数の NIC・IP がある場合は各行にマシン情報を繰り返して対応関係を示します。NIC がないマシン・IP がない NIC も含み、削除されたマシン・NIC・IP は現在の表から除去します（過去のコミットには残ります）。
 
 `update-last-alive` は退避を一切起動せず、`last_alive`・`created_at`・`updated_at` は表にも差分判定にも含みません。全マシン PUT でも構成が同一なら GitHub 通信を省略します（起動後の初回はリモートとの比較が必要）。読み取り・失敗した API は退避を起動しません。既存の保存・検証・HTTP 応答は維持し、GitHub の失敗で API を失敗させません。
 
@@ -157,3 +157,30 @@ Docker / Kubernetes ではこのディレクトリを永続ボリュームに配
 非同期処理のため、DB 保存直後から退避までに短い遅延があります。退避前にプロセスと MySQL の両方が失われた場合、その未退避分は復元できません。MySQL 障害時には GitHub の README を閲覧でき、API の DB 読み取り動作を切り替える機能は追加していません。
 
 仕様: [GitHub Contents API](https://docs.github.com/en/rest/repos/contents)。`npm run test:unit` で Markdown・GitHub モック・再試行・HTTP の既存応答と Heartbeat 除外を検証できます。
+
+### 明示的な同期と Docker の確認
+
+起動ログに `GitHub archive enabled` が出れば退避が有効です。`disabled` の場合は理由を確認してください。成功時は `GitHub archive sync completed`、失敗時は処理段階と GitHub の HTTP ステータスをログに出します。トークンや DB の内容はログに出しません。
+
+Compose の `env_file: .env` はコンテナ作成時に環境変数を渡します。設定変更後はコンテナを作り直し、コード変更後はイメージも再ビルドしてください。
+
+```sh
+docker compose up -d --build --force-recreate boops-server
+```
+
+実行中の API に対して、次の操作で最新 DB と GitHub の比較・更新を要求できます。既存ワーカーにキューするため、通常の更新や再試行と競合しません。障害時のバックオフ待機は維持します。既存 Dockerfile のコンテナ内には API の Node プロセスが 1 個ある想定です。
+
+```sh
+docker compose exec boops-server sh -c 'kill -USR2 $(pidof node)'
+docker compose logs -f boops-server
+```
+
+単発実行用に `npm run archive:sync` もあります。成功時は終了コード 0、失敗・無効時は 1 です。同じリポジトリへの並行書き込みを避けるため、API の退避ワーカーを止めてから実行してください。下記の実行中はこの API インスタンスが停止します。
+
+```sh
+docker compose stop boops-server
+docker compose run --rm --no-deps boops-server npm run archive:sync
+docker compose up -d boops-server
+```
+
+`dotenv` の `injecting env (0)` は、Compose がすでに変数を渡していて `.env` から追加で注入した変数が 0 件の場合にも表示されます。この表示だけではトークン不足とは判断できません。

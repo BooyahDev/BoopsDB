@@ -1,7 +1,7 @@
 // Explicit fields keep heartbeat timestamps out of both the export and change detection.
 const machineFields = ['id', 'hostname', 'model_info', 'purpose', 'usage_desc', 'memo', 'cpu_info', 'cpu_arch', 'memory_size', 'disk_info', 'os_name', 'is_virtual', 'parent_machine_id'];
-const nicFields = ['interface_id', 'machine_id', 'hostname', 'interface_name', 'mac_address', 'gateway', 'dns_servers'];
-const ipFields = ['ip_id', 'machine_id', 'hostname', 'interface_id', 'interface_name', 'ip_address', 'subnet_mask', 'dns_register'];
+const nicFields = ['interface_id', 'interface_name', 'mac_address', 'gateway', 'dns_servers'];
+const ipFields = ['ip_id', 'ip_address', 'subnet_mask', 'dns_register'];
 
 function cell(value) {
   return String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
@@ -12,16 +12,9 @@ function table(fields, rows) {
     ...rows.map(row => `| ${fields.map(field => cell(row[field])).join(' | ')} |`)].join('\n');
 }
 export function renderMarkdown(rows) {
-  const machines = new Map(), interfaces = new Map(), ips = new Map();
-  for (const row of rows) {
-    machines.set(row.id, row);
-    if (row.interface_id != null) interfaces.set(row.interface_id, row);
-    if (row.ip_id != null) ips.set(row.ip_id, row);
-  }
   return '# BoopsDB Archive\n\nBoopsDB の構成情報。Heartbeat・作成日時・更新日時は含みません。\n\n'
-    + '## マシン・ハードウェア\n\n' + table(machineFields, [...machines.values()])
-    + '\n\n## NIC・ネットワーク\n\n' + table(nicFields, [...interfaces.values()])
-    + '\n\n## IP アドレス\n\n' + table(ipFields, [...ips.values()]) + '\n';
+    + '1 行につき 1 つの IP 設定を掲載します。複数の NIC・IP があるマシンは複数行で表示し、NIC・IP がない場合も掲載します。\n\n'
+    + table([...machineFields, ...nicFields, ...ipFields], rows) + '\n';
 }
 export async function readMarkdown(db) {
   // A single SELECT gives a consistent statement snapshot, including machines without NICs.

@@ -13,6 +13,7 @@ export function createGithubPublisher({ token, repository = 'BooyahDev/BoopsDB-A
     if (!response.ok) {
       // Do not log response bodies or request headers containing credentials/data.
       const error = new Error(`GitHub archive ${method} failed (HTTP ${response.status})`);
+      error.status = response.status;
       const retryAfter = Number(response.headers.get('retry-after'));
       const reset = Number(response.headers.get('x-ratelimit-reset'));
       error.retryMs = Math.max(0, retryAfter * 1000 || 0,
@@ -23,10 +24,11 @@ export function createGithubPublisher({ token, repository = 'BooyahDev/BoopsDB-A
   }
   return async markdown => {
     const existing = await request('GET');
-    if (existing?.encoding === 'base64' && Buffer.from(existing.content, 'base64').toString('utf8') === markdown) return;
+    if (existing?.encoding === 'base64' && Buffer.from(existing.content, 'base64').toString('utf8') === markdown) return { updated: false };
     await request('PUT', {
       message: 'Update BoopsDB configuration archive', content: Buffer.from(markdown).toString('base64'),
       ...(existing ? { sha: existing.sha } : {}), ...(branch ? { branch } : {}),
     });
+    return { updated: true };
   };
 }

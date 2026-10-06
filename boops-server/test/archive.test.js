@@ -28,6 +28,23 @@ test('Markdown contains hardware, NIC and every IP, escapes cells, excludes vola
   } });
 });
 
+test('single table preserves machine, NIC and IP associations including empty children', () => {
+  const output = renderMarkdown([row, { ...row, ip_id: 3, ip_address: '10.0.0.3' },
+    { ...row, interface_id: 4, interface_name: 'eth1', ip_id: null, ip_address: null, subnet_mask: null, dns_register: null },
+    { id: 'machine-2', hostname: 'no-nic' }]);
+  const lines = output.split('\n').filter(line => line.startsWith('|'));
+  assert.equal(lines.length, 6, 'one header, one separator and four rows');
+  const headers = lines[0].split('|').slice(1, -1).map(cell => cell.trim());
+  assert.equal(new Set(headers).size, headers.length);
+  const records = lines.slice(2).map(line => Object.fromEntries(line.split('|').slice(1, -1).map((cell, index) => [headers[index], cell.trim()])));
+  assert.deepEqual(records.map(record => [record.hostname, record.interface_name, record.ip_address]), [
+    ['archive-host', 'eth0', '10.0.0.2'], ['archive-host', 'eth0', '10.0.0.3'],
+    ['archive-host', 'eth1', ''], ['no-nic', '', ''],
+  ]);
+  for (const record of records.slice(0, 3)) assert.equal(record.cpu_info, 'CPU');
+  assert.equal(renderMarkdown([]).split('\n').filter(line => line.startsWith('|')).length, 2);
+});
+
 test('GitHub initializes empty repo and updates with SHA; skips equal remote content', async () => {
   const calls = [];
   let existing = null;

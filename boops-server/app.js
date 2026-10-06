@@ -5,6 +5,12 @@ import { archiveFromEnv } from './archive/service.js';
 const archive = archiveFromEnv(db);
 const app = createApp(db, { archive });
 archive?.schedule();
+// A signal queues an explicit remote comparison through the same serialized worker.
+process.on('SIGUSR2', () => {
+  if (!archive) { console.error('GitHub archive manual sync ignored: archive is disabled'); return; }
+  console.info('GitHub archive manual sync requested');
+  archive.schedule({ verify: true });
+});
 
 // Global error handler for uncaught exceptions
 process.on('uncaughtException', (err) => {

@@ -35,26 +35,35 @@ export function createArchiveService({ db, publish, directory, debounceMs = 2000
   // Queue verification through the same worker, preserving serialization and retry backoff.
   const dailyTimer = setInterval(() => schedule({ verify: true }), intervalMs);
   dailyTimer.unref?.();
-  async function run() {
+  async function run({ verify: forceVerify = false, throwOnError = false } = {}) {
     if (running || stopped) return;
     running = true;
     dirty = false;
-    const verify = verifyRemote;
+    const verify = forceVerify || verifyRemote;
     verifyRemote = false;
     let dbUnavailable = false;
+    let stage = 'database-read';
     try {
       let markdown;
       try { markdown = await readMarkdown(db); }
       catch {
+        logger.warn?.('GitHub archive: MySQL unavailable; using local snapshot');
         dbUnavailable = true;
+        stage = 'local-snapshot-read';
         markdown = await readFile(file, 'utf8');
       }
       if (!dbUnavailable) {
+        stage = 'local-snapshot-write';
         await mkdir(directory, { recursive: true, mode: 0o700 });
         await writeFile(file + '.tmp', markdown, { mode: 0o600 });
         await rename(file + '.tmp', file);
       }
-      if (verify || markdown !== lastPublished) { await publish(markdown); lastPublished = markdown; }
+      if (verify || markdown !== lastPublished) {
+        stage = 'github-sync';
+        const result = await publish(markdown);
+        lastPublished = markdown;
+        logger.info?.('GitHub archive sync completed', { updated: result?.updated ?? true, source: dbUnavailable ? 'local' : 'database' });
+      }
       failures = 0;
       if (dbUnavailable) { dirty = true; verifyRemote ||= verify; arm(retryMs); }
     } catch (error) {
@@ -62,9 +71,10 @@ export function createArchiveService({ db, publish, directory, debounceMs = 2000
       verifyRemote ||= verify;
       failures++;
       // Avoid echoing arbitrary errors that could contain credentials or machine data.
-      logger.error('GitHub archive failed; retry scheduled', { attempt: failures });
+      logger.error('GitHub archive failed; retry scheduled', { attempt: failures, stage, ...(error.status ? { httpStatus: error.status } : {}), ...(error.code && /^[A-Z0-9_]+$/.test(error.code) ? { code: error.code } : {}) });
       clearTimeout(timer); timer = undefined;
       arm(Math.max(Math.min(retryMs * 2 ** Math.min(failures - 1, 6), 3600000), error.retryMs || 0));
+      if (throwOnError) throw new Error(`Archive synchronization failed at ${stage}${error.status ? ` (HTTP ${error.status})` : ''}`);
     } finally {
       running = false;
       if (dirty) arm(debounceMs);
@@ -74,7 +84,15 @@ export function createArchiveService({ db, publish, directory, debounceMs = 2000
 }
 
 export function archiveFromEnv(db, env = process.env) {
-  if (env.GITHUB_ARCHIVE_ENABLED?.trim().toLowerCase() !== 'true' || !env.GITHUB_ARCHIVE_TOKEN) return null;
+  if (env.GITHUB_ARCHIVE_ENABLED?.trim().toLowerCase() !== 'true') {
+    console.info('GitHub archive disabled: set GITHUB_ARCHIVE_ENABLED=true to enable');
+    return null;
+  }
+  if (!env.GITHUB_ARCHIVE_TOKEN) {
+    console.error('GitHub archive disabled: GITHUB_ARCHIVE_TOKEN is missing');
+    return null;
+  }
+  console.info('GitHub archive enabled: startup sync and verification every 24 hours');
   try {
     return createArchiveService({ db,
     publish: createGithubPublisher({ token: env.GITHUB_ARCHIVE_TOKEN,
