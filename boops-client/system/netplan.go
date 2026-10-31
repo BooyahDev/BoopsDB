@@ -85,6 +85,19 @@ func sequence(values []string) *yaml.Node {
 	}
 	return n
 }
+
+func isNetworkManagerGeneratedDefinition(n *yaml.Node) bool {
+	renderer := nodeValue(n, "renderer")
+	if renderer == nil || renderer.Kind != yaml.ScalarNode || renderer.Value != "NetworkManager" {
+		return false
+	}
+	networkManager := nodeValue(n, "networkmanager")
+	if networkManager == nil || networkManager.Kind != yaml.MappingNode {
+		return false
+	}
+	uuid := nodeValue(networkManager, "uuid")
+	return uuid != nil && uuid.Kind == yaml.ScalarNode && strings.TrimSpace(uuid.Value) != ""
+}
 func setNode(n *yaml.Node, key string, value *yaml.Node) {
 	for i := 0; i < len(n.Content); i += 2 {
 		if n.Content[i].Value == key {
@@ -166,6 +179,14 @@ func netplanMatches(id string, n *yaml.Node, info client.InterfaceInfo) (bool, e
 		}
 	}
 	if len(match.Content) == 0 {
+		// A NetworkManager-generated profile may carry match: {}. It is not a
+		// candidate for this requested NIC when its Netplan ID/set-name points
+		// elsewhere; leave it available for its own backend instead of making a
+		// normal networkd request fail on an unrelated profile. Keep the
+		// conservative rejection for generic/networkd empty matches.
+		if isNetworkManagerGeneratedDefinition(n) && id != info.Name && !renamed {
+			return false, nil
+		}
 		return false, fmt.Errorf("empty Netplan match for %s", id)
 	}
 	return true, nil

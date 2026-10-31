@@ -228,9 +228,24 @@ func planNetworkManager(ifaces []client.InterfaceInfo, ops Ops) ([]nmPlan, error
 }
 
 func applyNetworkManager(ifaces []client.InterfaceInfo, ops Ops) error {
+	return applyNetworkManagerWithExpected(ifaces, ops, nil)
+}
+
+// applyNetworkManagerWithExpected rechecks the profile plan immediately
+// before mutation and compares it with the UUID table used during Netplan
+// backend selection. If NetworkManager changed the active profile in between,
+// no connection is modified under a stale selection.
+func applyNetworkManagerWithExpected(ifaces []client.InterfaceInfo, ops Ops, expected map[string]string) error {
 	plans, err := planNetworkManager(ifaces, ops)
 	if err != nil {
 		return err
+	}
+	if expected != nil {
+		for _, plan := range plans {
+			if uuid := expected[plan.device]; uuid != "" && uuid != plan.uuid {
+				return fmt.Errorf("NetworkManager connection for NIC %s changed from %s to %s", plan.device, uuid, plan.uuid)
+			}
+		}
 	}
 	changed := 0
 	rollback := func(cause error) error {

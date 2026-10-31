@@ -109,7 +109,7 @@ func (o *fixtureOps) Exists(p string) (bool, error) {
 	return e == nil, e
 }
 func (o *fixtureOps) LookPath(n string) (string, error) {
-	if n == o.backend || (o.backend == "interfaces" && (n == "ifup" || n == "ifdown")) {
+	if n == o.backend || (o.backend == "netplan-nmcli" && (n == "netplan" || n == "nmcli")) || (o.backend == "interfaces" && (n == "ifup" || n == "ifdown")) {
 		return "/usr/bin/" + n, nil
 	}
 	return "", errors.New("not found")

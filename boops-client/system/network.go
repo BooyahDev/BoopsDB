@@ -131,6 +131,18 @@ func ApplyNetworkSettingsWithOps(ifaces []client.InterfaceInfo, ops Ops) error {
 				return err
 			}
 			if len(files) > 0 {
+				// NetworkManager's Netplan integration persists profiles as
+				// 90-NM-*.yaml. Those files commonly contain match: {}, which is
+				// valid for NetworkManager but intentionally rejected by the
+				// conservative YAML editor. Verify the persisted UUID against the
+				// active NIC before handing the request to nmcli.
+				selection, err := netplanNetworkManagerBackend(identities, files, ops)
+				if err != nil {
+					return err
+				}
+				if selection.use {
+					return applyNetworkManagerWithExpected(normalized, ops, selection.active)
+				}
 				return applyNetplan(identities, ops)
 			}
 		}
